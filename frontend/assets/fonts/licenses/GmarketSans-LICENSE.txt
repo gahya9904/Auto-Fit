@@ -1,0 +1,17 @@
+Gmarket Sans Font License Notice
+
+Font Name: Gmarket Sans
+Official Distributor: Gmarket
+Official Source: https://corp.gmarket.com/fonts/
+
+Gmarket's official font page states that Gmarket Sans may be freely used by individuals and companies for both commercial and non-commercial purposes under the SIL Open Font License (OFL).
+
+License: SIL Open Font License
+
+This notice is provided for convenient license tracking within the project. It does not add, remove, or modify any terms of the license.
+
+For authoritative distribution information and the current license notice, refer to Gmarket's official font page:
+https://corp.gmarket.com/fonts/
+
+SIL Open Font License information:
+https://openfontlicense.org/
