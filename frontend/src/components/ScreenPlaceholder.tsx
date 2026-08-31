@@ -29,8 +29,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   title: {
+    ...typography.title,
     color: colors.textPrimary,
-    fontSize: typography.title.fontSize,
-    fontWeight: typography.title.fontWeight,
   },
 });
