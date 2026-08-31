@@ -15,6 +15,8 @@ export interface SelectFieldProps {
   error?: string;
   helperText?: string;
   style?: StyleProp<ViewStyle>;
+  fieldStyle?: StyleProp<ViewStyle>;
+  placeholderTextColor?: string;
   accessibilityLabel?: string;
 }
 
@@ -29,6 +31,8 @@ export function SelectField({
   error,
   helperText,
   style,
+  fieldStyle,
+  placeholderTextColor = colors.textDisabled,
   accessibilityLabel,
 }: SelectFieldProps) {
   const supportingText = error ?? helperText;
@@ -46,12 +50,18 @@ export function SelectField({
           error && styles.error,
           disabled && styles.disabled,
           pressed && !disabled && styles.pressed,
+          fieldStyle,
         ]}
       >
         {leftElement}
         <Text
           numberOfLines={1}
-          style={[styles.value, !value && styles.placeholder, disabled && styles.disabledText]}
+          style={[
+            styles.value,
+            !value && styles.placeholder,
+            !value && { color: placeholderTextColor },
+            disabled && styles.disabledText,
+          ]}
         >
           {value ?? placeholder}
         </Text>

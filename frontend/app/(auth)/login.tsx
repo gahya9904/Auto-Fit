@@ -72,6 +72,14 @@ export default function LoginScreen() {
   };
 
   const dismissKeyboard = () => Keyboard.dismiss();
+  const openSignUp = () => {
+    Keyboard.dismiss();
+    router.push('/signup/step1');
+  };
+  const openForgotPassword = () => {
+    Keyboard.dismiss();
+    router.push('/password/forgot');
+  };
   const contentTop = Math.max(figmaContentTop, insets.top);
   const bottomClearance = Math.max(spacing.lg, insets.bottom);
   const availableContentHeight = Math.max(0, windowHeight - contentTop - bottomClearance);
@@ -162,7 +170,7 @@ export default function LoginScreen() {
                   <Pressable
                     accessibilityRole="button"
                     hitSlop={8}
-                    onPress={dismissKeyboard}
+                    onPress={openForgotPassword}
                     style={styles.forgotPasswordButton}
                   >
                     <Text style={styles.forgotPasswordText}>비밀번호 찾기</Text>
@@ -189,7 +197,7 @@ export default function LoginScreen() {
                   />
                   <View style={styles.signUpGuide}>
                     <Text style={styles.signUpGuideText}>계정이 없으신가요?</Text>
-                    <Pressable accessibilityRole="button" hitSlop={8} onPress={dismissKeyboard}>
+                    <Pressable accessibilityRole="button" hitSlop={8} onPress={openSignUp}>
                       <Text style={styles.signUpLinkText}>회원가입</Text>
                     </Pressable>
                   </View>
