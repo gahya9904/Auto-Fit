@@ -1,0 +1,44 @@
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+
+import { colors, fontFamilies } from '@/src/theme';
+
+interface HomeGreetingProps {
+  userName: string;
+  message: string;
+  style?: StyleProp<ViewStyle>;
+}
+
+export function HomeGreeting({ userName, message, style }: HomeGreetingProps) {
+  return (
+    <View style={[styles.container, style]}>
+      <Text style={styles.greeting}>
+        안녕하세요, <Text style={styles.userName}>{userName}님</Text>
+      </Text>
+      <Text style={styles.message}>{message}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    gap: 11,
+    width: 370,
+  },
+  greeting: {
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 30,
+    includeFontPadding: false,
+    lineHeight: 36,
+  },
+  userName: {
+    color: colors.primary,
+  },
+  message: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 14,
+    includeFontPadding: false,
+    lineHeight: 18,
+  },
+});
