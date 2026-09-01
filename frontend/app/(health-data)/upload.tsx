@@ -211,7 +211,7 @@ export default function HealthDataUploadScreen() {
     console.log('selectedFiles', selectedFiles);
     // TODO: OCR API 연동
     router.push({
-      pathname: '/health-data/ocr-result',
+      pathname: '/ocr-result',
       params: { fileName: selectedFiles[0].name },
     });
   }, [router, selectedFiles]);
