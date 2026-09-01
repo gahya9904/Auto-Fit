@@ -16,7 +16,18 @@
       "bundler": "metro",
       "output": "static"
     },
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "건강 데이터를 촬영하려면 카메라 접근 권한이 필요합니다.",
+          "microphonePermission": false,
+          "photosPermission": false
+        }
+      ],
+      "expo-document-picker"
+    ],
     "experiments": {
       "typedRoutes": true
     }

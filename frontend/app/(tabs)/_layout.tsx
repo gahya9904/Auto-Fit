@@ -2,12 +2,14 @@ import { useCallback, useState } from 'react';
 import { Tabs, usePathname } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
-import { DraggableAIChatButton } from '@/src/components/home';
+import { ChatPopup, DraggableAIChatButton, type AIChatButtonAnchor } from '@/src/components/home';
 import { BottomNavigation, type BottomNavigationLayout } from '@/src/components/navigation';
 
 export default function TabLayout() {
   const pathname = usePathname();
   const [navigationLayout, setNavigationLayout] = useState<BottomNavigationLayout>();
+  const [chatAnchor, setChatAnchor] = useState<AIChatButtonAnchor>();
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const handleNavigationLayout = useCallback((layout: BottomNavigationLayout) => {
     setNavigationLayout((current) =>
       current &&
@@ -19,6 +21,13 @@ export default function TabLayout() {
         : layout,
     );
   }, []);
+  const handleOpenChat = useCallback((anchor: AIChatButtonAnchor) => {
+    setChatAnchor(anchor);
+    setIsChatOpen(true);
+  }, []);
+  const handleRequestCloseChat = useCallback(() => setIsChatOpen(false), []);
+  const handleChatCloseComplete = useCallback(() => setChatAnchor(undefined), []);
+  const isHome = pathname.endsWith('/home');
 
   return (
     <View style={styles.root}>
@@ -35,10 +44,19 @@ export default function TabLayout() {
         <Tabs.Screen name="exercise" options={{ title: '운동' }} />
         <Tabs.Screen name="my" options={{ title: '마이' }} />
       </Tabs>
+      {chatAnchor ? (
+        <ChatPopup
+          anchor={chatAnchor}
+          navigationLayout={navigationLayout}
+          onCloseComplete={handleChatCloseComplete}
+          onRequestClose={handleRequestCloseChat}
+          visible={isChatOpen}
+        />
+      ) : null}
       <DraggableAIChatButton
         navigationLayout={navigationLayout}
-        onPress={() => undefined}
-        visible={pathname.endsWith('/home')}
+        onPress={handleOpenChat}
+        visible={isHome && !chatAnchor}
       />
     </View>
   );

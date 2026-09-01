@@ -68,7 +68,7 @@ export default function LoginScreen() {
 
   const handleLogin = () => {
     Keyboard.dismiss();
-    router.replace('/home');
+    router.replace('/health-data/upload');
   };
 
   const dismissKeyboard = () => Keyboard.dismiss();

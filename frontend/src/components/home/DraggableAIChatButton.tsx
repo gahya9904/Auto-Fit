@@ -27,9 +27,17 @@ const centerDeadZone = AI_CHAT_BUTTON_SIZE / 2;
 
 type SnapSide = 'left' | 'right';
 
+export interface AIChatButtonAnchor {
+  height: number;
+  side: SnapSide;
+  width: number;
+  x: number;
+  y: number;
+}
+
 interface DraggableAIChatButtonProps {
   navigationLayout?: BottomNavigationLayout;
-  onPress: () => void;
+  onPress: (anchor: AIChatButtonAnchor) => void;
   visible?: boolean;
 }
 
@@ -212,6 +220,20 @@ export function DraggableAIChatButton({
     });
   }, [maximumX, maximumY, minimumX, minimumY, position, snapToNearestEdge]);
 
+  const handlePress = useCallback(() => {
+    position.stopAnimation((currentPosition) => {
+      const buttonCenterX = currentPosition.x + AI_CHAT_BUTTON_SIZE / 2;
+
+      onPress({
+        height: AI_CHAT_BUTTON_SIZE,
+        side: buttonCenterX <= containerSize.width / 2 ? 'left' : 'right',
+        width: AI_CHAT_BUTTON_SIZE,
+        x: layerFrame.x + currentPosition.x,
+        y: layerFrame.y + currentPosition.y,
+      });
+    });
+  }, [containerSize.width, layerFrame.x, layerFrame.y, onPress, position]);
+
   return (
     <View
       ref={layerRef}
@@ -221,10 +243,10 @@ export function DraggableAIChatButton({
     >
       <Animated.View
         {...webDragProps}
-        {...panResponder.panHandlers}
+        {...(visible ? panResponder.panHandlers : {})}
         style={[styles.container, webDragStyle, { transform: position.getTranslateTransform() }]}
       >
-        <AIChatButton contentOffsetX={contentOffsetX} onPress={onPress} />
+        <AIChatButton contentOffsetX={contentOffsetX} onPress={handlePress} />
       </Animated.View>
     </View>
   );

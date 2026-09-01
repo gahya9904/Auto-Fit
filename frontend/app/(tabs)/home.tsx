@@ -1,5 +1,4 @@
 import { Image, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { useEffect, useState} from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HealthScore, HomeGreeting, WeeklyProgressCard } from '@/src/components/home';
