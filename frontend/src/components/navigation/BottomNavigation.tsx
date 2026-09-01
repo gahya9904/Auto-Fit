@@ -1,6 +1,14 @@
-import type { ComponentProps } from 'react';
+import { useCallback, useRef, type ComponentProps } from 'react';
 import { Tabs } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+  type ViewStyle,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import DietIcon from '@/assets/icons/feature/navigator/Diet.svg';
@@ -8,6 +16,28 @@ import ExerciseIcon from '@/assets/icons/feature/navigator/Exercise.svg';
 import HomeIcon from '@/assets/icons/feature/navigator/Home.svg';
 import MyIcon from '@/assets/icons/feature/navigator/My.svg';
 import { colors, radius, shadows, spacing, typography } from '@/src/theme';
+
+export const BOTTOM_NAVIGATION_VISUAL_HEIGHT = 80;
+export const BOTTOM_NAVIGATION_MIN_BOTTOM_GAP = spacing.sm;
+const minimumBottomNavigationVisualHeight = 68;
+const referenceScreenHeight = 917;
+const visualHeightReductionRatio = 0.12;
+
+export function getBottomNavigationVisualHeight(windowHeight: number) {
+  return Math.max(
+    minimumBottomNavigationVisualHeight,
+    BOTTOM_NAVIGATION_VISUAL_HEIGHT -
+      Math.max(0, referenceScreenHeight - windowHeight) * visualHeightReductionRatio,
+  );
+}
+
+const bottomNavigationShadow: ViewStyle =
+  Platform.OS === 'android'
+    ? {
+        elevation: 1,
+        shadowColor: 'rgba(0, 0, 0, 0.12)',
+      }
+    : shadows.card;
 
 const tabMeta = {
   home: { label: '홈', Icon: HomeIcon },
@@ -17,14 +47,46 @@ const tabMeta = {
 } as const;
 
 type TabsProps = ComponentProps<typeof Tabs>;
-type BottomNavigationProps = Parameters<NonNullable<TabsProps['tabBar']>>[0];
+type NativeTabsProps = Parameters<NonNullable<TabsProps['tabBar']>>[0];
 
-export function BottomNavigation({ state, descriptors, navigation }: BottomNavigationProps) {
+export interface BottomNavigationLayout {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
+interface BottomNavigationProps extends NativeTabsProps {
+  onNavigationLayout?: (layout: BottomNavigationLayout) => void;
+}
+
+export function BottomNavigation({
+  state,
+  descriptors,
+  navigation,
+  onNavigationLayout,
+}: BottomNavigationProps) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const navigationRef = useRef<View>(null);
+  const visualHeight = getBottomNavigationVisualHeight(windowHeight);
+  const itemGap = Math.max(3, spacing.xs - (BOTTOM_NAVIGATION_VISUAL_HEIGHT - visualHeight) / 8);
+  const measureNavigation = useCallback(() => {
+    navigationRef.current?.measureInWindow((x, y, width, height) => {
+      onNavigationLayout?.({ height, width, x, y });
+    });
+  }, [onNavigationLayout]);
 
   return (
-    <View style={[styles.safeArea, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
-      <View style={[styles.bar, shadows.card]}>
+    <View
+      ref={navigationRef}
+      onLayout={measureNavigation}
+      style={[
+        styles.safeArea,
+        { paddingBottom: Math.max(insets.bottom, BOTTOM_NAVIGATION_MIN_BOTTOM_GAP) },
+      ]}
+    >
+      <View style={[styles.bar, bottomNavigationShadow, { height: visualHeight }]}>
         {state.routes.map((route, index) => {
           const meta = tabMeta[route.name as keyof typeof tabMeta];
           if (!meta) return null;
@@ -52,7 +114,7 @@ export function BottomNavigation({ state, descriptors, navigation }: BottomNavig
               accessibilityState={isFocused ? { selected: true } : {}}
               onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
               onPress={onPress}
-              style={({ pressed }) => [styles.item, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.item, { gap: itemGap }, pressed && styles.pressed]}
             >
               <Icon color={color} height={32} width={32} />
               <Text style={[styles.label, { color }]}>{meta.label}</Text>
@@ -65,14 +127,22 @@ export function BottomNavigation({ state, descriptors, navigation }: BottomNavig
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.transparent, paddingHorizontal: 6 },
+  safeArea: {
+    backgroundColor: colors.transparent,
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: 6,
+    pointerEvents: 'box-none',
+    position: 'absolute',
+    right: 0,
+    zIndex: 10,
+  },
   bar: {
     backgroundColor: colors.surface,
     borderRadius: radius.xl,
     flexDirection: 'row',
-    height: 80,
   },
-  item: { alignItems: 'center', flex: 1, gap: spacing.xs, justifyContent: 'center', minWidth: 64 },
-  label: { ...typography.body, lineHeight: 18 },
+  item: { alignItems: 'center', flex: 1, justifyContent: 'center', minWidth: 64 },
+  label: { ...typography.body, includeFontPadding: false, lineHeight: 18 },
   pressed: { backgroundColor: colors.primaryLight },
 });

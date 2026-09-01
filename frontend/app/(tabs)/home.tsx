@@ -1,22 +1,25 @@
-import { useState } from 'react';
-import { Image, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { Image, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useEffect, useState} from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { HealthScore, HomeGreeting, WeeklyProgressCard } from '@/src/components/home';
 import {
-  AIChatButton,
-  HealthScore,
-  HomeGreeting,
-  WeeklyProgressCard,
-} from '@/src/components/home';
+  BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
+  getBottomNavigationVisualHeight,
+} from '@/src/components/navigation';
 import { colors } from '@/src/theme';
 
 const homeBackground = require('../../assets/images/backgrounds/3_Home.png');
 
 const referenceWidth = 412;
-const referenceContentHeight = 829;
 const referenceScreenHeight = 917;
 const referenceGreetingTop = 76;
-const minimumContentScale = 0.76;
+const referenceHealthScoreTop = 268;
+const referenceHealthScoreSize = 350;
+const referenceGraphCardGap = 13;
+const referenceWeeklyProgressHeight = 70;
+const referenceCardToNavigationGap = 129;
+const minimumVerticalPositionScale = 0.86;
 
 const homeMockData = {
   userName: 'OO',
@@ -29,38 +32,60 @@ const homeMockData = {
 } as const;
 
 export default function HomeScreen() {
+  //const [healthScore, setHealthScore] = useState(homeMockData.healthScore);
+
   const insets = useSafeAreaInsets();
-  const [contentSize, setContentSize] = useState({
-    height: referenceContentHeight,
-    width: referenceWidth,
-  });
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
 
-  const handleLayout = (event: LayoutChangeEvent) => {
-    const { height, width } = event.nativeEvent.layout;
-    setContentSize((current) =>
-      current.height === height && current.width === width ? current : { height, width },
-    );
-  };
+  /*
+  useEffect(() => {
+    const fetchHealthScore = async () => {
+      try {
+        const response = await fetch('http://백엔드주소/api/home')
 
-  const availableWidth = Math.max(0, contentSize.width - insets.left - insets.right);
-  const fitScale = Math.min(
-    1,
-    availableWidth / referenceWidth,
-    contentSize.height / referenceContentHeight,
+        if (!response.ok) {
+          throw new Error(`HTTP error: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        setHealthScore(data.health_score);
+      } catch (error) {
+        console.error('건강 점수 조회 실패:', error);
+      }
+    };
+
+    fetchHealthScore();
+  }, []);
+  */
+
+  const bottomNavigationVisualHeight = getBottomNavigationVisualHeight(windowHeight);
+  const bottomClearance = Math.max(insets.bottom, BOTTOM_NAVIGATION_MIN_BOTTOM_GAP);
+  const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
+  const widthScale = Math.min(1, availableWidth / referenceWidth);
+  const scaledWidth = referenceWidth * widthScale;
+  const bottomNavigationTop = windowHeight - bottomClearance - bottomNavigationVisualHeight;
+  const graphSectionHeight =
+    referenceHealthScoreSize + referenceGraphCardGap + referenceWeeklyProgressHeight;
+  const maximumGraphSectionTop =
+    bottomNavigationTop / widthScale - graphSectionHeight - referenceCardToNavigationGap;
+  const graphSectionTop = Math.max(
+    referenceHealthScoreTop * minimumVerticalPositionScale,
+    Math.min(referenceHealthScoreTop, maximumGraphSectionTop),
   );
-  const contentScale = Math.max(minimumContentScale, fitScale);
-  const scaledWidth = referenceWidth * contentScale;
-  const scaledHeight = referenceContentHeight * contentScale;
-  const centeredTop = (contentSize.height - scaledHeight) / 2;
-  const canvasTop = Math.max(centeredTop, insets.top - referenceGreetingTop * contentScale);
+  const verticalPositionScale = graphSectionTop / referenceHealthScoreTop;
+  const canvasTop = Math.max(
+    0,
+    insets.top - referenceGreetingTop * verticalPositionScale * widthScale,
+  );
   const canvasLeft = insets.left + (availableWidth - scaledWidth) / 2;
   const backgroundHeight = Math.max(
-    contentSize.height,
-    referenceScreenHeight * (contentSize.width / referenceWidth),
+    windowHeight,
+    referenceScreenHeight * (windowWidth / referenceWidth),
   );
 
   return (
-    <View onLayout={handleLayout} style={styles.root}>
+    <View style={styles.root}>
       <Image
         accessibilityIgnoresInvertColors
         resizeMode="cover"
@@ -74,27 +99,28 @@ export default function HomeScreen() {
           {
             left: canvasLeft,
             top: canvasTop,
-            transform: [{ scale: contentScale }],
+            transform: [{ scale: widthScale }],
           },
         ]}
       >
         <HomeGreeting
           message={homeMockData.greetingMessage}
-          style={styles.greeting}
+          style={[styles.greeting, { top: referenceGreetingTop * verticalPositionScale }]}
           userName={homeMockData.userName}
         />
-        <HealthScore
-          score={homeMockData.healthScore}
-          status={homeMockData.healthStatus}
-          style={styles.healthScore}
-          totalScore={homeMockData.totalScore}
-        />
-        <WeeklyProgressCard
-          change={homeMockData.weeklyChange}
-          message={homeMockData.weeklyMessage}
-          style={styles.weeklyProgress}
-        />
-        <AIChatButton onPress={() => undefined} style={styles.aiChat} />
+        <View style={[styles.scoreSection, { top: graphSectionTop }]}>
+          <HealthScore
+            //score={healthScore}
+            score={homeMockData.healthScore}
+            status={homeMockData.healthStatus}
+            totalScore={homeMockData.totalScore}
+          />
+          <WeeklyProgressCard
+            change={homeMockData.weeklyChange}
+            message={homeMockData.weeklyMessage}
+            style={styles.weeklyProgress}
+          />
+        </View>
       </View>
     </View>
   );
@@ -113,7 +139,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   designCanvas: {
-    height: referenceContentHeight,
+    height: referenceScreenHeight,
     position: 'absolute',
     transformOrigin: 'top left',
     width: referenceWidth,
@@ -121,21 +147,13 @@ const styles = StyleSheet.create({
   greeting: {
     left: 21,
     position: 'absolute',
-    top: 76,
   },
-  healthScore: {
+  scoreSection: {
     left: 31,
     position: 'absolute',
-    top: 268,
   },
   weeklyProgress: {
-    left: 56,
-    position: 'absolute',
-    top: 631,
-  },
-  aiChat: {
-    left: 326,
-    position: 'absolute',
-    top: 742,
+    alignSelf: 'center',
+    marginTop: referenceGraphCardGap,
   },
 });

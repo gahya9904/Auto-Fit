@@ -1,25 +1,42 @@
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  Animated,
+  Platform,
+  Pressable,
+  StyleSheet,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 import RobotIcon from '@/assets/icons/feature/Robot_Fill.svg';
 import { colors, fontFamilies, radius } from '@/src/theme';
 
 interface AIChatButtonProps {
+  contentOffsetX?: Animated.AnimatedInterpolation<number> | number;
   onPress: () => void;
+  snapSide?: 'left' | 'right';
   style?: StyleProp<ViewStyle>;
 }
 
-export function AIChatButton({ onPress, style }: AIChatButtonProps) {
+export const AI_CHAT_BUTTON_SIZE = 55;
+
+export function AIChatButton({ contentOffsetX, onPress, snapSide, style }: AIChatButtonProps) {
+  const settledOffsetX = snapSide === 'left' ? 7.5 : snapSide === 'right' ? -7.5 : 0;
+  const horizontalOffset = contentOffsetX ?? settledOffsetX;
+
   return (
     <Pressable
       accessibilityLabel="AI 채팅"
       accessibilityRole="button"
+      hitSlop={6}
       onPress={onPress}
       style={({ pressed }) => [styles.button, pressed && styles.pressed, style]}
     >
-      <View style={styles.robotIcon}>
-        <RobotIcon color={colors.surface} fill={colors.surface} height={45} width={45} />
-      </View>
-      <Text style={styles.label}>AI</Text>
+      <Animated.View style={[styles.robotIcon, { transform: [{ translateX: horizontalOffset }] }]}>
+        <RobotIcon color={colors.surface} fill={colors.surface} height={40} width={40} />
+      </Animated.View>
+      <Animated.Text style={[styles.label, { transform: [{ translateX: horizontalOffset }] }]}>
+        AI
+      </Animated.Text>
     </Pressable>
   );
 }
@@ -29,29 +46,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.primary,
     borderRadius: radius.round,
-    elevation: 5,
-    height: 70,
+    elevation: Platform.OS === 'android' ? 3 : 0,
+    height: AI_CHAT_BUTTON_SIZE,
     shadowColor: '#000000',
     shadowOffset: { height: 0, width: 0 },
     shadowOpacity: 0.2,
     shadowRadius: 5,
-    width: 70,
+    width: AI_CHAT_BUTTON_SIZE,
   },
   robotIcon: {
-    height: 45,
+    height: 40,
     position: 'absolute',
     top: 4,
-    width: 45,
+    width: 40,
   },
   label: {
     color: colors.surface,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 17,
+    fontSize: 12,
     includeFontPadding: false,
-    letterSpacing: 1.7,
-    lineHeight: 21,
+    letterSpacing: 1.2,
+    lineHeight: 15,
     position: 'absolute',
-    top: 48,
+    top: 36,
   },
   pressed: {
     opacity: 0.78,
