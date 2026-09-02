@@ -33,7 +33,7 @@ export function useHealthFilePicker() {
   }, []);
 
   const takePhoto = useCallback(async () => {
-    if (isSelecting) return;
+    if (isSelecting) return null;
     setIsSelecting(true);
 
     try {
@@ -44,7 +44,7 @@ export function useHealthFilePicker() {
           '카메라 권한이 필요해요',
           '건강 데이터를 촬영하려면 기기 설정에서 카메라 접근을 허용해주세요.',
         );
-        return;
+        return null;
       }
 
       const result = await ImagePicker.launchCameraAsync({
@@ -53,10 +53,10 @@ export function useHealthFilePicker() {
         quality: 1,
       });
 
-      if (result.canceled) return;
+      if (result.canceled) return null;
 
       const asset = result.assets[0];
-      appendFile({
+      const file: SelectedHealthFile = {
         height: asset.height,
         mimeType: asset.mimeType,
         name: cameraFileName(asset),
@@ -64,17 +64,20 @@ export function useHealthFilePicker() {
         source: 'camera',
         uri: asset.uri,
         width: asset.width,
-      });
+      };
+      appendFile(file);
+      return file;
     } catch (error) {
       console.error('카메라 실행 실패:', error);
       Alert.alert('카메라를 열 수 없어요', '잠시 후 다시 시도해주세요.');
+      return null;
     } finally {
       setIsSelecting(false);
     }
   }, [appendFile, isSelecting]);
 
   const pickDocument = useCallback(async () => {
-    if (isSelecting) return;
+    if (isSelecting) return null;
     setIsSelecting(true);
 
     try {
@@ -84,19 +87,22 @@ export function useHealthFilePicker() {
         type: ['image/*', 'application/pdf', 'text/csv', 'text/comma-separated-values'],
       });
 
-      if (result.canceled) return;
+      if (result.canceled) return null;
 
       const asset = result.assets[0];
-      appendFile({
+      const file: SelectedHealthFile = {
         mimeType: asset.mimeType,
         name: asset.name,
         size: asset.size,
         source: 'document',
         uri: asset.uri,
-      });
+      };
+      appendFile(file);
+      return file;
     } catch (error) {
       console.error('파일 선택 실패:', error);
       Alert.alert('파일을 선택할 수 없어요', '잠시 후 다시 시도해주세요.');
+      return null;
     } finally {
       setIsSelecting(false);
     }

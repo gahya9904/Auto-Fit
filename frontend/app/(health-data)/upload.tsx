@@ -16,6 +16,7 @@ import DocumentIcon from '@/assets/icons/system/Document.svg';
 import FolderIcon from '@/assets/icons/system/Folder.svg';
 import TrashIcon from '@/assets/icons/common/Trash.svg';
 import { AppCard } from '@/src/components/common';
+import { HealthUploadOptionCard } from '@/src/features/health-data/HealthUploadOptionCard';
 import {
   type SelectedHealthFile,
   useHealthFilePicker,
@@ -33,87 +34,10 @@ const referenceNextButtonTop = 830;
 const selectedFileRowHeight = 50;
 const selectedFileRowGap = 8;
 
-interface UploadActionButtonProps {
-  disabled: boolean;
-  label: string;
-  onPress: () => void;
-  secondary?: boolean;
-}
-
-interface UploadCardProps {
-  description: string[];
-  disabled: boolean;
-  Icon: typeof CameraIcon;
-  onPress: () => void;
-  secondary?: boolean;
-  title: string;
-  buttonLabel: string;
-}
-
 interface GuideItemProps {
   description: string[];
   Icon: typeof CameraIcon;
   title: string;
-}
-
-function UploadActionButton({
-  disabled,
-  label,
-  onPress,
-  secondary = false,
-}: UploadActionButtonProps) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ busy: disabled, disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.uploadButton,
-        secondary && styles.uploadButtonSecondary,
-        pressed && !disabled && styles.pressed,
-      ]}
-    >
-      <Text style={[styles.uploadButtonLabel, secondary && styles.uploadButtonLabelSecondary]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function UploadCard({
-  buttonLabel,
-  description,
-  disabled,
-  Icon,
-  onPress,
-  secondary,
-  title,
-}: UploadCardProps) {
-  return (
-    <AppCard bordered padding="none" style={styles.uploadCard}>
-      <View style={styles.uploadCardContent}>
-        <View style={styles.uploadIconCircle}>
-          <Icon fill={colors.primary} height={32} width={32} />
-        </View>
-        <Text style={styles.uploadCardTitle}>{title}</Text>
-        <Text style={styles.uploadDescription}>
-          {description.map((line, index) => (
-            <Text key={line}>
-              {line}
-              {index < description.length - 1 ? '\n' : ''}
-            </Text>
-          ))}
-        </Text>
-        <UploadActionButton
-          disabled={disabled}
-          label={buttonLabel}
-          onPress={onPress}
-          secondary={secondary}
-        />
-      </View>
-    </AppCard>
-  );
 }
 
 function GuideItem({ description, Icon, title }: GuideItemProps) {
@@ -210,9 +134,15 @@ export default function HealthDataUploadScreen() {
 
     console.log('selectedFiles', selectedFiles);
     // TODO: OCR API 연동
+    const selectedFile = selectedFiles[0];
     router.push({
       pathname: '/ocr-result',
-      params: { fileName: selectedFiles[0].name },
+      params: {
+        fileMimeType: selectedFile.mimeType ?? '',
+        fileName: selectedFile.name,
+        fileSource: selectedFile.source,
+        fileUri: selectedFile.uri,
+      },
     });
   }, [router, selectedFiles]);
 
@@ -258,7 +188,7 @@ export default function HealthDataUploadScreen() {
             </View>
 
             <View style={styles.uploadCards}>
-              <UploadCard
+              <HealthUploadOptionCard
                 buttonLabel="카메라 열기"
                 description={[
                   '처방전, 검진 결과, 체성분',
@@ -270,7 +200,7 @@ export default function HealthDataUploadScreen() {
                 onPress={takePhoto}
                 title="카메라로 촬영하기"
               />
-              <UploadCard
+              <HealthUploadOptionCard
                 buttonLabel="파일 선택"
                 description={[
                   '이미지, PDF, CSV 파일을',
@@ -406,65 +336,6 @@ const styles = StyleSheet.create({
     left: 20,
     position: 'absolute',
     top: 231,
-  },
-  uploadCard: {
-    borderRadius: radius.lg,
-    height: 220,
-    width: 180,
-  },
-  uploadCardContent: {
-    alignItems: 'center',
-    height: '100%',
-    justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    width: '100%',
-  },
-  uploadIconCircle: {
-    alignItems: 'center',
-    backgroundColor: colors.primaryLight,
-    borderRadius: 25,
-    height: 50,
-    justifyContent: 'center',
-    width: 50,
-  },
-  uploadCardTitle: {
-    color: colors.textBody,
-    fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 15,
-    includeFontPadding: false,
-    lineHeight: 20,
-  },
-  uploadDescription: {
-    color: colors.textSecondary,
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 11,
-    includeFontPadding: false,
-    lineHeight: 15,
-    textAlign: 'center',
-  },
-  uploadButton: {
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    height: 30,
-    justifyContent: 'center',
-    width: 160,
-  },
-  uploadButtonSecondary: {
-    backgroundColor: colors.surface,
-  },
-  uploadButtonLabel: {
-    color: colors.surface,
-    fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 12,
-    includeFontPadding: false,
-    lineHeight: 16,
-  },
-  uploadButtonLabelSecondary: {
-    color: colors.primary,
   },
   guideSection: {
     gap: 12,

@@ -1,7 +1,8 @@
-import { useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Image,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,10 +22,16 @@ import DiabetesIcon from '@/assets/icons/data/Diabetes.svg';
 import HeightIcon from '@/assets/icons/data/Height.svg';
 import HemoglobinIcon from '@/assets/icons/data/Hemoglobin.svg';
 import WeightIcon from '@/assets/icons/data/Weight.svg';
+import CameraIcon from '@/assets/icons/system/Camera.svg';
 import DocumentIcon from '@/assets/icons/system/Document.svg';
 import CheckIcon from '@/assets/icons/system/Check.svg';
 import ShieldCheckIcon from '@/assets/icons/system/ShieldCheck.svg';
-import { AppCard, BackButton } from '@/src/components/common';
+import { AppBottomSheet, AppCard, BackButton } from '@/src/components/common';
+import { HealthUploadOptionCard } from '@/src/features/health-data/HealthUploadOptionCard';
+import {
+  type SelectedHealthFile,
+  useHealthFilePicker,
+} from '@/src/features/health-data/useHealthFilePicker';
 import { colors, fontFamilies, radius } from '@/src/theme';
 
 const resultBackground = require('../../assets/images/backgrounds/4_Upload.png');
@@ -32,6 +39,17 @@ const resultBackground = require('../../assets/images/backgrounds/4_Upload.png')
 const referenceWidth = 412;
 const referenceHeight = 917;
 const referenceTitleTop = 38;
+const keyboardSafeGap = 16;
+
+function formatUploadTimestamp(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}. ${pad(date.getMonth() + 1)}. ${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function isImageFile(file: SelectedHealthFile) {
+  if (file.mimeType?.toLowerCase().startsWith('image/')) return true;
+  return /\.(avif|bmp|gif|heic|heif|jpe?g|png|webp)$/i.test(file.name);
+}
 
 interface HealthCheckupOCRResult {
   bloodPressure: string;
@@ -47,7 +65,8 @@ interface HealthCheckupOCRResult {
 interface HealthMetricDefinition {
   Icon: ComponentType<SvgProps>;
   iconKind: 'fill' | 'stroke';
-  keyboardType: 'decimal-pad' | 'default';
+  inputKind: 'bloodPressure' | 'date' | 'decimal' | 'integer';
+  keyboardType: 'decimal-pad' | 'numeric';
   key: keyof HealthCheckupOCRResult;
   label: string;
   unit: string;
@@ -68,7 +87,8 @@ const healthMetricDefinitions: HealthMetricDefinition[] = [
   {
     Icon: DateIcon,
     iconKind: 'fill',
-    keyboardType: 'default',
+    inputKind: 'date',
+    keyboardType: 'numeric',
     key: 'checkupDate',
     label: '검진일',
     unit: '',
@@ -76,6 +96,7 @@ const healthMetricDefinitions: HealthMetricDefinition[] = [
   {
     Icon: HeightIcon,
     iconKind: 'fill',
+    inputKind: 'decimal',
     keyboardType: 'decimal-pad',
     key: 'height',
     label: '신장',
@@ -84,6 +105,7 @@ const healthMetricDefinitions: HealthMetricDefinition[] = [
   {
     Icon: WeightIcon,
     iconKind: 'stroke',
+    inputKind: 'decimal',
     keyboardType: 'decimal-pad',
     key: 'weight',
     label: '체중',
@@ -92,6 +114,7 @@ const healthMetricDefinitions: HealthMetricDefinition[] = [
   {
     Icon: BMIIcon,
     iconKind: 'stroke',
+    inputKind: 'decimal',
     keyboardType: 'decimal-pad',
     key: 'bmi',
     label: 'BMI',
@@ -100,7 +123,8 @@ const healthMetricDefinitions: HealthMetricDefinition[] = [
   {
     Icon: BloodPressureIcon,
     iconKind: 'fill',
-    keyboardType: 'default',
+    inputKind: 'bloodPressure',
+    keyboardType: 'numeric',
     key: 'bloodPressure',
     label: '혈압',
     unit: 'mmHg',
@@ -108,7 +132,8 @@ const healthMetricDefinitions: HealthMetricDefinition[] = [
   {
     Icon: DiabetesIcon,
     iconKind: 'fill',
-    keyboardType: 'decimal-pad',
+    inputKind: 'integer',
+    keyboardType: 'numeric',
     key: 'fastingBloodSugar',
     label: '공복혈당',
     unit: 'mg/dL',
@@ -116,7 +141,8 @@ const healthMetricDefinitions: HealthMetricDefinition[] = [
   {
     Icon: CholesterolIcon,
     iconKind: 'stroke',
-    keyboardType: 'decimal-pad',
+    inputKind: 'integer',
+    keyboardType: 'numeric',
     key: 'totalCholesterol',
     label: '총콜레스테롤',
     unit: 'mg/dL',
@@ -124,12 +150,34 @@ const healthMetricDefinitions: HealthMetricDefinition[] = [
   {
     Icon: HemoglobinIcon,
     iconKind: 'stroke',
+    inputKind: 'decimal',
     keyboardType: 'decimal-pad',
     key: 'hemoglobin',
     label: '혈색소',
     unit: 'g/dL',
   },
 ];
+
+function sanitizeDecimalInput(text: string) {
+  const sanitized = text.replace(/[^0-9.]/g, '');
+  const [integer = '', ...decimals] = sanitized.split('.');
+  return decimals.length > 0 ? `${integer}.${decimals.join('')}` : integer;
+}
+
+function sanitizeMetricInput(text: string, inputKind: HealthMetricDefinition['inputKind']) {
+  if (inputKind === 'decimal') return sanitizeDecimalInput(text);
+  return text.replace(/\D/g, '');
+}
+
+function formatCheckupDate(value: string) {
+  if (!/^\d{8}$/.test(value)) return null;
+
+  const month = Number(value.slice(4, 6));
+  const day = Number(value.slice(6, 8));
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  return `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6, 8)}`;
+}
 
 function ResultStepIndicator() {
   return (
@@ -148,17 +196,27 @@ function ResultStepIndicator() {
 
 function MetricRow({
   definition,
+  diastolicDraft,
   draftValue,
   isEditing,
   onChangeDraft,
+  onChangeDiastolicDraft,
+  onChangeSystolicDraft,
+  onRowRef,
   onToggleEdit,
+  systolicDraft,
   value,
 }: {
   definition: HealthMetricDefinition;
+  diastolicDraft: string;
   draftValue: string;
   isEditing: boolean;
   onChangeDraft: (value: string) => void;
+  onChangeDiastolicDraft: (value: string) => void;
+  onChangeSystolicDraft: (value: string) => void;
+  onRowRef: (instance: View | null) => void;
   onToggleEdit: () => void;
+  systolicDraft: string;
   value: string;
 }) {
   const { Icon } = definition;
@@ -166,7 +224,7 @@ function MetricRow({
     definition.iconKind === 'fill' ? { fill: colors.primary } : { stroke: colors.primary };
 
   return (
-    <View style={styles.metricRow}>
+    <View ref={onRowRef} style={styles.metricRow}>
       <View style={styles.metricIconCircle}>
         <Icon {...iconColorProps} height={22} width={22} />
       </View>
@@ -174,14 +232,42 @@ function MetricRow({
         <View style={styles.metricContent}>
           <Text style={styles.metricLabel}>{definition.label}</Text>
           <View style={styles.metricValue}>
-            {isEditing ? (
+            {isEditing && definition.inputKind === 'bloodPressure' ? (
+              <View style={styles.bloodPressureInputs}>
+                <TextInput
+                  accessibilityLabel="수축기 혈압"
+                  autoFocus
+                  keyboardType="numeric"
+                  maxLength={3}
+                  onChangeText={(text) => onChangeSystolicDraft(text.replace(/\D/g, ''))}
+                  returnKeyType="next"
+                  selectionColor="#1371EB"
+                  style={[styles.metricInput, styles.bloodPressureInput]}
+                  value={systolicDraft}
+                />
+                <Text style={styles.bloodPressureSeparator}>/</Text>
+                <TextInput
+                  accessibilityLabel="이완기 혈압"
+                  keyboardType="numeric"
+                  maxLength={3}
+                  onChangeText={(text) => onChangeDiastolicDraft(text.replace(/\D/g, ''))}
+                  onSubmitEditing={onToggleEdit}
+                  returnKeyType="done"
+                  selectionColor="#1371EB"
+                  style={[styles.metricInput, styles.bloodPressureInput]}
+                  value={diastolicDraft}
+                />
+              </View>
+            ) : isEditing ? (
               <TextInput
                 autoFocus
                 keyboardType={definition.keyboardType}
-                onChangeText={onChangeDraft}
+                maxLength={definition.inputKind === 'date' ? 8 : undefined}
+                onChangeText={(text) =>
+                  onChangeDraft(sanitizeMetricInput(text, definition.inputKind))
+                }
                 onSubmitEditing={onToggleEdit}
                 returnKeyType="done"
-                selectTextOnFocus
                 selectionColor="#1371EB"
                 style={styles.metricInput}
                 value={draftValue}
@@ -214,9 +300,23 @@ function MetricRow({
 
 export default function OCRResultScreen() {
   const router = useRouter();
-  const { fileName } = useLocalSearchParams<{ fileName?: string }>();
+  const { fileMimeType, fileName, fileSource, fileUri } = useLocalSearchParams<{
+    fileMimeType?: string;
+    fileName?: string;
+    fileSource?: SelectedHealthFile['source'];
+    fileUri?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const { isSelecting, pickDocument, takePhoto } = useHealthFilePicker();
+  const [isReuploadSheetOpen, setIsReuploadSheetOpen] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<SelectedHealthFile>(() => ({
+    mimeType: fileMimeType || undefined,
+    name: fileName ?? '2026_건강검진결과표.pdf',
+    source: fileSource === 'camera' ? 'camera' : 'document',
+    uri: fileUri ?? '',
+  }));
+  const [uploadTimestamp, setUploadTimestamp] = useState('2026. 08. 11 09:13');
   const [metricValues, setMetricValues] = useState<Record<keyof HealthCheckupOCRResult, string>>(
     () =>
       Object.fromEntries(
@@ -227,30 +327,180 @@ export default function OCRResultScreen() {
     null,
   );
   const [draftValue, setDraftValue] = useState('');
+  const [systolicDraft, setSystolicDraft] = useState('');
+  const [diastolicDraft, setDiastolicDraft] = useState('');
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0); // 추가
+  const correctionFrame = useRef<number | null>(null);
+  const editingMetricKeyRef = useRef<keyof HealthCheckupOCRResult | null>(null);
+  const metricRowRefs = useRef<Partial<Record<keyof HealthCheckupOCRResult, View>>>({});
+  const screenScrollRef = useRef<ScrollView>(null);
+  const screenScrollY = useRef(0);
+  const screenViewportRef = useRef<View>(null);
 
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
   const scale = Math.min(1, availableWidth / referenceWidth);
   const safeTopAdjustment = Math.max(0, insets.top + 8 - referenceTitleTop * scale);
   const canvasHeight = referenceHeight * scale;
-  const displayedFileName = fileName ?? '2026_건강검진결과표.pdf';
+  const hasImagePreview = uploadedFile.uri.length > 0 && isImageFile(uploadedFile);
+
+  const centerFocusedRow = useCallback(
+  (key: keyof HealthCheckupOCRResult, activeKeyboardTop: number) => {
+    const row = metricRowRefs.current[key];
+    const scrollView = screenScrollRef.current;
+    const viewport = screenViewportRef.current;
+
+    if (
+      !row ||
+      !scrollView ||
+      !viewport ||
+      editingMetricKeyRef.current !== key
+    ) {
+      return;
+    }
+
+    viewport.measureInWindow(
+      (_viewportX, viewportTop, _viewportWidth, viewportHeight) => {
+        if (editingMetricKeyRef.current !== key) return;
+
+        row.measureInWindow(
+          (_rowX, rowTop, _rowWidth, rowHeight) => {
+            if (editingMetricKeyRef.current !== key) return;
+
+            // 실제로 사용할 수 있는 화면의 위/아래
+            const visibleTop = Math.max(viewportTop, insets.top);
+            const visibleBottom = Math.min(
+              viewportTop + viewportHeight,
+              activeKeyboardTop - keyboardSafeGap,
+            );
+
+            // 키보드를 제외한 화면의 정확한 세로 중앙
+            const visibleCenter =
+              visibleTop + (visibleBottom - visibleTop) / 2;
+
+            // 현재 수정 중인 Row의 세로 중앙
+            const rowCenter = rowTop + rowHeight / 2;
+
+            // Row 중심을 화면 중심으로 옮기기 위해 필요한 거리
+            const deltaY = rowCenter - visibleCenter;
+
+            const targetY = Math.max(
+              0,
+              screenScrollY.current + deltaY,
+            );
+
+            screenScrollY.current = targetY;
+
+            scrollView.scrollTo({
+              animated: false,
+              y: targetY,
+            });
+          },
+        );
+      },
+    );
+  },
+  [insets.top],
+);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardTop(event.endCoordinates.screenY);
+      setKeyboardHeight(event.endCoordinates.height); // 추가
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardTop(null);
+      setKeyboardHeight(0); // 추가
+      if (correctionFrame.current !== null) {
+        cancelAnimationFrame(correctionFrame.current);
+        correctionFrame.current = null;
+      }
+    });
+
+    return () => {
+      if (correctionFrame.current !== null) cancelAnimationFrame(correctionFrame.current);
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    editingMetricKeyRef.current = editingMetricKey;
+    if (!editingMetricKey || keyboardTop === null) return;
+
+    if (correctionFrame.current !== null) cancelAnimationFrame(correctionFrame.current);
+    correctionFrame.current = requestAnimationFrame(() => {
+      correctionFrame.current = null;
+
+      if (editingMetricKeyRef.current === editingMetricKey) {
+        centerFocusedRow(editingMetricKey, keyboardTop);
+      }
+    });
+
+    return () => {
+      if (correctionFrame.current !== null) {
+        cancelAnimationFrame(correctionFrame.current);
+        correctionFrame.current = null;
+      }
+    };
+  }, [centerFocusedRow, editingMetricKey, keyboardTop, keyboardHeight]);
 
   const handleMetricEdit = (key: keyof HealthCheckupOCRResult) => {
+  if (editingMetricKey) {
+    setMetricValues((current) => {
+      let nextValue = current[editingMetricKey];
+
+      if (editingMetricKey === 'checkupDate') {
+        if (draftValue.trim() !== '') {
+          nextValue = formatCheckupDate(draftValue) ?? current.checkupDate;
+        }
+      } else if (editingMetricKey === 'bloodPressure') {
+        if (systolicDraft && diastolicDraft) {
+          nextValue = `${systolicDraft} / ${diastolicDraft}`;
+        }
+      } else {
+        if (draftValue.trim() !== '') {
+          nextValue = draftValue;
+        }
+      }
+
+      return {
+        ...current,
+        [editingMetricKey]: nextValue,
+      };
+    });
+  }
+
     if (editingMetricKey === key) {
-      setMetricValues((current) => ({ ...current, [key]: draftValue }));
+      editingMetricKeyRef.current = null;
       setEditingMetricKey(null);
       return;
     }
 
-    if (editingMetricKey) {
-      setMetricValues((current) => ({ ...current, [editingMetricKey]: draftValue }));
+    if (key === 'bloodPressure') {
+      setSystolicDraft('');
+      setDiastolicDraft('');
+    } else {
+      setDraftValue('');
     }
 
-    setDraftValue(metricValues[key]);
+    editingMetricKeyRef.current = key;
     setEditingMetricKey(key);
   };
 
+  const handleReuploadSelection = async (selectFile: () => Promise<SelectedHealthFile | null>) => {
+    const file = await selectFile();
+    if (!file) return;
+
+    setUploadedFile(file);
+    setUploadTimestamp(formatUploadTimestamp(new Date()));
+    setIsReuploadSheetOpen(false);
+    console.log('reuploadFile', file);
+    // TODO: 선택한 파일로 OCR 재실행
+  };
+
   return (
-    <View style={styles.root}>
+    <View ref={screenViewportRef} style={styles.root}>
       <Image
         accessibilityIgnoresInvertColors
         resizeMode="stretch"
@@ -263,11 +513,21 @@ export default function OCRResultScreen() {
           styles.scrollContent,
           {
             minHeight: windowHeight,
-            paddingBottom: insets.bottom,
+            //paddingBottom: insets.bottom,
+            paddingBottom: 
+              insets.bottom +
+              (keyboardHeight > 0 ? keyboardHeight + keyboardSafeGap : 0), // 추가
             paddingTop: safeTopAdjustment,
           },
         ]}
+        keyboardDismissMode="none"
+        keyboardShouldPersistTaps="always"
+        onScroll={(event) => {
+          screenScrollY.current = event.nativeEvent.contentOffset.y;
+        }}
         overScrollMode="never"
+        ref={screenScrollRef}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ height: canvasHeight, width: referenceWidth * scale }}>
@@ -295,17 +555,26 @@ export default function OCRResultScreen() {
                 <Text style={styles.cardTitle}>업로드 파일</Text>
                 <View style={styles.uploadFileBottom}>
                   <View style={styles.filePreview}>
-                    <DocumentIcon fill={colors.primary} height={42} width={42} />
+                    {hasImagePreview ? (
+                      <Image
+                        accessibilityLabel={`${uploadedFile.name} 미리보기`}
+                        resizeMode="cover"
+                        source={{ uri: uploadedFile.uri }}
+                        style={styles.filePreviewImage}
+                      />
+                    ) : (
+                      <DocumentIcon fill={colors.primary} height={42} width={42} />
+                    )}
                   </View>
                   <View style={styles.fileTexts}>
                     <Text numberOfLines={1} style={styles.fileName}>
-                      {displayedFileName}
+                      {uploadedFile.name}
                     </Text>
-                    <Text style={styles.uploadTime}>업로드 일시 2026. 08. 11 09:13</Text>
+                    <Text style={styles.uploadTime}>업로드 일시 {uploadTimestamp}</Text>
                   </View>
                   <Pressable
                     accessibilityRole="button"
-                    onPress={() => router.back()}
+                    onPress={() => setIsReuploadSheetOpen(true)}
                     style={({ pressed }) => [styles.reuploadButton, pressed && styles.pressed]}
                   >
                     <Text style={styles.reuploadText}>다시 업로드</Text>
@@ -317,26 +586,30 @@ export default function OCRResultScreen() {
             <AppCard bordered padding="none" style={styles.extractedCard}>
               <View style={styles.extractedContent}>
                 <Text style={styles.cardTitle}>추출된 데이터</Text>
-                <ScrollView
-                  bounces={false}
-                  contentContainerStyle={styles.metricListContent}
-                  nestedScrollEnabled
-                  overScrollMode="never"
-                  showsVerticalScrollIndicator={true}
-                  style={styles.metricList}
-                >
+                <View style={styles.metricListContent}>
                   {healthMetricDefinitions.map((definition) => (
                     <MetricRow
                       key={definition.key}
                       definition={definition}
+                      diastolicDraft={diastolicDraft}
                       draftValue={editingMetricKey === definition.key ? draftValue : ''}
                       isEditing={editingMetricKey === definition.key}
                       onChangeDraft={setDraftValue}
+                      onChangeDiastolicDraft={setDiastolicDraft}
+                      onChangeSystolicDraft={setSystolicDraft}
+                      onRowRef={(instance) => {
+                        if (instance) {
+                          metricRowRefs.current[definition.key] = instance;
+                        } else {
+                          delete metricRowRefs.current[definition.key];
+                        }
+                      }}
                       onToggleEdit={() => handleMetricEdit(definition.key)}
+                      systolicDraft={systolicDraft}
                       value={metricValues[definition.key]}
                     />
                   ))}
-                </ScrollView>
+                </View>
                 <View style={styles.privacyBox}>
                   <ShieldCheckIcon fill={colors.primary} height={24} width={24} />
                   <Text style={styles.privacyText}>
@@ -358,6 +631,45 @@ export default function OCRResultScreen() {
           </View>
         </View>
       </ScrollView>
+      <AppBottomSheet
+        contentStyle={styles.reuploadSheetContent}
+        handleStyle={styles.reuploadSheetHandle}
+        onClose={() => setIsReuploadSheetOpen(false)}
+        overlayStyle={styles.reuploadSheetOverlay}
+        separateAnimations
+        sheetStyle={styles.reuploadSheet}
+        visible={isReuploadSheetOpen}
+      >
+        <View style={styles.reuploadOptions}>
+          <HealthUploadOptionCard
+            buttonLabel="카메라 열기"
+            description={[
+              '처방전, 검진 결과, 체성분',
+              '리포트 등을 촬영하여',
+              '업로드할 수 있어요.',
+            ]}
+            disabled={isSelecting}
+            Icon={CameraIcon}
+            onPress={() => void handleReuploadSelection(takePhoto)}
+            style={styles.reuploadOptionCard}
+            title="카메라로 촬영하기"
+          />
+          <HealthUploadOptionCard
+            buttonLabel="파일 선택"
+            description={[
+              '이미지, PDF, CSV 파일을',
+              '선택하여 여러 개의 파일을',
+              '한 번에 업로드할 수 있어요.',
+            ]}
+            disabled={isSelecting}
+            Icon={DocumentIcon}
+            onPress={() => void handleReuploadSelection(pickDocument)}
+            secondary
+            style={styles.reuploadOptionCard}
+            title="문서/파일 선택하기"
+          />
+        </View>
+      </AppBottomSheet>
     </View>
   );
 }
@@ -509,7 +821,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 80,
     justifyContent: 'center',
+    overflow: 'hidden',
     width: 80,
+  },
+  filePreviewImage: {
+    height: '100%',
+    width: '100%',
   },
   fileTexts: {
     flex: 1,
@@ -561,10 +878,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingTop: 16,
   },
-  metricList: {
-    flex: 1,
-    minHeight: 0,
-  },
   metricListContent: {
     gap: 12,
     paddingRight: 2,
@@ -613,17 +926,39 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   metricInput: {
-    backgroundColor: '#F1F1F1',
-    borderRadius: radius.sm,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D9DEE5',
+    borderRadius: 8,
+    borderWidth: 1,
+
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardRegular,
     fontSize: 12,
-    height: 25,
+
+    height: 28,
     includeFontPadding: false,
     lineHeight: 17,
-    paddingHorizontal: 6,
+
+    paddingHorizontal: 8,
     paddingVertical: 0,
-    width: 80,
+
+    width: 92,
+  },
+  bloodPressureInputs: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 3,
+  },
+  bloodPressureInput: {
+    paddingHorizontal: 3,
+    textAlign: 'center',
+    width: 36,
+  },
+  bloodPressureSeparator: {
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 12,
+    lineHeight: 17,
   },
   metricUnit: {
     color: colors.textSecondary,
@@ -697,5 +1032,35 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.72,
+  },
+  reuploadSheetOverlay: {
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+  reuploadSheet: {
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    minHeight: 300,
+  },
+  reuploadSheetHandle: {
+    backgroundColor: '#D9D9D9',
+    height: 4,
+    marginTop: 11,
+    width: 40,
+  },
+  reuploadSheetContent: {
+    paddingBottom: 0,
+    paddingHorizontal: 16,
+    paddingTop: 36,
+  },
+  reuploadOptions: {
+    flexDirection: 'row',
+    gap: 20,
+    justifyContent: 'center',
+    width: '100%',
+  },
+  reuploadOptionCard: {
+    flex: 1,
+    maxWidth: 180,
+    width: 'auto',
   },
 });
