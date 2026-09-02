@@ -1,11 +1,134 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auto-Fit OAuth Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root { color-scheme: light; font-family: Inter, Pretendard, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #eefaf8; color: #263331; }
+    main { width: min(92vw, 560px); padding: 32px; border-radius: 24px; background: white; box-shadow: 0 18px 50px #245b5120; }
+    h1 { margin: 0 0 8px; font-size: 30px; }
+    p { margin: 0 0 22px; color: #64716f; line-height: 1.55; }
+    .actions { display: grid; gap: 12px; }
+    button { min-height: 50px; border: 1px solid #cbd8d5; border-radius: 12px; background: white; font-size: 16px; cursor: pointer; }
+    button:hover { border-color: #41c9ae; }
+    .primary { color: white; border-color: #41c9ae; background: #41c9ae; }
+    .danger { color: #b23b3b; }
+    #result { margin-top: 24px; padding: 18px; border-radius: 14px; background: #f4f7f6; }
+    #result h2 { margin: 0 0 12px; font-size: 17px; }
+    dl { display: grid; grid-template-columns: 100px 1fr; gap: 9px 12px; margin: 0; }
+    dt { color: #6a7774; }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    .ok { color: #168b74; font-weight: 700; }
+    .error { color: #bd3434; font-weight: 700; }
+    [hidden] { display: none !important; }
+  </style>
 </head>
 <body>
-    come
+  <main>
+    <h1>Auto-Fit 로그인 테스트</h1>
+    <p>Google·Kakao OAuth 왕복과 Supabase 세션 생성을 확인합니다. 액세스 토큰은 화면에 표시하지 않습니다.</p>
+
+    <div class="actions" id="login-actions">
+      <button type="button" data-provider="google">Google로 로그인</button>
+      <button type="button" class="primary" data-provider="kakao">Kakao로 로그인</button>
+    </div>
+    <div class="actions" id="logout-actions" hidden>
+      <button type="button" class="danger" id="logout">로그아웃</button>
+    </div>
+
+    <section id="result" aria-live="polite">
+      <h2 id="status">세션 확인 중…</h2>
+      <dl id="user-details" hidden>
+        <dt>User ID</dt><dd id="user-id"></dd>
+        <dt>Provider</dt><dd id="provider"></dd>
+        <dt>Email</dt><dd id="email"></dd>
+        <dt>Nickname</dt><dd id="nickname"></dd>
+      </dl>
+    </section>
+  </main>
+
+  <script>
+    const SUPABASE_URL = 'https://eeeqibyssajykrhvecbv.supabase.co';
+    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Z02d5opC1lPtOlUJMWsxcg_ZD_8O31x';
+    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+    const status = document.querySelector('#status');
+    const details = document.querySelector('#user-details');
+    const loginActions = document.querySelector('#login-actions');
+    const logoutActions = document.querySelector('#logout-actions');
+
+    function renderSession(session, error) {
+      if (error) {
+        status.className = 'error';
+        status.textContent = `오류: ${error.message}`;
+        details.hidden = true;
+        return;
+      }
+
+      const user = session?.user;
+      if (!user) {
+        status.className = '';
+        status.textContent = '로그인된 세션이 없습니다.';
+        details.hidden = true;
+        loginActions.hidden = false;
+        logoutActions.hidden = true;
+        return;
+      }
+
+      const metadata = user.user_metadata ?? {};
+      status.className = 'ok';
+      status.textContent = '로그인 및 세션 생성 성공';
+      document.querySelector('#user-id').textContent = user.id;
+      document.querySelector('#provider').textContent = user.app_metadata?.provider ?? '-';
+      document.querySelector('#email').textContent = user.email ?? '(제공되지 않음)';
+      document.querySelector('#nickname').textContent = metadata.full_name ?? metadata.name ?? metadata.user_name ?? '-';
+      details.hidden = false;
+      loginActions.hidden = true;
+      logoutActions.hidden = false;
+    }
+
+    document.querySelectorAll('[data-provider]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        status.className = '';
+        status.textContent = `${button.textContent} 이동 중…`;
+        const provider = button.dataset.provider;
+        const options = { redirectTo: new URL('./g.html', `${window.location.origin}/`).href };
+        const { error } = await client.auth.signInWithOAuth({ provider, options });
+        if (error) renderSession(null, error);
+      });
+    });
+
+    document.querySelector('#logout').addEventListener('click', async () => {
+      const { error } = await client.auth.signOut();
+      if (error) renderSession(null, error);
+    });
+
+    client.auth.onAuthStateChange((_event, session) => renderSession(session));
+
+    async function initializeAuth() {
+      const callback = new URLSearchParams(window.location.hash.slice(1));
+      const accessToken = callback.get('access_token');
+      const refreshToken = callback.get('refresh_token');
+
+      if (accessToken && refreshToken) {
+        const { data, error } = await client.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken
+        });
+        history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
+        renderSession(data.session, error);
+        return;
+      }
+
+      const { data, error } = await client.auth.getSession();
+      renderSession(data.session, error);
+    }
+
+    initializeAuth();
+  </script>
 </body>
 </html>
