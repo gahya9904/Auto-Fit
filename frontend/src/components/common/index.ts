@@ -5,6 +5,7 @@ export * from './AppDialog';
 export * from './AppHeader';
 export * from './AppTextField';
 export * from './BackButton';
+export * from './CustomScrollIndicator';
 export * from './IconButton';
 export * from './ListRow';
 export * from './SectionHeader';

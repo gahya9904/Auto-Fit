@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BackHandler,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -28,6 +29,10 @@ import CloseIcon from '@/assets/icons/common/X.svg';
 import PaperPlaneIcon from '@/assets/icons/feature/PaperPlane_Fill.svg';
 import RobotIcon from '@/assets/icons/feature/Robot_Fill.svg';
 import {
+  CustomScrollIndicator,
+  useCustomScrollIndicator,
+} from '@/src/components/common';
+import {
   BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
   getBottomNavigationVisualHeight,
   type BottomNavigationLayout,
@@ -42,6 +47,9 @@ const referencePopupWidth = 370;
 const referencePopupHeight = 550;
 const referencePopupNavigationGap = 48;
 const popupDuration = 360;
+const keyboardInputGap = 24;
+const welcomeMessageText =
+  'OO님 안녕하세요!\n무엇을 도와드릴까요?\n궁금한 건강 정보나 관리 방법을 물어보세요.';
 
 const webFixedOverlayStyle: ViewStyle | undefined =
   Platform.OS === 'web'
@@ -78,6 +86,32 @@ interface OverlayFrame {
   y: number;
 }
 
+type ChatMessage = {
+  createdAt: number;
+  id: string;
+  role: 'assistant' | 'user';
+  text: string;
+};
+
+function createInitialMessages(): ChatMessage[] {
+  return [
+    {
+      createdAt: Date.now(),
+      id: 'welcome',
+      role: 'assistant',
+      text: welcomeMessageText,
+    },
+  ];
+}
+
+function formatMessageTime(timestamp: number) {
+  const date = new Date(timestamp);
+  const period = date.getHours() < 12 ? '오전' : '오후';
+  const hour = date.getHours() % 12 || 12;
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${period} ${hour}:${minute}`;
+}
+
 function SendButtonGradient() {
   return (
     <Svg height={40} style={StyleSheet.absoluteFill} width={40}>
@@ -103,10 +137,22 @@ export function ChatPopup({
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const overlayRef = useRef<View>(null);
+  const messageScrollRef = useRef<ScrollView>(null);
+  const messageIdRef = useRef(0);
+  const pendingResponseTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const automaticScrollRef = useRef(false);
+  const automaticScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  const wasVisibleRef = useRef(false);
   const reduceMotion = useReducedMotion();
   const progress = useSharedValue(0);
-  const [message, setMessage] = useState('');
+  const [inputText, setInputText] = useState('');
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [messages, setMessages] = useState<ChatMessage[]>(createInitialMessages);
   const [overlayFrame, setOverlayFrame] = useState<OverlayFrame>({ x: 0, y: 0 });
+  const [popupTopBeforeKeyboard, setPopupTopBeforeKeyboard] = useState<number | null>(null);
+  const chatScrollIndicator = useCustomScrollIndicator({ showOnScroll: false });
 
   const bottomClearance = Math.max(insets.bottom, BOTTOM_NAVIGATION_MIN_BOTTOM_GAP);
   const estimatedNavigationTop =
@@ -117,12 +163,29 @@ export function ChatPopup({
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
   const popupScale = Math.min(1, availableWidth / referenceScreenWidth);
   const popupWidth = referencePopupWidth * popupScale;
-  const popupHeight = referencePopupHeight * popupScale;
+  const basePopupHeight = referencePopupHeight * popupScale;
   const popupLeft = insets.left + (availableWidth - popupWidth) / 2;
   const minimumPopupTop = Math.max(8, insets.top - overlayFrame.y + 8);
   const preferredPopupTop = referencePopupTop * popupScale;
-  const maximumPopupTop = navigationTop - referencePopupNavigationGap * popupScale - popupHeight;
-  const popupTop = Math.max(minimumPopupTop, Math.min(preferredPopupTop, maximumPopupTop));
+  const maximumPopupTop =
+    navigationTop - referencePopupNavigationGap * popupScale - basePopupHeight;
+  const restingPopupTop = Math.max(
+    minimumPopupTop,
+    Math.min(preferredPopupTop, maximumPopupTop),
+  );
+  const keyboardSafeBottom =
+    keyboardTop === null || keyboardHeight <= 0
+      ? null
+      : keyboardTop - overlayFrame.y - keyboardInputGap;
+  const popupTop =
+    keyboardSafeBottom === null
+      ? restingPopupTop
+      : (popupTopBeforeKeyboard ?? restingPopupTop);
+  const popupHeight =
+    keyboardSafeBottom === null
+      ? basePopupHeight
+      : Math.max(0, Math.min(basePopupHeight, keyboardSafeBottom - popupTop));
+  const popupContentHeight = popupHeight / Math.max(popupScale, 0.01);
 
   const anchorCenter = useMemo(
     () => ({
@@ -136,7 +199,71 @@ export function ChatPopup({
   const startTranslateX = anchorCenter.x - popupCenterX;
   const startTranslateY = anchorCenter.y - popupCenterY;
   const startScaleX = anchor.width / popupWidth;
-  const startScaleY = anchor.height / popupHeight;
+  const startScaleY = anchor.height / Math.max(popupHeight, 1);
+
+  const clearPendingResponses = useCallback(() => {
+    pendingResponseTimersRef.current.forEach((timer) => clearTimeout(timer));
+    pendingResponseTimersRef.current.clear();
+  }, []);
+
+  const scrollToLatestMessage = useCallback((animated: boolean) => {
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    if (automaticScrollTimerRef.current) clearTimeout(automaticScrollTimerRef.current);
+
+    automaticScrollRef.current = true;
+
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      messageScrollRef.current?.scrollToEnd({ animated });
+      automaticScrollTimerRef.current = setTimeout(() => {
+        automaticScrollRef.current = false;
+        automaticScrollTimerRef.current = null;
+      }, animated ? 600 : 100);
+    });
+  }, []);
+
+  const handleRequestClose = useCallback(() => {
+    clearPendingResponses();
+    Keyboard.dismiss();
+    onRequestClose();
+  }, [clearPendingResponses, onRequestClose]);
+
+  const handleCloseComplete = useCallback(() => {
+    setInputText('');
+    setMessages(createInitialMessages());
+    onCloseComplete();
+  }, [onCloseComplete]);
+
+  const handleSend = useCallback(() => {
+    const text = inputText.trim();
+    if (!text) return;
+
+    setMessages((current) => [
+      ...current,
+      {
+        createdAt: Date.now(),
+        id: `user-${Date.now()}-${messageIdRef.current++}`,
+        role: 'user',
+        text,
+      },
+    ]);
+    setInputText('');
+
+    const timer = setTimeout(() => {
+      pendingResponseTimersRef.current.delete(timer);
+      setMessages((current) => [
+        ...current,
+        {
+          createdAt: Date.now(),
+          id: `assistant-${Date.now()}-${messageIdRef.current++}`,
+          role: 'assistant',
+          text: 'AI 답변',
+        },
+      ]);
+    }, 1000);
+
+    pendingResponseTimersRef.current.add(timer);
+  }, [inputText]);
 
   useEffect(() => {
     const duration = reduceMotion ? 1 : popupDuration;
@@ -148,21 +275,65 @@ export function ChatPopup({
         easing: Easing.bezier(0.22, 0.82, 0.24, 1),
       },
       (finished) => {
-        if (finished && !visible) runOnJS(onCloseComplete)();
+        if (finished && !visible) runOnJS(handleCloseComplete)();
       },
     );
-  }, [onCloseComplete, progress, reduceMotion, visible]);
+  }, [handleCloseComplete, progress, reduceMotion, visible]);
+
+  useEffect(() => {
+    if (visible && !wasVisibleRef.current) {
+      clearPendingResponses();
+      setInputText('');
+      setMessages(createInitialMessages());
+    } else if (!visible) {
+      clearPendingResponses();
+    }
+
+    wasVisibleRef.current = visible;
+  }, [clearPendingResponses, visible]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardTop(event.endCoordinates.screenY);
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setKeyboardTop(null);
+      setKeyboardHeight(0);
+      setPopupTopBeforeKeyboard(null);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (keyboardTop !== null) scrollToLatestMessage(false);
+  }, [keyboardTop, scrollToLatestMessage]);
+
+  useEffect(
+    () => () => {
+      clearPendingResponses();
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+      if (automaticScrollTimerRef.current) clearTimeout(automaticScrollTimerRef.current);
+    },
+    [clearPendingResponses],
+  );
 
   useEffect(() => {
     if (!visible) return undefined;
 
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      onRequestClose();
+      handleRequestClose();
       return true;
     });
 
     return () => subscription.remove();
-  }, [onRequestClose, visible]);
+  }, [handleRequestClose, visible]);
 
   const dimStyle = useAnimatedStyle(() => ({
     opacity: interpolate(progress.value, [0, 1], [0, 0.45]),
@@ -222,6 +393,7 @@ export function ChatPopup({
           style={[
             styles.popupContent,
             {
+              height: popupContentHeight,
               transform: [{ scale: popupScale }],
             },
           ]}
@@ -244,63 +416,100 @@ export function ChatPopup({
                 accessibilityLabel="AI 채팅 닫기"
                 accessibilityRole="button"
                 hitSlop={7}
-                onPress={onRequestClose}
+                onPress={handleRequestClose}
                 style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
               >
-                <CloseIcon height={17} stroke={colors.textSecondary} width={17} />
+                <CloseIcon height={17} stroke={colors.primary} width={17} />
               </Pressable>
             </View>
             <View style={styles.divider} />
           </View>
 
-          <ScrollView
-            bounces={false}
-            contentContainerStyle={styles.dialogsContent}
-            keyboardShouldPersistTaps="handled"
-            nestedScrollEnabled
-            overScrollMode="never"
-            showsVerticalScrollIndicator={false}
-            style={[styles.dialogs, webMessageScrollStyle]}
-          >
-            <View style={styles.messages}>
-              <View style={styles.botRow}>
-                <View style={styles.profileCircle}>
-                  <RobotIcon fill={colors.primary} height={30} width={30} />
-                </View>
-                <View style={styles.botContents}>
-                  <Text style={styles.botName}>AI 건강 챗봇</Text>
-                  <View style={styles.botBubble}>
-                    <Text style={styles.messageText}>
-                      OO님 안녕하세요!{`\n`}무엇을 도와드릴까요?{`\n`}궁금한 건강 정보나 관리 방법을
-                      물어보세요.
-                    </Text>
-                  </View>
-                  <Text style={styles.time}>오전 11:39</Text>
-                </View>
+          <View style={styles.dialogsContainer}>
+            <ScrollView
+              bounces={false}
+              contentContainerStyle={styles.dialogsContent}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              onContentSizeChange={(width, height) => {
+                chatScrollIndicator.onContentSizeChange(width, height);
+                scrollToLatestMessage(true);
+              }}
+              onLayout={chatScrollIndicator.onLayout}
+              onScroll={(event) => {
+                chatScrollIndicator.onScroll(event);
+                if (!automaticScrollRef.current) chatScrollIndicator.show();
+              }}
+              onScrollBeginDrag={() => {
+                automaticScrollRef.current = false;
+                if (automaticScrollTimerRef.current) {
+                  clearTimeout(automaticScrollTimerRef.current);
+                  automaticScrollTimerRef.current = null;
+                }
+                chatScrollIndicator.onScrollBeginDrag();
+              }}
+              onScrollEndDrag={chatScrollIndicator.onScrollEndDrag}
+              overScrollMode="never"
+              ref={messageScrollRef}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={false}
+              style={[styles.dialogs, webMessageScrollStyle]}
+            >
+              <View style={styles.messages}>
+                {messages.map((chatMessage) =>
+                  chatMessage.role === 'assistant' ? (
+                    <View key={chatMessage.id} style={styles.botRow}>
+                      <View style={styles.profileCircle}>
+                        <RobotIcon fill={colors.primary} height={30} width={30} />
+                      </View>
+                      <View style={styles.botContents}>
+                        <Text style={styles.botName}>AI 건강 챗봇</Text>
+                        <View style={styles.botBubble}>
+                          <Text style={styles.messageText}>{chatMessage.text}</Text>
+                        </View>
+                        <Text style={styles.time}>{formatMessageTime(chatMessage.createdAt)}</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <View key={chatMessage.id} style={styles.userDialog}>
+                      <View style={styles.userBubble}>
+                        <Text style={styles.messageText}>{chatMessage.text}</Text>
+                      </View>
+                      <Text style={[styles.time, styles.userTime]}>
+                        {formatMessageTime(chatMessage.createdAt)}
+                      </Text>
+                    </View>
+                  ),
+                )}
               </View>
-
-              <View style={styles.userDialog}>
-                <View style={styles.userBubble}>
-                  <Text style={styles.messageText}>최근 건강 점수가 낮아졌는데 이유가 뭘까요?</Text>
-                </View>
-                <Text style={[styles.time, styles.userTime]}>오전 11:42</Text>
-              </View>
-            </View>
-          </ScrollView>
+            </ScrollView>
+            <CustomScrollIndicator
+              {...chatScrollIndicator.indicatorProps}
+              color="rgba(120, 120, 120, 0.4)"
+              rightInset={4}
+            />
+          </View>
 
           <View style={styles.composer}>
             <TextInput
               accessibilityLabel="AI 채팅 메시지"
-              onChangeText={setMessage}
+              onChangeText={setInputText}
+              onFocus={() => {
+                if (keyboardTop === null) setPopupTopBeforeKeyboard(restingPopupTop);
+                scrollToLatestMessage(false);
+              }}
+              onSubmitEditing={handleSend}
               placeholder="메시지를 입력해주세요..."
               placeholderTextColor={colors.textSecondary}
+              returnKeyType="send"
               style={styles.input}
-              value={message}
+              value={inputText}
             />
             <Pressable
               accessibilityLabel="메시지 보내기"
               accessibilityRole="button"
               hitSlop={4}
+              onPress={handleSend}
               style={({ pressed }) => [styles.sendButton, pressed && styles.pressed]}
             >
               <SendButtonGradient />
@@ -412,6 +621,10 @@ const styles = StyleSheet.create({
   },
   dialogs: {
     flex: 1,
+  },
+  dialogsContainer: {
+    flex: 1,
+    position: 'relative',
   },
   dialogsContent: {
     flexGrow: 1,

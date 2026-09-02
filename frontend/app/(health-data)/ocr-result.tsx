@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Image,
   Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,24 +11,42 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type ViewStyle,
 } from 'react-native';
 import type { SvgProps } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BMIIcon from '@/assets/icons/data/BMI.svg';
+import BMRIcon from '@/assets/icons/data/BMR.svg';
 import BloodPressureIcon from '@/assets/icons/data/BloodPressure.svg';
+import BodyFatPercentageIcon from '@/assets/icons/data/BodyFat_Percentage.svg';
 import CholesterolIcon from '@/assets/icons/data/Cholesterol.svg';
 import DateIcon from '@/assets/icons/data/Date.svg';
 import DiabetesIcon from '@/assets/icons/data/Diabetes.svg';
+import FatIcon from '@/assets/icons/data/Fat.svg';
+import VisceralFatIcon from '@/assets/icons/data/Fat_Level.svg';
 import HeightIcon from '@/assets/icons/data/Height.svg';
 import HemoglobinIcon from '@/assets/icons/data/Hemoglobin.svg';
+import MuscleIcon from '@/assets/icons/data/Muscle.svg';
 import WeightIcon from '@/assets/icons/data/Weight.svg';
 import CameraIcon from '@/assets/icons/system/Camera.svg';
 import DocumentIcon from '@/assets/icons/system/Document.svg';
 import CheckIcon from '@/assets/icons/system/Check.svg';
 import ShieldCheckIcon from '@/assets/icons/system/ShieldCheck.svg';
-import { AppBottomSheet, AppCard, BackButton } from '@/src/components/common';
+import {
+  AppBottomSheet,
+  AppCard,
+  BackButton,
+  CustomScrollIndicator,
+  useCustomScrollIndicator,
+} from '@/src/components/common';
 import { HealthUploadOptionCard } from '@/src/features/health-data/HealthUploadOptionCard';
+import {
+  createMockOCRResults,
+  type HealthCheckupOCRResult,
+  type InbodyOCRResult,
+  type OCRResultItem,
+} from '@/src/features/health-data/ocrResults';
 import {
   type SelectedHealthFile,
   useHealthFilePicker,
@@ -40,6 +59,8 @@ const referenceWidth = 412;
 const referenceHeight = 917;
 const referenceTitleTop = 38;
 const keyboardSafeGap = 16;
+const webInnerScrollStyle =
+  Platform.OS === 'web' ? ({ overscrollBehavior: 'contain' } as ViewStyle) : undefined;
 
 function formatUploadTimestamp(date: Date) {
   const pad = (value: number) => String(value).padStart(2, '0');
@@ -51,37 +72,37 @@ function isImageFile(file: SelectedHealthFile) {
   return /\.(avif|bmp|gif|heic|heif|jpe?g|png|webp)$/i.test(file.name);
 }
 
-interface HealthCheckupOCRResult {
-  bloodPressure: string;
-  bmi: number;
-  checkupDate: string;
-  fastingBloodSugar: number;
-  height: number;
-  hemoglobin: number;
-  totalCholesterol: number;
-  weight: number;
+function parseSelectedFiles(value?: string): SelectedHealthFile[] {
+  if (!value) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(
+      (file): file is SelectedHealthFile =>
+        typeof file === 'object' &&
+        file !== null &&
+        typeof file.name === 'string' &&
+        typeof file.uri === 'string' &&
+        (file.source === 'camera' || file.source === 'document'),
+    );
+  } catch {
+    return [];
+  }
 }
+
+type OCRMetricKey = keyof HealthCheckupOCRResult | keyof InbodyOCRResult;
 
 interface HealthMetricDefinition {
   Icon: ComponentType<SvgProps>;
   iconKind: 'fill' | 'stroke';
   inputKind: 'bloodPressure' | 'date' | 'decimal' | 'integer';
   keyboardType: 'decimal-pad' | 'numeric';
-  key: keyof HealthCheckupOCRResult;
+  key: OCRMetricKey;
   label: string;
   unit: string;
 }
-
-const mockHealthCheckupResult: HealthCheckupOCRResult = {
-  checkupDate: '2026.08.01',
-  height: 175.2,
-  weight: 68.4,
-  bmi: 22.3,
-  bloodPressure: '120 / 80',
-  fastingBloodSugar: 92,
-  totalCholesterol: 185,
-  hemoglobin: 14.2,
-};
 
 const healthMetricDefinitions: HealthMetricDefinition[] = [
   {
@@ -158,6 +179,90 @@ const healthMetricDefinitions: HealthMetricDefinition[] = [
   },
 ];
 
+const inbodyMetricDefinitions: HealthMetricDefinition[] = [
+  {
+    Icon: DateIcon,
+    iconKind: 'fill',
+    inputKind: 'date',
+    keyboardType: 'numeric',
+    key: 'measurementDate',
+    label: '검사일',
+    unit: '',
+  },
+  {
+    Icon: HeightIcon,
+    iconKind: 'fill',
+    inputKind: 'decimal',
+    keyboardType: 'decimal-pad',
+    key: 'height',
+    label: '신장',
+    unit: 'cm',
+  },
+  {
+    Icon: WeightIcon,
+    iconKind: 'stroke',
+    inputKind: 'decimal',
+    keyboardType: 'decimal-pad',
+    key: 'weight',
+    label: '체중',
+    unit: 'kg',
+  },
+  {
+    Icon: MuscleIcon,
+    iconKind: 'stroke',
+    inputKind: 'decimal',
+    keyboardType: 'decimal-pad',
+    key: 'skeletalMuscleMass',
+    label: '골격근량',
+    unit: 'kg',
+  },
+  {
+    Icon: FatIcon,
+    iconKind: 'fill',
+    inputKind: 'decimal',
+    keyboardType: 'decimal-pad',
+    key: 'bodyFatMass',
+    label: '체지방량',
+    unit: 'kg',
+  },
+  {
+    Icon: BodyFatPercentageIcon,
+    iconKind: 'stroke',
+    inputKind: 'decimal',
+    keyboardType: 'decimal-pad',
+    key: 'bodyFatPercentage',
+    label: '체지방률',
+    unit: '%',
+  },
+  {
+    Icon: BMIIcon,
+    iconKind: 'stroke',
+    inputKind: 'decimal',
+    keyboardType: 'decimal-pad',
+    key: 'bmi',
+    label: 'BMI',
+    unit: '',
+  },
+  {
+    Icon: BMRIcon,
+    iconKind: 'stroke',
+    inputKind: 'integer',
+    keyboardType: 'numeric',
+    key: 'basalMetabolicRate',
+    label: '기초대사량',
+    unit: 'kcal',
+  },
+  {
+    Icon: VisceralFatIcon,
+    iconKind: 'stroke',
+    inputKind: 'integer',
+    keyboardType: 'numeric',
+    key: 'visceralFatLevel',
+    label: '내장지방레벨',
+    unit: '',
+  },
+];
+
 function sanitizeDecimalInput(text: string) {
   const sanitized = text.replace(/[^0-9.]/g, '');
   const [integer = '', ...decimals] = sanitized.split('.');
@@ -179,14 +284,34 @@ function formatCheckupDate(value: string) {
   return `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6, 8)}`;
 }
 
-function ResultStepIndicator() {
+function updateResultData(
+  result: OCRResultItem,
+  values: Record<string, string>,
+): OCRResultItem {
+  if (result.type === 'health_checkup') {
+    return {
+      ...result,
+      data: values as unknown as HealthCheckupOCRResult,
+    };
+  }
+
+  return {
+    ...result,
+    data: values as unknown as InbodyOCRResult,
+  };
+}
+
+function ResultStepIndicator({ current, total }: { current: number; total: number }) {
   return (
-    <View accessibilityLabel="OCR 결과 확인 1단계 중 1단계" style={styles.stepIndicator}>
-      {[1, 2, 3].map((step, index) => (
+    <View
+      accessibilityLabel={`OCR 결과 확인 ${total}개 중 ${current}번째`}
+      style={styles.stepIndicator}
+    >
+      {Array.from({ length: total }, (_, index) => index + 1).map((step, index) => (
         <View key={step} style={styles.stepGroup}>
           {index > 0 ? <View style={styles.stepLine} /> : null}
-          <View style={[styles.step, step === 1 && styles.activeStep]}>
-            <Text style={[styles.stepText, step === 1 && styles.activeStepText]}>{step}</Text>
+          <View style={[styles.step, step === current && styles.activeStep]}>
+            <Text style={[styles.stepText, step === current && styles.activeStepText]}>{step}</Text>
           </View>
         </View>
       ))}
@@ -300,52 +425,64 @@ function MetricRow({
 
 export default function OCRResultScreen() {
   const router = useRouter();
-  const { fileMimeType, fileName, fileSource, fileUri } = useLocalSearchParams<{
-    fileMimeType?: string;
-    fileName?: string;
-    fileSource?: SelectedHealthFile['source'];
-    fileUri?: string;
+  const { files } = useLocalSearchParams<{
+    files?: string;
   }>();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { isSelecting, pickDocument, takePhoto } = useHealthFilePicker();
+  const [results, setResults] = useState<OCRResultItem[]>(() =>
+    createMockOCRResults(parseSelectedFiles(files)),
+  );
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isInnerScrollActive, setIsInnerScrollActive] = useState(false);
   const [isReuploadSheetOpen, setIsReuploadSheetOpen] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState<SelectedHealthFile>(() => ({
-    mimeType: fileMimeType || undefined,
-    name: fileName ?? '2026_건강검진결과표.pdf',
-    source: fileSource === 'camera' ? 'camera' : 'document',
-    uri: fileUri ?? '',
-  }));
-  const [uploadTimestamp, setUploadTimestamp] = useState('2026. 08. 11 09:13');
-  const [metricValues, setMetricValues] = useState<Record<keyof HealthCheckupOCRResult, string>>(
-    () =>
-      Object.fromEntries(
-        Object.entries(mockHealthCheckupResult).map(([key, value]) => [key, String(value)]),
-      ) as Record<keyof HealthCheckupOCRResult, string>,
+  const [metricValues, setMetricValues] = useState<Record<string, string>>(
+    () => ({ ...results[0].data }),
   );
-  const [editingMetricKey, setEditingMetricKey] = useState<keyof HealthCheckupOCRResult | null>(
-    null,
-  );
+  const [editingMetricKey, setEditingMetricKey] = useState<OCRMetricKey | null>(null);
   const [draftValue, setDraftValue] = useState('');
   const [systolicDraft, setSystolicDraft] = useState('');
   const [diastolicDraft, setDiastolicDraft] = useState('');
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0); // 추가
   const correctionFrame = useRef<number | null>(null);
-  const editingMetricKeyRef = useRef<keyof HealthCheckupOCRResult | null>(null);
-  const metricRowRefs = useRef<Partial<Record<keyof HealthCheckupOCRResult, View>>>({});
+  const editingMetricKeyRef = useRef<OCRMetricKey | null>(null);
+  const metricRowRefs = useRef<Partial<Record<OCRMetricKey, View>>>({});
+  const inbodyScrollRef = useRef<ScrollView>(null);
   const screenScrollRef = useRef<ScrollView>(null);
   const screenScrollY = useRef(0);
   const screenViewportRef = useRef<View>(null);
+  const innerTouchActiveRef = useRef(false);
+  const innerScrollIndicator = useCustomScrollIndicator();
+  const scrollIndicator = useCustomScrollIndicator();
 
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
   const scale = Math.min(1, availableWidth / referenceWidth);
   const safeTopAdjustment = Math.max(0, insets.top + 8 - referenceTitleTop * scale);
   const canvasHeight = referenceHeight * scale;
+  const currentResult = results[currentIndex];
+  const metricDefinitions =
+    currentResult.type === 'health_checkup' ? healthMetricDefinitions : inbodyMetricDefinitions;
+  const uploadedFile: SelectedHealthFile = {
+    mimeType: currentResult.fileMimeType,
+    name: currentResult.fileName,
+    source: currentResult.fileSource,
+    uri: currentResult.previewUri ?? '',
+  };
+  const uploadTimestamp = currentResult.uploadedAt ?? '2026. 08. 11 09:13';
   const hasImagePreview = uploadedFile.uri.length > 0 && isImageFile(uploadedFile);
 
+  const setParentScrollLocked = useCallback((locked: boolean) => {
+    if (innerTouchActiveRef.current === locked) return;
+
+    innerTouchActiveRef.current = locked;
+    screenScrollRef.current?.setNativeProps({ scrollEnabled: !locked });
+    setIsInnerScrollActive(locked);
+  }, []);
+
   const centerFocusedRow = useCallback(
-  (key: keyof HealthCheckupOCRResult, activeKeyboardTop: number) => {
+  (key: OCRMetricKey, activeKeyboardTop: number) => {
     const row = metricRowRefs.current[key];
     const scrollView = screenScrollRef.current;
     const viewport = screenViewportRef.current;
@@ -445,31 +582,33 @@ export default function OCRResultScreen() {
     };
   }, [centerFocusedRow, editingMetricKey, keyboardTop, keyboardHeight]);
 
-  const handleMetricEdit = (key: keyof HealthCheckupOCRResult) => {
-  if (editingMetricKey) {
-    setMetricValues((current) => {
-      let nextValue = current[editingMetricKey];
+  const applyEditingDraft = (current: Record<string, string>) => {
+    if (!editingMetricKey) return current;
 
-      if (editingMetricKey === 'checkupDate') {
-        if (draftValue.trim() !== '') {
-          nextValue = formatCheckupDate(draftValue) ?? current.checkupDate;
-        }
-      } else if (editingMetricKey === 'bloodPressure') {
-        if (systolicDraft && diastolicDraft) {
-          nextValue = `${systolicDraft} / ${diastolicDraft}`;
-        }
-      } else {
-        if (draftValue.trim() !== '') {
-          nextValue = draftValue;
-        }
+    let nextValue = current[editingMetricKey];
+    const editingDefinition = metricDefinitions.find(
+      (definition) => definition.key === editingMetricKey,
+    );
+
+    if (editingDefinition?.inputKind === 'date') {
+      if (draftValue.trim() !== '') {
+        nextValue = formatCheckupDate(draftValue) ?? current[editingMetricKey];
       }
+    } else if (editingMetricKey === 'bloodPressure') {
+      if (systolicDraft && diastolicDraft) {
+        nextValue = `${systolicDraft} / ${diastolicDraft}`;
+      }
+    } else if (draftValue.trim() !== '') {
+      nextValue = draftValue;
+    }
 
-      return {
-        ...current,
-        [editingMetricKey]: nextValue,
-      };
-    });
-  }
+    return { ...current, [editingMetricKey]: nextValue };
+  };
+
+  const handleMetricEdit = (key: OCRMetricKey) => {
+    if (editingMetricKey) {
+      setMetricValues(applyEditingDraft);
+    }
 
     if (editingMetricKey === key) {
       editingMetricKeyRef.current = null;
@@ -492,12 +631,79 @@ export default function OCRResultScreen() {
     const file = await selectFile();
     if (!file) return;
 
-    setUploadedFile(file);
-    setUploadTimestamp(formatUploadTimestamp(new Date()));
+    setResults((current) =>
+      current.map((result, index) =>
+        index === currentIndex
+          ? {
+              ...result,
+              fileMimeType: file.mimeType,
+              fileName: file.name,
+              fileSource: file.source,
+              previewUri: file.uri,
+              uploadedAt: formatUploadTimestamp(new Date()),
+            }
+          : result,
+      ),
+    );
     setIsReuploadSheetOpen(false);
     console.log('reuploadFile', file);
     // TODO: 선택한 파일로 OCR 재실행
   };
+
+  const handleNext = () => {
+    const committedValues = applyEditingDraft(metricValues);
+    setMetricValues(committedValues);
+    setResults((current) =>
+      current.map((result, index) =>
+        index === currentIndex ? updateResultData(result, committedValues) : result,
+      ),
+    );
+
+    if (currentIndex >= results.length - 1) {
+      Keyboard.dismiss();
+      router.replace('/home');
+      return;
+    }
+
+    const nextIndex = currentIndex + 1;
+    const nextResult = results[nextIndex];
+    editingMetricKeyRef.current = null;
+    metricRowRefs.current = {};
+    setEditingMetricKey(null);
+    setDraftValue('');
+    setSystolicDraft('');
+    setDiastolicDraft('');
+    setIsInnerScrollActive(false);
+    setCurrentIndex(nextIndex);
+    setMetricValues({ ...nextResult.data });
+    inbodyScrollRef.current?.scrollTo({ animated: false, y: 0 });
+    screenScrollY.current = 0;
+    screenScrollRef.current?.scrollTo({ animated: false, y: 0 });
+    Keyboard.dismiss();
+  };
+
+  const metricRows = metricDefinitions.map((definition) => (
+    <MetricRow
+      key={definition.key}
+      definition={definition}
+      diastolicDraft={diastolicDraft}
+      draftValue={editingMetricKey === definition.key ? draftValue : ''}
+      isEditing={editingMetricKey === definition.key}
+      onChangeDraft={setDraftValue}
+      onChangeDiastolicDraft={setDiastolicDraft}
+      onChangeSystolicDraft={setSystolicDraft}
+      onRowRef={(instance) => {
+        if (instance) {
+          metricRowRefs.current[definition.key] = instance;
+        } else {
+          delete metricRowRefs.current[definition.key];
+        }
+      }}
+      onToggleEdit={() => handleMetricEdit(definition.key)}
+      systolicDraft={systolicDraft}
+      value={metricValues[definition.key] ?? ''}
+    />
+  ));
 
   return (
     <View ref={screenViewportRef} style={styles.root}>
@@ -522,11 +728,19 @@ export default function OCRResultScreen() {
         ]}
         keyboardDismissMode="none"
         keyboardShouldPersistTaps="always"
+        onContentSizeChange={scrollIndicator.onContentSizeChange}
+        onLayout={scrollIndicator.onLayout}
+        onMomentumScrollBegin={scrollIndicator.onMomentumScrollBegin}
+        onMomentumScrollEnd={scrollIndicator.onMomentumScrollEnd}
         onScroll={(event) => {
           screenScrollY.current = event.nativeEvent.contentOffset.y;
+          scrollIndicator.onScroll(event);
         }}
+        onScrollBeginDrag={scrollIndicator.onScrollBeginDrag}
+        onScrollEndDrag={scrollIndicator.onScrollEndDrag}
         overScrollMode="never"
         ref={screenScrollRef}
+        scrollEnabled={!isInnerScrollActive}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
       >
@@ -535,7 +749,7 @@ export default function OCRResultScreen() {
             <BackButton onPress={() => router.back()} size={44} style={styles.backButton} />
             <Text style={styles.screenTitle}>OCR 결과 확인</Text>
             <View style={styles.stepPosition}>
-              <ResultStepIndicator />
+              <ResultStepIndicator current={currentIndex + 1} total={results.length} />
             </View>
 
             <View style={styles.completionSection}>
@@ -586,30 +800,40 @@ export default function OCRResultScreen() {
             <AppCard bordered padding="none" style={styles.extractedCard}>
               <View style={styles.extractedContent}>
                 <Text style={styles.cardTitle}>추출된 데이터</Text>
-                <View style={styles.metricListContent}>
-                  {healthMetricDefinitions.map((definition) => (
-                    <MetricRow
-                      key={definition.key}
-                      definition={definition}
-                      diastolicDraft={diastolicDraft}
-                      draftValue={editingMetricKey === definition.key ? draftValue : ''}
-                      isEditing={editingMetricKey === definition.key}
-                      onChangeDraft={setDraftValue}
-                      onChangeDiastolicDraft={setDiastolicDraft}
-                      onChangeSystolicDraft={setSystolicDraft}
-                      onRowRef={(instance) => {
-                        if (instance) {
-                          metricRowRefs.current[definition.key] = instance;
-                        } else {
-                          delete metricRowRefs.current[definition.key];
-                        }
-                      }}
-                      onToggleEdit={() => handleMetricEdit(definition.key)}
-                      systolicDraft={systolicDraft}
-                      value={metricValues[definition.key]}
+                {currentResult.type === 'inbody' ? (
+                  <View style={styles.inbodyMetricListContainer}>
+                    <ScrollView
+                      key={currentResult.id}
+                      ref={inbodyScrollRef}
+                      bounces={false}
+                      contentContainerStyle={styles.metricListContent}
+                      keyboardShouldPersistTaps="always"
+                      nestedScrollEnabled
+                      onContentSizeChange={innerScrollIndicator.onContentSizeChange}
+                      onLayout={innerScrollIndicator.onLayout}
+                      onMomentumScrollBegin={innerScrollIndicator.onMomentumScrollBegin}
+                      onMomentumScrollEnd={innerScrollIndicator.onMomentumScrollEnd}
+                      onScroll={innerScrollIndicator.onScroll}
+                      onResponderTerminate={() => setParentScrollLocked(false)}
+                      onScrollBeginDrag={innerScrollIndicator.onScrollBeginDrag}
+                      onScrollEndDrag={innerScrollIndicator.onScrollEndDrag}
+                      onTouchCancel={() => setParentScrollLocked(false)}
+                      onTouchEnd={() => setParentScrollLocked(false)}
+                      onTouchStart={() => setParentScrollLocked(true)}
+                      scrollEventThrottle={16}
+                      showsVerticalScrollIndicator={false}
+                      style={[styles.inbodyMetricList, webInnerScrollStyle]}
+                    >
+                      {metricRows}
+                    </ScrollView>
+                    <CustomScrollIndicator
+                      {...innerScrollIndicator.indicatorProps}
+                      rightInset={-5}
                     />
-                  ))}
-                </View>
+                  </View>
+                ) : (
+                  <View style={styles.metricListContent}>{metricRows}</View>
+                )}
                 <View style={styles.privacyBox}>
                   <ShieldCheckIcon fill={colors.primary} height={24} width={24} />
                   <Text style={styles.privacyText}>
@@ -623,7 +847,7 @@ export default function OCRResultScreen() {
 
             <Pressable
               accessibilityRole="button"
-              onPress={() => undefined}
+              onPress={handleNext}
               style={({ pressed }) => [styles.nextButton, pressed && styles.pressed]}
             >
               <Text style={styles.nextButtonText}>다음</Text>
@@ -631,6 +855,7 @@ export default function OCRResultScreen() {
           </View>
         </View>
       </ScrollView>
+      <CustomScrollIndicator {...scrollIndicator.indicatorProps} />
       <AppBottomSheet
         contentStyle={styles.reuploadSheetContent}
         handleStyle={styles.reuploadSheetHandle}
@@ -881,6 +1106,15 @@ const styles = StyleSheet.create({
   metricListContent: {
     gap: 12,
     paddingRight: 2,
+  },
+  inbodyMetricList: {
+    flex: 1,
+    width: '100%',
+  },
+  inbodyMetricListContainer: {
+    height: 328,
+    position: 'relative',
+    width: 341,
   },
   metricRow: {
     alignItems: 'center',

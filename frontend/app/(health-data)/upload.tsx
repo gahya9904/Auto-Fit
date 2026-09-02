@@ -15,7 +15,11 @@ import CameraIcon from '@/assets/icons/system/Camera.svg';
 import DocumentIcon from '@/assets/icons/system/Document.svg';
 import FolderIcon from '@/assets/icons/system/Folder.svg';
 import TrashIcon from '@/assets/icons/common/Trash.svg';
-import { AppCard } from '@/src/components/common';
+import {
+  AppCard,
+  CustomScrollIndicator,
+  useCustomScrollIndicator,
+} from '@/src/components/common';
 import { HealthUploadOptionCard } from '@/src/features/health-data/HealthUploadOptionCard';
 import {
   type SelectedHealthFile,
@@ -120,6 +124,7 @@ export default function HealthDataUploadScreen() {
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { isSelecting, pickDocument, removeFile, selectedFiles, takePhoto } = useHealthFilePicker();
+  const scrollIndicator = useCustomScrollIndicator();
 
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
   const scale = Math.min(1, availableWidth / referenceWidth);
@@ -134,14 +139,10 @@ export default function HealthDataUploadScreen() {
 
     console.log('selectedFiles', selectedFiles);
     // TODO: OCR API 연동
-    const selectedFile = selectedFiles[0];
     router.push({
       pathname: '/ocr-result',
       params: {
-        fileMimeType: selectedFile.mimeType ?? '',
-        fileName: selectedFile.name,
-        fileSource: selectedFile.source,
-        fileUri: selectedFile.uri,
+        files: JSON.stringify(selectedFiles),
       },
     });
   }, [router, selectedFiles]);
@@ -164,7 +165,15 @@ export default function HealthDataUploadScreen() {
             paddingTop: safeTopAdjustment,
           },
         ]}
+        onContentSizeChange={scrollIndicator.onContentSizeChange}
+        onLayout={scrollIndicator.onLayout}
+        onMomentumScrollBegin={scrollIndicator.onMomentumScrollBegin}
+        onMomentumScrollEnd={scrollIndicator.onMomentumScrollEnd}
+        onScroll={scrollIndicator.onScroll}
+        onScrollBeginDrag={scrollIndicator.onScrollBeginDrag}
+        onScrollEndDrag={scrollIndicator.onScrollEndDrag}
         overScrollMode="never"
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ height: canvasHeight, width: referenceWidth * scale }}>
@@ -261,6 +270,7 @@ export default function HealthDataUploadScreen() {
           </View>
         </View>
       </ScrollView>
+      <CustomScrollIndicator {...scrollIndicator.indicatorProps} />
     </View>
   );
 }
