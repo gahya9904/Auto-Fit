@@ -661,7 +661,7 @@ export default function OCRResultScreen() {
 
     if (currentIndex >= results.length - 1) {
       Keyboard.dismiss();
-      router.replace('/home');
+      router.push('/total-analysis');
       return;
     }
 
