@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
+  Animated,
   Dimensions,
   Image,
   Platform,
@@ -198,6 +199,10 @@ function Chip({
 export default function TotalAnalysisScreen() {
   const router = useRouter();
 
+  const [sectionAnimations] = useState(() =>
+    Array.from({ length: 5 }, () => new Animated.Value(0)),
+  );
+
   const insets = useSafeAreaInsets();
 
   const {
@@ -336,6 +341,39 @@ export default function TotalAnalysisScreen() {
       showInitially: true,
     });
 
+  useFocusEffect(
+    useCallback(() => {
+      sectionAnimations.forEach((animation) => animation.setValue(0));
+
+      const entranceAnimation = Animated.stagger(
+        160,
+        sectionAnimations.map((animation) =>
+          Animated.timing(animation, {
+            duration: 340,
+            toValue: 1,
+            useNativeDriver: true,
+          }),
+        ),
+      );
+
+      entranceAnimation.start();
+
+      return () => entranceAnimation.stop();
+    }, [sectionAnimations]),
+  );
+
+  const sectionEntranceStyle = (animation: Animated.Value) => ({
+    opacity: animation,
+    transform: [
+      {
+        translateY: animation.interpolate({
+          inputRange: [0, 1],
+          outputRange: [10, 0],
+        }),
+      },
+    ],
+  });
+
   return (
     <View style={s.root}>
       <Image
@@ -462,7 +500,12 @@ export default function TotalAnalysisScreen() {
                 },
               ]}
             >
-              <View style={s.summary}>
+              <Animated.View
+                style={[
+                  s.summary,
+                  sectionEntranceStyle(sectionAnimations[0]),
+                ]}
+              >
                 <View style={s.summaryIcon}>
                   <ClipboardIcon
                     fill={colors.primary}
@@ -498,9 +541,14 @@ export default function TotalAnalysisScreen() {
                     줄이는 방향이 더 적절해요.
                   </Text>
                 </View>
-              </View>
+              </Animated.View>
 
-              <View style={s.compare}>
+              <Animated.View
+                style={[
+                  s.compare,
+                  sectionEntranceStyle(sectionAnimations[1]),
+                ]}
+              >
                 <View style={s.goal}>
                   <Text style={s.compareHead}>
                     선택한 목표
@@ -594,9 +642,14 @@ export default function TotalAnalysisScreen() {
                     </View>
                   </View>
                 </View>
-              </View>
+              </Animated.View>
 
-              <View style={s.reasonSection}>
+              <Animated.View
+                style={[
+                  s.reasonSection,
+                  sectionEntranceStyle(sectionAnimations[2]),
+                ]}
+              >
                 <View style={s.reasonHeader}>
                   <View
                     style={
@@ -652,9 +705,14 @@ export default function TotalAnalysisScreen() {
                     text="체중 감량과 함께 식단 조절과 활동량 관리가 함께 필요해요."
                   />
                 </View>
-              </View>
+              </Animated.View>
 
-              <View style={s.strategy}>
+              <Animated.View
+                style={[
+                  s.strategy,
+                  sectionEntranceStyle(sectionAnimations[3]),
+                ]}
+              >
                 <View
                   pointerEvents="none"
                   style={
@@ -745,8 +803,11 @@ export default function TotalAnalysisScreen() {
                   </Text>
                   에 더 초점을 두었어요.
                 </Text>
-              </View>
+              </Animated.View>
 
+              <Animated.View
+                style={sectionEntranceStyle(sectionAnimations[4])}
+              >
               <Pressable
                 onPress={() =>
                   router.push('/start-move')
@@ -805,6 +866,7 @@ export default function TotalAnalysisScreen() {
                   />
                 </View>
               </Pressable>
+              </Animated.View>
             </View>
           </View>
         </View>

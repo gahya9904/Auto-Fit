@@ -15,13 +15,13 @@ import DietIcon from '@/assets/icons/feature/navigator/Diet.svg';
 import ExerciseIcon from '@/assets/icons/feature/navigator/Exercise.svg';
 import HomeIcon from '@/assets/icons/feature/navigator/Home.svg';
 import MyIcon from '@/assets/icons/feature/navigator/My.svg';
-import { colors, radius, shadows, spacing, typography } from '@/src/theme';
+import { colors, fontFamilies, shadows, spacing } from '@/src/theme';
 
-export const BOTTOM_NAVIGATION_VISUAL_HEIGHT = 80;
+export const BOTTOM_NAVIGATION_VISUAL_HEIGHT = 70;
 export const BOTTOM_NAVIGATION_MIN_BOTTOM_GAP = spacing.sm;
-const minimumBottomNavigationVisualHeight = 68;
+const minimumBottomNavigationVisualHeight = 64;
 const referenceScreenHeight = 917;
-const visualHeightReductionRatio = 0.12;
+const visualHeightReductionRatio = 0.04;
 
 export function getBottomNavigationVisualHeight(windowHeight: number) {
   return Math.max(
@@ -32,12 +32,7 @@ export function getBottomNavigationVisualHeight(windowHeight: number) {
 }
 
 const bottomNavigationShadow: ViewStyle =
-  Platform.OS === 'android'
-    ? {
-        elevation: 1,
-        shadowColor: 'rgba(0, 0, 0, 0.12)',
-      }
-    : shadows.card;
+  Platform.OS === 'android' ? {} : shadows.card;
 
 const tabMeta = {
   home: { label: '홈', Icon: HomeIcon },
@@ -70,7 +65,7 @@ export function BottomNavigation({
   const { height: windowHeight } = useWindowDimensions();
   const navigationRef = useRef<View>(null);
   const visualHeight = getBottomNavigationVisualHeight(windowHeight);
-  const itemGap = Math.max(3, spacing.xs - (BOTTOM_NAVIGATION_VISUAL_HEIGHT - visualHeight) / 8);
+  const itemHeight = visualHeight - 10;
   const measureNavigation = useCallback(() => {
     navigationRef.current?.measureInWindow((x, y, width, height) => {
       onNavigationLayout?.({ height, width, x, y });
@@ -86,7 +81,13 @@ export function BottomNavigation({
         { paddingBottom: Math.max(insets.bottom, BOTTOM_NAVIGATION_MIN_BOTTOM_GAP) },
       ]}
     >
-      <View style={[styles.bar, bottomNavigationShadow, { height: visualHeight }]}>
+      {Platform.OS === 'android' ? (
+        <View
+          pointerEvents="none"
+          style={[styles.androidShadowLayer, { height: visualHeight }]}
+        />
+      ) : null}
+      <View style={[styles.bar, bottomNavigationShadow, { height: visualHeight }]}> 
         {state.routes.map((route, index) => {
           const meta = tabMeta[route.name as keyof typeof tabMeta];
           if (!meta) return null;
@@ -114,9 +115,14 @@ export function BottomNavigation({
               accessibilityState={isFocused ? { selected: true } : {}}
               onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
               onPress={onPress}
-              style={({ pressed }) => [styles.item, { gap: itemGap }, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.item,
+                { height: itemHeight },
+                isFocused && styles.itemActive,
+                pressed && styles.pressed,
+              ]}
             >
-              <Icon color={color} height={32} width={32} />
+              <Icon color={color} height={27} width={27} />
               <Text style={[styles.label, { color }]}>{meta.label}</Text>
             </Pressable>
           );
@@ -139,10 +145,34 @@ const styles = StyleSheet.create({
   },
   bar: {
     backgroundColor: colors.surface,
-    borderRadius: radius.xl,
+    borderRadius: 30,
     flexDirection: 'row',
+    padding: 5,
+    zIndex: 1,
   },
-  item: { alignItems: 'center', flex: 1, justifyContent: 'center', minWidth: 64 },
-  label: { ...typography.body, includeFontPadding: false, lineHeight: 18 },
+  androidShadowLayer: {
+    backgroundColor: colors.surface,
+    borderRadius: 30,
+    boxShadow: '0px 0px 10px rgba(0, 0, 0, 0.10)',
+    elevation: 0,
+    left: 6,
+    position: 'absolute',
+    right: 6,
+  },
+  item: {
+    alignItems: 'center',
+    borderRadius: 30,
+    flex: 1,
+    gap: 5,
+    justifyContent: 'center',
+    minWidth: 64,
+  },
+  itemActive: { backgroundColor: 'rgba(232, 248, 244, 0.5)' },
+  label: {
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 12,
+    includeFontPadding: false,
+    lineHeight: 15,
+  },
   pressed: { backgroundColor: colors.primaryLight },
 });

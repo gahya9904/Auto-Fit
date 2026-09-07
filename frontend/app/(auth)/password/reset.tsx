@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { Dimensions, Keyboard, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import EyeCloseIcon from '@/assets/icons/input/EyeClose.svg';
+import EyeIcon from '@/assets/icons/input/Eye.svg';
 import PasswordIcon from '@/assets/icons/input/Password.svg';
 import CheckCircleIcon from '@/assets/icons/system/CheckCircle.svg';
 import { PasswordAuthScreenLayout, PasswordAuthSection } from '@/src/components/auth';
@@ -78,7 +79,13 @@ export default function ResetPasswordScreen() {
           rightElement={
             <IconButton
               accessibilityLabel={passwordVisible ? '새 비밀번호 숨기기' : '새 비밀번호 보기'}
-              icon={<EyeCloseIcon color={colors.textNavigator} height={18} width={18} />}
+              icon={
+                passwordVisible ? (
+                  <EyeIcon color={colors.textNavigator} height={18} width={18} />
+                ) : (
+                  <EyeCloseIcon color={colors.textNavigator} height={18} width={18} />
+                )
+              }
               onPress={() => setPasswordVisible((visible) => !visible)}
               size={44}
               style={styles.eyeButton}
@@ -103,7 +110,13 @@ export default function ResetPasswordScreen() {
               accessibilityLabel={
                 confirmationVisible ? '비밀번호 확인 숨기기' : '비밀번호 확인 보기'
               }
-              icon={<EyeCloseIcon color={colors.textNavigator} height={18} width={18} />}
+              icon={
+                confirmationVisible ? (
+                  <EyeIcon color={colors.textNavigator} height={18} width={18} />
+                ) : (
+                  <EyeCloseIcon color={colors.textNavigator} height={18} width={18} />
+                )
+              }
               onPress={() => setConfirmationVisible((visible) => !visible)}
               size={44}
               style={styles.eyeButton}

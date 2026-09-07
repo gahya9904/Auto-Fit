@@ -18,6 +18,7 @@ import type { SvgProps } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import EmailIcon from '@/assets/icons/input/Email.svg';
+import EyeIcon from '@/assets/icons/input/Eye.svg';
 import EyeCloseIcon from '@/assets/icons/input/EyeClose.svg';
 import PasswordIcon from '@/assets/icons/input/Password.svg';
 import LogoIcon from '@/assets/icons/Logo_Auto-Fit.svg';
@@ -283,11 +284,19 @@ export default function LoginScreen() {
                           : '비밀번호 보기'
                       }
                       icon={
-                        <EyeCloseIcon
-                          color={colors.textNavigator}
-                          height={18}
-                          width={18}
-                        />
+                        passwordVisible ? (
+                          <EyeIcon
+                            color={colors.textNavigator}
+                            height={18}
+                            width={18}
+                          />
+                        ) : (
+                          <EyeCloseIcon
+                            color={colors.textNavigator}
+                            height={18}
+                            width={18}
+                          />
+                        )
                       }
                       onPress={() =>
                         setPasswordVisible(

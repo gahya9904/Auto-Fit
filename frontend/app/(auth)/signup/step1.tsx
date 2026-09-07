@@ -5,13 +5,14 @@ import { Dimensions, Platform, Pressable, StyleSheet, Text, TextInput, useWindow
 import DownIcon from '@/assets/icons/common/chevrons/Down.svg';
 import CalendarIcon from '@/assets/icons/input/Calendar.svg';
 import EmailIcon from '@/assets/icons/input/Email.svg';
+import EyeIcon from '@/assets/icons/input/Eye.svg';
 import EyeCloseIcon from '@/assets/icons/input/EyeClose.svg';
 import FemaleIcon from '@/assets/icons/input/gender/Gender_Female.svg';
 import MaleIcon from '@/assets/icons/input/gender/Gender_Male.svg';
 import PasswordIcon from '@/assets/icons/input/Password.svg';
 import UserIcon from '@/assets/icons/input/User.svg';
 import CheckIcon from '@/assets/icons/system/Check.svg';
-import { SignUpScreenLayout, SignUpSection } from '@/src/components/auth';
+import { BirthDatePicker, SignUpScreenLayout, SignUpSection } from '@/src/components/auth';
 import { AppTextField, IconButton, SelectField } from '@/src/components/common';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
@@ -19,6 +20,15 @@ type Gender = 'male' | 'female';
 
 const minimumScreenHeight = 740;
 const maximumScreenHeight = 917;
+const defaultBirthday = new Date();
+
+function formatBirthday(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}.${month}.${day}`;
+}
 
 export default function SignUpStep1Screen() {
   const router = useRouter();
@@ -30,7 +40,8 @@ export default function SignUpStep1Screen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
-  const [birthday, setBirthday] = useState<string>();
+  const [birthday, setBirthday] = useState<Date>();
+  const [birthdayPickerVisible, setBirthdayPickerVisible] = useState(false);
   const [gender, setGender] = useState<Gender>('male');
   const [agreed, setAgreed] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -51,6 +62,10 @@ export default function SignUpStep1Screen() {
 
   const goNext = () => {
     router.push({ pathname: '/signup/step2', params: { email: email || 'user@example.com' } });
+  };
+
+  const openBirthdayPicker = () => {
+    setBirthdayPickerVisible(true);
   };
 
   return (
@@ -141,10 +156,10 @@ export default function SignUpStep1Screen() {
               icon={<CalendarIcon color={colors.textNavigator} height={17} width={17} />}
             />
           }
-          onPress={() => setBirthday((value) => value ?? '1990. 01. 01')}
+          onPress={openBirthdayPicker}
           placeholder="생년월일을 선택해주세요"
           placeholderTextColor={colors.textNavigator}
-          value={birthday}
+          value={birthday ? formatBirthday(birthday) : undefined}
         />
         <View style={styles.genderField}>
           <Text style={styles.genderLabel}>성별</Text>
@@ -191,6 +206,16 @@ export default function SignUpStep1Screen() {
           <DownIcon color={colors.textSecondary} height={17} width={17} />
         </Pressable>
       </SignUpSection>
+      <BirthDatePicker
+        maximumDate={new Date()}
+        onCancel={() => setBirthdayPickerVisible(false)}
+        onConfirm={(date) => {
+          setBirthday(date);
+          setBirthdayPickerVisible(false);
+        }}
+        value={birthday ?? defaultBirthday}
+        visible={birthdayPickerVisible}
+      />
     </SignUpScreenLayout>
   );
 }
@@ -203,7 +228,13 @@ function PasswordVisibilityButton({ visible, onPress }: { visible: boolean; onPr
   return (
     <IconButton
       accessibilityLabel={visible ? '비밀번호 숨기기' : '비밀번호 보기'}
-      icon={<EyeCloseIcon color={colors.textNavigator} height={18} width={18} />}
+      icon={
+        visible ? (
+          <EyeIcon color={colors.textNavigator} height={18} width={18} />
+        ) : (
+          <EyeCloseIcon color={colors.textNavigator} height={18} width={18} />
+        )
+      }
       onPress={onPress}
       size={44}
       style={styles.eyeButton}
