@@ -350,7 +350,15 @@ function MetricRow({
 }) {
   const { Icon } = definition;
   const iconColorProps =
-    definition.iconKind === 'fill' ? { fill: colors.primary } : { stroke: colors.primary };
+    definition.iconKind === 'fill' 
+    ? { 
+        fill: colors.primary,
+        color: colors.primary
+      } 
+    : { 
+        stroke: colors.primary,
+        color: colors.primary
+      };
 
   return (
     <View ref={onRowRef} style={styles.metricRow}>
