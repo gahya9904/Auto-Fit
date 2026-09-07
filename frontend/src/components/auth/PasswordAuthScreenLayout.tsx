@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import {
   Image,
+  Dimensions,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -16,12 +17,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import LogoIcon from '@/assets/icons/Logo_Auto-Fit.svg';
 import { BackButton } from '@/src/components/common';
-import { colors, spacing, typography } from '@/src/theme';
+import { colors, typography } from '@/src/theme';
 
 const authBackground = require('../../../assets/images/backgrounds/2_Auth.png');
 const referenceContentHeight = 815;
+const referenceWidth = 412;
 const referenceBackTop = 67;
-const minimumContentScale = 0.76;
+const minimumScreenHeight = 740;
+const maximumScreenHeight = 917;
 
 export interface PasswordAuthScreenLayoutProps {
   title: string;
@@ -57,14 +60,20 @@ export function PasswordAuthScreenLayout({
   children,
 }: PasswordAuthScreenLayoutProps) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const topSafetyOffset = Math.max(0, insets.top - referenceBackTop);
-  const bottomClearance = Math.max(spacing.lg, insets.bottom);
-  const availableContentHeight = Math.max(0, windowHeight - topSafetyOffset - bottomClearance);
-  const contentScale = Math.max(
-    minimumContentScale,
-    Math.min(1, availableContentHeight / referenceContentHeight),
+  const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
+  const widthScale = Math.min(1, availableWidth / referenceWidth);
+  const scaledWidth = referenceWidth * widthScale;
+  const canvasLeft = insets.left + (availableWidth - scaledWidth) / 2;
+  const screenHeight = Dimensions.get('screen').height;
+  const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
   );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
 
   return (
     <View style={styles.root}>
@@ -79,19 +88,26 @@ export function PasswordAuthScreenLayout({
         style={styles.keyboardAvoidingView}
       >
         <Pressable accessible={false} onPress={Keyboard.dismiss} style={styles.dismissArea}>
-          <View style={[styles.viewport, { paddingTop: topSafetyOffset }]}>
-            <View style={[styles.scaledSlot, { height: referenceContentHeight * contentScale }]}>
-              <View style={[styles.contentUnit, { transform: [{ scale: contentScale }] }]}>
+          <View style={styles.viewport}>
+            <View
+              style={[
+                styles.contentUnit,
+                {
+                  left: canvasLeft,
+                  top: topSafetyOffset,
+                  transform: [{ scale: widthScale }],
+                },
+              ]}
+            >
                 <View style={styles.backButton}>
                   <BackButton onPress={onBack} size={44} />
                 </View>
-                <View style={styles.brand}>
+                <View style={[styles.brand, { top: verticalValue(69, 54) }]}>
                   <LogoIcon accessibilityLabel="Auto-Fit 로고" height={62} width={65} />
                   <Text style={styles.title}>{title}</Text>
                   <Text style={styles.description}>{description}</Text>
                 </View>
                 {children}
-              </View>
             </View>
           </View>
         </Pressable>
@@ -131,14 +147,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     width: '100%',
   },
-  scaledSlot: {
-    alignItems: 'center',
-    width: '100%',
-  },
   contentUnit: {
     height: referenceContentHeight,
-    transformOrigin: 'top center',
-    width: '100%',
+    position: 'absolute',
+    transformOrigin: 'top left',
+    width: referenceWidth,
   },
   backButton: {
     left: 0,

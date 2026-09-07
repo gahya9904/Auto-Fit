@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Keyboard, Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Dimensions, Keyboard, Platform, StyleSheet, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
 
 import EmailIcon from '@/assets/icons/input/Email.svg';
 import ShieldCheckIcon from '@/assets/icons/system/ShieldCheck.svg';
@@ -19,9 +19,39 @@ const securityCardShadow: ViewStyle =
         shadowRadius: 2.5,
       };
 
+const minimumScreenHeight = 740;
+const maximumScreenHeight = 917;
+const passwordHeaderVisualHeight = 183;
+
 export default function ForgotPasswordScreen() {
   const router = useRouter();
+  const { height: windowHeight } = useWindowDimensions();
   const [email, setEmail] = useState('');
+  const screenHeight = Dimensions.get('screen').height;
+  const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+  );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
+  const passwordHeaderBottom = verticalValue(69, 54) + passwordHeaderVisualHeight;
+  const emailContentTop = Math.max(
+    verticalValue(317, 225),
+    passwordHeaderBottom + 20,
+  );
+  const securityCardTop = Math.max(
+    verticalValue(468, 390),
+    emailContentTop + 112 + 18,
+  );
+  const dividerTop = Math.max(
+    verticalValue(570, 480),
+    securityCardTop + 74 + 18,
+  );
+  const deliveryHelpTop = Math.max(
+    verticalValue(608, 520),
+    dividerTop + 26,
+  );
 
   const openResetPassword = () => {
     Keyboard.dismiss();
@@ -38,7 +68,7 @@ export default function ForgotPasswordScreen() {
       onBack={() => router.back()}
       title="비밀번호 찾기"
     >
-      <PasswordAuthSection innerStyle={styles.emailContent} top={317}>
+      <PasswordAuthSection innerStyle={styles.emailContent} top={emailContentTop}>
         <AppTextField
           accessibilityLabel="가입 이메일"
           autoCapitalize="none"
@@ -60,7 +90,7 @@ export default function ForgotPasswordScreen() {
         <AppButton onPress={openResetPassword} title="인증 메일 보내기" />
       </PasswordAuthSection>
 
-      <PasswordAuthSection innerStyle={styles.securityCard} top={468}>
+      <PasswordAuthSection innerStyle={styles.securityCard} top={securityCardTop}>
         <View style={styles.securityIconCircle}>
           <ShieldCheckIcon color={colors.primary} height={30} width={30} />
         </View>
@@ -73,11 +103,11 @@ export default function ForgotPasswordScreen() {
         </View>
       </PasswordAuthSection>
 
-      <PasswordAuthSection innerStyle={styles.divider} top={570}>
+      <PasswordAuthSection innerStyle={styles.divider} top={dividerTop}>
         <View style={styles.dividerLine} />
       </PasswordAuthSection>
 
-      <PasswordAuthSection innerStyle={styles.deliveryHelp} top={608}>
+      <PasswordAuthSection innerStyle={styles.deliveryHelp} top={deliveryHelpTop}>
         <View style={styles.emailBadge}>
           <EmailIcon color={colors.primary} height={15} width={15} />
         </View>

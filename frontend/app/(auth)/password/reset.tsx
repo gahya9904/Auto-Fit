@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Dimensions, Keyboard, Platform, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import EyeCloseIcon from '@/assets/icons/input/EyeClose.svg';
 import PasswordIcon from '@/assets/icons/input/Password.svg';
@@ -15,14 +15,40 @@ const passwordConditions = [
   '연속되거나 반복되는 문자 사용은 피해주세요.',
 ] as const;
 
+const minimumScreenHeight = 740;
+const maximumScreenHeight = 917;
+const passwordHeaderVisualHeight = 183;
+
 export default function ResetPasswordScreen() {
   const router = useRouter();
+  const { height: windowHeight } = useWindowDimensions();
   const confirmationRef = useRef<TextInput>(null);
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmationVisible, setConfirmationVisible] = useState(false);
   const passwordsMatch = confirmation.length === 0 || password === confirmation;
+  const screenHeight = Dimensions.get('screen').height;
+  const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+  );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
+  const passwordHeaderBottom = verticalValue(69, 54) + passwordHeaderVisualHeight;
+  const passwordContentTop = Math.max(
+    verticalValue(316, 220),
+    passwordHeaderBottom + 20,
+  );
+  const conditionCardTop = Math.max(
+    verticalValue(462, 385),
+    passwordContentTop + 122 + 20,
+  );
+  const changeButtonTop = Math.max(
+    verticalValue(700, 610),
+    conditionCardTop + 120 + 25,
+  );
 
   const completeReset = () => {
     Keyboard.dismiss();
@@ -39,7 +65,7 @@ export default function ResetPasswordScreen() {
       onBack={() => router.back()}
       title="비밀번호 재설정"
     >
-      <PasswordAuthSection innerStyle={styles.passwordContent} top={316}>
+      <PasswordAuthSection innerStyle={styles.passwordContent} top={passwordContentTop}>
         <AppTextField
           accessibilityLabel="새 비밀번호"
           autoCapitalize="none"
@@ -89,7 +115,7 @@ export default function ResetPasswordScreen() {
         />
       </PasswordAuthSection>
 
-      <PasswordAuthSection innerStyle={styles.conditionCard} top={462}>
+      <PasswordAuthSection innerStyle={styles.conditionCard} top={conditionCardTop}>
         <Text style={styles.conditionTitle}>비밀번호 조건</Text>
         {passwordConditions.map((condition) => (
           <View key={condition} style={styles.conditionRow}>
@@ -99,7 +125,7 @@ export default function ResetPasswordScreen() {
         ))}
       </PasswordAuthSection>
 
-      <PasswordAuthSection top={700}>
+      <PasswordAuthSection top={changeButtonTop}>
         <AppButton disabled={!passwordsMatch} onPress={completeReset} title="비밀번호 변경" />
       </PasswordAuthSection>
     </PasswordAuthScreenLayout>

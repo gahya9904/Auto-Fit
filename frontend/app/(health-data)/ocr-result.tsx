@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
+  Dimensions,
   Image,
   Keyboard,
   Platform,
@@ -59,6 +60,9 @@ const referenceWidth = 412;
 const referenceHeight = 917;
 const referenceTitleTop = 38;
 const keyboardSafeGap = 16;
+const baseBottomContentPadding = 20;
+const minimumScreenHeight = 740;
+const maximumScreenHeight = 917;
 const webInnerScrollStyle =
   Platform.OS === 'web' ? ({ overscrollBehavior: 'contain' } as ViewStyle) : undefined;
 
@@ -446,21 +450,58 @@ export default function OCRResultScreen() {
   const [diastolicDraft, setDiastolicDraft] = useState('');
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0); // 추가
+  const [keyboardCanvasOffset, setKeyboardCanvasOffset] = useState(0);
+  const [measuredContentBottom, setMeasuredContentBottom] = useState(0);
   const correctionFrame = useRef<number | null>(null);
   const editingMetricKeyRef = useRef<OCRMetricKey | null>(null);
   const metricRowRefs = useRef<Partial<Record<OCRMetricKey, View>>>({});
   const inbodyScrollRef = useRef<ScrollView>(null);
-  const screenScrollRef = useRef<ScrollView>(null);
-  const screenScrollY = useRef(0);
+  const keyboardCanvasOffsetRef = useRef(0);
   const screenViewportRef = useRef<View>(null);
-  const innerTouchActiveRef = useRef(false);
   const innerScrollIndicator = useCustomScrollIndicator();
-  const scrollIndicator = useCustomScrollIndicator();
 
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
-  const scale = Math.min(1, availableWidth / referenceWidth);
+  const widthScale = Math.min(1, availableWidth / referenceWidth);
+  const scale = widthScale;
+  const scaledWidth = referenceWidth * widthScale;
+  const canvasLeft = insets.left + (availableWidth - scaledWidth) / 2;
   const safeTopAdjustment = Math.max(0, insets.top + 8 - referenceTitleTop * scale);
-  const canvasHeight = referenceHeight * scale;
+  const screenHeight = Dimensions.get('screen').height;
+  const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+  );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
+  const completionTop = verticalValue(114, 92);
+  const stepIndicatorTop = verticalValue(75, 65);
+  const uploadFileTop = Math.max(
+    verticalValue(204, 170),
+    completionTop + 50 + 20,
+  );
+  const extractedCardTop = Math.max(
+    verticalValue(359, 300),
+    uploadFileTop + 135 + 16,
+  );
+  const nextButtonTop = Math.max(
+    verticalValue(830, 780),
+    extractedCardTop + 450 + 15,
+  );
+  const contentBottom = Math.max(
+    measuredContentBottom,
+    nextButtonTop + 45,
+  );
+  const bottomContentPadding = baseBottomContentPadding + insets.bottom;
+  const contentViewportHeight =
+    safeTopAdjustment + contentBottom * scale;
+  const renderedContentHeight =
+    contentViewportHeight + bottomContentPadding;
+  const needsScroll = contentViewportHeight > windowHeight;
+  const scrollIndicator = useCustomScrollIndicator({
+    enabled: needsScroll,
+    showInitially: true,
+  });
   const currentResult = results[currentIndex];
   const metricDefinitions =
     currentResult.type === 'health_checkup' ? healthMetricDefinitions : inbodyMetricDefinitions;
@@ -473,23 +514,13 @@ export default function OCRResultScreen() {
   const uploadTimestamp = currentResult.uploadedAt ?? '2026. 08. 11 09:13';
   const hasImagePreview = uploadedFile.uri.length > 0 && isImageFile(uploadedFile);
 
-  const setParentScrollLocked = useCallback((locked: boolean) => {
-    if (innerTouchActiveRef.current === locked) return;
-
-    innerTouchActiveRef.current = locked;
-    screenScrollRef.current?.setNativeProps({ scrollEnabled: !locked });
-    setIsInnerScrollActive(locked);
-  }, []);
-
   const centerFocusedRow = useCallback(
   (key: OCRMetricKey, activeKeyboardTop: number) => {
     const row = metricRowRefs.current[key];
-    const scrollView = screenScrollRef.current;
     const viewport = screenViewportRef.current;
 
     if (
       !row ||
-      !scrollView ||
       !viewport ||
       editingMetricKeyRef.current !== key
     ) {
@@ -521,17 +552,13 @@ export default function OCRResultScreen() {
             // Row 중심을 화면 중심으로 옮기기 위해 필요한 거리
             const deltaY = rowCenter - visibleCenter;
 
-            const targetY = Math.max(
+            const targetOffset = Math.max(
               0,
-              screenScrollY.current + deltaY,
+              keyboardCanvasOffsetRef.current + deltaY,
             );
 
-            screenScrollY.current = targetY;
-
-            scrollView.scrollTo({
-              animated: false,
-              y: targetY,
-            });
+            keyboardCanvasOffsetRef.current = targetOffset;
+            setKeyboardCanvasOffset(targetOffset);
           },
         );
       },
@@ -548,6 +575,8 @@ export default function OCRResultScreen() {
     const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
       setKeyboardTop(null);
       setKeyboardHeight(0); // 추가
+      keyboardCanvasOffsetRef.current = 0;
+      setKeyboardCanvasOffset(0);
       if (correctionFrame.current !== null) {
         cancelAnimationFrame(correctionFrame.current);
         correctionFrame.current = null;
@@ -673,12 +702,11 @@ export default function OCRResultScreen() {
     setDraftValue('');
     setSystolicDraft('');
     setDiastolicDraft('');
-    setIsInnerScrollActive(false);
     setCurrentIndex(nextIndex);
     setMetricValues({ ...nextResult.data });
     inbodyScrollRef.current?.scrollTo({ animated: false, y: 0 });
-    screenScrollY.current = 0;
-    screenScrollRef.current?.scrollTo({ animated: false, y: 0 });
+    keyboardCanvasOffsetRef.current = 0;
+    setKeyboardCanvasOffset(0);
     Keyboard.dismiss();
   };
 
@@ -718,11 +746,8 @@ export default function OCRResultScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            minHeight: windowHeight,
-            //paddingBottom: insets.bottom,
-            paddingBottom: 
-              insets.bottom +
-              (keyboardHeight > 0 ? keyboardHeight + keyboardSafeGap : 0), // 추가
+            minHeight: Math.max(windowHeight, renderedContentHeight),
+            paddingBottom: bottomContentPadding,
             paddingTop: safeTopAdjustment,
           },
         ]}
@@ -732,27 +757,32 @@ export default function OCRResultScreen() {
         onLayout={scrollIndicator.onLayout}
         onMomentumScrollBegin={scrollIndicator.onMomentumScrollBegin}
         onMomentumScrollEnd={scrollIndicator.onMomentumScrollEnd}
-        onScroll={(event) => {
-          screenScrollY.current = event.nativeEvent.contentOffset.y;
-          scrollIndicator.onScroll(event);
-        }}
+        onScroll={scrollIndicator.onScroll}
         onScrollBeginDrag={scrollIndicator.onScrollBeginDrag}
         onScrollEndDrag={scrollIndicator.onScrollEndDrag}
         overScrollMode="never"
-        ref={screenScrollRef}
-        scrollEnabled={!isInnerScrollActive}
+        scrollEnabled={needsScroll && !isInnerScrollActive}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ height: canvasHeight, width: referenceWidth * scale }}>
-          <View style={[styles.canvas, { transform: [{ scale }] }]}>
+        <View style={[styles.canvasSlot, { height: contentBottom * scale }]}>
+          <View
+            style={[
+              styles.canvas,
+              {
+                left: canvasLeft,
+                top: -keyboardCanvasOffset,
+                transform: [{ scale }],
+              },
+            ]}
+          >
             <BackButton onPress={() => router.back()} size={44} style={styles.backButton} />
             <Text style={styles.screenTitle}>OCR 결과 확인</Text>
-            <View style={styles.stepPosition}>
+            <View style={[styles.stepPosition, { top: stepIndicatorTop }]}>
               <ResultStepIndicator current={currentIndex + 1} total={results.length} />
             </View>
 
-            <View style={styles.completionSection}>
+            <View style={[styles.completionSection, { top: completionTop }]}>
               <View style={styles.completionIconCircle}>
                 <CheckIcon fill={colors.primary} height={32} width={32} />
               </View>
@@ -764,7 +794,7 @@ export default function OCRResultScreen() {
               </View>
             </View>
 
-            <AppCard bordered padding="none" style={styles.uploadFileCard}>
+            <AppCard bordered padding="none" style={[styles.uploadFileCard, { top: uploadFileTop }]}>
               <View style={styles.uploadFileContent}>
                 <Text style={styles.cardTitle}>업로드 파일</Text>
                 <View style={styles.uploadFileBottom}>
@@ -797,7 +827,7 @@ export default function OCRResultScreen() {
               </View>
             </AppCard>
 
-            <AppCard bordered padding="none" style={styles.extractedCard}>
+            <AppCard bordered padding="none" style={[styles.extractedCard, { top: extractedCardTop }]}>
               <View style={styles.extractedContent}>
                 <Text style={styles.cardTitle}>추출된 데이터</Text>
                 {currentResult.type === 'inbody' ? (
@@ -814,12 +844,11 @@ export default function OCRResultScreen() {
                       onMomentumScrollBegin={innerScrollIndicator.onMomentumScrollBegin}
                       onMomentumScrollEnd={innerScrollIndicator.onMomentumScrollEnd}
                       onScroll={innerScrollIndicator.onScroll}
-                      onResponderTerminate={() => setParentScrollLocked(false)}
                       onScrollBeginDrag={innerScrollIndicator.onScrollBeginDrag}
                       onScrollEndDrag={innerScrollIndicator.onScrollEndDrag}
-                      onTouchCancel={() => setParentScrollLocked(false)}
-                      onTouchEnd={() => setParentScrollLocked(false)}
-                      onTouchStart={() => setParentScrollLocked(true)}
+                      onTouchCancel={() => setIsInnerScrollActive(false)}
+                      onTouchEnd={() => setIsInnerScrollActive(false)}
+                      onTouchStart={() => setIsInnerScrollActive(true)}
                       scrollEventThrottle={16}
                       showsVerticalScrollIndicator={false}
                       style={[styles.inbodyMetricList, webInnerScrollStyle]}
@@ -848,14 +877,25 @@ export default function OCRResultScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={handleNext}
-              style={({ pressed }) => [styles.nextButton, pressed && styles.pressed]}
+              onLayout={(event) => {
+                const { height, y } = event.nativeEvent.layout;
+                setMeasuredContentBottom(y + height);
+              }}
+              style={({ pressed }) => [styles.nextButton, { top: nextButtonTop }, pressed && styles.pressed]}
             >
               <Text style={styles.nextButtonText}>다음</Text>
             </Pressable>
           </View>
         </View>
       </ScrollView>
-      <CustomScrollIndicator {...scrollIndicator.indicatorProps} />
+      {needsScroll ? (
+        <CustomScrollIndicator
+          {...scrollIndicator.indicatorProps}
+          bottomInset={Math.max(8, insets.bottom + 4)}
+          rightInset={Math.max(4, insets.right + 4)}
+          topInset={Math.max(8, insets.top + 4)}
+        />
+      ) : null}
       <AppBottomSheet
         contentStyle={styles.reuploadSheetContent}
         handleStyle={styles.reuploadSheetHandle}
@@ -903,6 +943,7 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: colors.surface,
     flex: 1,
+    overflow: 'hidden',
   },
   background: {
     ...StyleSheet.absoluteFill,
@@ -911,6 +952,10 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     alignItems: 'center',
+  },
+  canvasSlot: {
+    position: 'relative',
+    width: '100%',
   },
   canvas: {
     height: referenceHeight,

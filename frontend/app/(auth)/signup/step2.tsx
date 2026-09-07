@@ -1,15 +1,21 @@
 import { useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Dimensions, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import EmailIcon from '@/assets/icons/input/Email.svg';
 import { SignUpScreenLayout, SignUpSection } from '@/src/components/auth';
 import { colors, fontFamilies, radius, typography } from '@/src/theme';
 
 const verificationCodeLength = 6;
+const minimumScreenHeight = 740;
+const maximumScreenHeight = 917;
+const signUpBrandVisualHeight = 144;
+const sectionGap = 20;
+const confirmContentHeight = 254;
 
 export default function SignUpStep2Screen() {
   const router = useRouter();
+  const { height: windowHeight } = useWindowDimensions();
   const params = useLocalSearchParams<{ email?: string }>();
   const email = typeof params.email === 'string' ? params.email : 'user@example.com';
   const inputRefs = useRef<(TextInput | null)[]>([]);
@@ -17,6 +23,23 @@ export default function SignUpStep2Screen() {
     Array.from({ length: verificationCodeLength }, () => ''),
   );
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const screenHeight = Dimensions.get('screen').height;
+  const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+  );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
+  const signUpBrandBottom = verticalValue(96, 74) + signUpBrandVisualHeight;
+  const confirmTop = Math.max(
+    verticalValue(300, 210),
+    signUpBrandBottom + sectionGap,
+  );
+  const resendTop = Math.max(
+    verticalValue(636, 530),
+    confirmTop + confirmContentHeight + 16,
+  );
 
   const updateDigit = (index: number, value: string) => {
     const digit = value.replace(/\D/g, '').slice(-1);
@@ -31,7 +54,7 @@ export default function SignUpStep2Screen() {
       onBack={() => router.back()}
       onContinue={() => router.push('/signup/step3')}
     >
-      <SignUpSection innerStyle={styles.confirmContent} top={300}>
+      <SignUpSection innerStyle={styles.confirmContent} top={confirmTop}>
         <Text style={styles.sectionTitle}>이메일 인증</Text>
         <Text style={styles.description}>
           입력하신 이메일로 인증번호를 발송했어요.{`\n`}인증번호 6자리를 입력해주세요.
@@ -75,7 +98,7 @@ export default function SignUpStep2Screen() {
         </View>
       </SignUpSection>
 
-      <SignUpSection innerStyle={styles.resendContent} top={636}>
+      <SignUpSection innerStyle={styles.resendContent} top={resendTop}>
         <Text style={styles.resendQuestion}>이메일을 받지 못하였나요?</Text>
         <Pressable accessibilityRole="button" hitSlop={8} onPress={() => undefined}>
           <Text style={styles.resendLink}>인증 메일 재발송</Text>

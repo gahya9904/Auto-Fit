@@ -1,6 +1,13 @@
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { Image, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { 
+  Dimensions,
+  Image, 
+  Platform,
+  StyleSheet, 
+  Text, 
+  useWindowDimensions, 
+  View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import LogoIcon from '@/assets/icons/Logo_Auto-Fit.svg';
@@ -34,11 +41,19 @@ export default function SplashScreen() {
   }, [router]);
 
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
-  const fitScale = Math.min(1, availableWidth / referenceWidth, windowHeight / referenceHeight);
-  const contentScale = Math.max(minimumContentScale, fitScale);
+  const widthScale = Math.min(1, availableWidth / referenceWidth);
+  const contentScale = Math.max(minimumContentScale, widthScale);
+  const screenHeight = Dimensions.get('screen').height;
+  const responsiveHeight = 
+    Platform.OS === 'web' ? windowHeight : screenHeight;
   const scaledWidth = referenceWidth * contentScale;
   const scaledHeight = referenceHeight * contentScale;
-  const centeredTop = (windowHeight - scaledHeight) / 2;
+
+  const safeTop = insets.top;
+  const safeBottom = responsiveHeight - insets.bottom;
+  const safeHeight = safeBottom - safeTop;
+
+  const centeredTop = safeTop + (safeHeight - scaledHeight) / 2;
   const minimumTop = insets.top - referenceVisualTop * contentScale;
   const maximumTop = windowHeight - insets.bottom - referenceVisualBottom * contentScale;
   const canvasTop =

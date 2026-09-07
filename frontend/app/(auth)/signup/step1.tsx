@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Dimensions, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import DownIcon from '@/assets/icons/common/chevrons/Down.svg';
 import CalendarIcon from '@/assets/icons/input/Calendar.svg';
@@ -17,8 +17,12 @@ import { colors, radius, spacing, typography } from '@/src/theme';
 
 type Gender = 'male' | 'female';
 
+const minimumScreenHeight = 740;
+const maximumScreenHeight = 917;
+
 export default function SignUpStep1Screen() {
   const router = useRouter();
+  const { height: windowHeight } = useWindowDimensions();
   const passwordRef = useRef<TextInput>(null);
   const confirmPasswordRef = useRef<TextInput>(null);
   const nameRef = useRef<TextInput>(null);
@@ -31,6 +35,14 @@ export default function SignUpStep1Screen() {
   const [agreed, setAgreed] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
+  const screenHeight = Dimensions.get('screen').height;
+  const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+  );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -43,7 +55,7 @@ export default function SignUpStep1Screen() {
 
   return (
     <SignUpScreenLayout ctaLabel="다음" currentStep={1} onBack={goBack} onContinue={goNext}>
-      <SignUpSection innerStyle={styles.form} top={287}>
+      <SignUpSection innerStyle={styles.form} top={verticalValue(287, 192)}>
         <AppTextField
           accessibilityLabel="이메일"
           autoCapitalize="none"

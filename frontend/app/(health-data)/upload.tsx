@@ -1,7 +1,9 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
+  Dimensions,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -37,6 +39,9 @@ const referenceSelectedFileTop = 708;
 const referenceNextButtonTop = 830;
 const selectedFileRowHeight = 50;
 const selectedFileRowGap = 8;
+const baseBottomContentPadding = 20;
+const minimumScreenHeight = 740;
+const maximumScreenHeight = 917;
 
 interface GuideItemProps {
   description: string[];
@@ -124,15 +129,50 @@ export default function HealthDataUploadScreen() {
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { isSelecting, pickDocument, removeFile, selectedFiles, takePhoto } = useHealthFilePicker();
-  const scrollIndicator = useCustomScrollIndicator();
+  const [measuredContentBottom, setMeasuredContentBottom] = useState(0);
 
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
-  const scale = Math.min(1, availableWidth / referenceWidth);
+  const widthScale = Math.min(1, availableWidth / referenceWidth);
+  const scale = widthScale;
+  const scaledWidth = referenceWidth * widthScale;
+  const canvasLeft = insets.left + (availableWidth - scaledWidth) / 2;
   const safeTopAdjustment = Math.max(0, insets.top + 8 - referenceTitleTop * scale);
+  const screenHeight = Dimensions.get('screen').height;
+  const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+  );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
+  const introTop = verticalValue(82, 70);
+  const uploadCardsTop = verticalValue(231, 200);
+  const guideTop = Math.max(
+    verticalValue(483, 410),
+    uploadCardsTop + 220 + 12,
+  );
+  const selectedFileTop = Math.max(
+    verticalValue(referenceSelectedFileTop, 645),
+    guideTop + 187 + 20,
+  );
   const additionalFileListHeight =
     Math.max(0, selectedFiles.length - 1) * (selectedFileRowHeight + selectedFileRowGap);
-  const canvasHeight = (referenceHeight + additionalFileListHeight) * scale;
-  const nextButtonTop = referenceNextButtonTop + additionalFileListHeight;
+  const nextButtonTop = Math.max(
+    verticalValue(referenceNextButtonTop, 760) + additionalFileListHeight,
+    selectedFileTop + 100 + additionalFileListHeight + 15,
+  );
+  const contentBottom = Math.max(
+    measuredContentBottom,
+    nextButtonTop + 45,
+  );
+  const bottomContentPadding = baseBottomContentPadding + insets.bottom;
+  const renderedContentHeight =
+    safeTopAdjustment + contentBottom * scale + bottomContentPadding;
+  const needsScroll = renderedContentHeight > windowHeight;
+  const scrollIndicator = useCustomScrollIndicator({
+    enabled: needsScroll,
+    showInitially: true,
+  });
 
   const handleContinue = useCallback(() => {
     if (selectedFiles.length === 0) return;
@@ -160,11 +200,12 @@ export default function HealthDataUploadScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            minHeight: windowHeight,
-            paddingBottom: insets.bottom,
+            minHeight: Math.max(windowHeight, renderedContentHeight),
+            paddingBottom: bottomContentPadding,
             paddingTop: safeTopAdjustment,
           },
         ]}
+        overScrollMode="never"
         onContentSizeChange={scrollIndicator.onContentSizeChange}
         onLayout={scrollIndicator.onLayout}
         onMomentumScrollBegin={scrollIndicator.onMomentumScrollBegin}
@@ -172,15 +213,23 @@ export default function HealthDataUploadScreen() {
         onScroll={scrollIndicator.onScroll}
         onScrollBeginDrag={scrollIndicator.onScrollBeginDrag}
         onScrollEndDrag={scrollIndicator.onScrollEndDrag}
-        overScrollMode="never"
+        scrollEnabled={needsScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ height: canvasHeight, width: referenceWidth * scale }}>
-          <View style={[styles.canvas, { transform: [{ scale }] }]}>
+        <View style={[styles.canvasSlot, { height: contentBottom * scale }]}>
+          <View
+            style={[
+              styles.canvas,
+              {
+                left: canvasLeft,
+                transform: [{ scale }],
+              },
+            ]}
+          >
             <Text style={styles.screenTitle}>건강 데이터 업로드</Text>
 
-            <View style={styles.intro}>
+            <View style={[styles.intro, { top: introTop }]}>
               <View style={styles.introTextGroup}>
                 <Text style={styles.introTitle}>건강 데이터를{`\n`}업로드 해주세요</Text>
                 <Text style={styles.introDescription}>
@@ -196,7 +245,7 @@ export default function HealthDataUploadScreen() {
               />
             </View>
 
-            <View style={styles.uploadCards}>
+            <View style={[styles.uploadCards, { top: uploadCardsTop }]}>
               <HealthUploadOptionCard
                 buttonLabel="카메라 열기"
                 description={[
@@ -224,7 +273,7 @@ export default function HealthDataUploadScreen() {
               />
             </View>
 
-            <View style={styles.guideSection}>
+            <View style={[styles.guideSection, { top: guideTop }]}>
               <Text style={styles.guideTitle}>업로드 가이드</Text>
               <GuideItem
                 description={[
@@ -249,7 +298,7 @@ export default function HealthDataUploadScreen() {
               />
             </View>
 
-            <View style={styles.selectedFilePosition}>
+            <View style={[styles.selectedFilePosition, { top: selectedFileTop }]}>
               <SelectedFileContent onRemove={removeFile} selectedFiles={selectedFiles} />
             </View>
 
@@ -258,6 +307,10 @@ export default function HealthDataUploadScreen() {
               accessibilityState={{ disabled: selectedFiles.length === 0 }}
               disabled={selectedFiles.length === 0}
               onPress={handleContinue}
+              onLayout={(event) => {
+                const { height, y } = event.nativeEvent.layout;
+                setMeasuredContentBottom(y + height);
+              }}
               style={({ pressed }) => [
                 styles.nextButton,
                 { top: nextButtonTop },
@@ -270,7 +323,14 @@ export default function HealthDataUploadScreen() {
           </View>
         </View>
       </ScrollView>
-      <CustomScrollIndicator {...scrollIndicator.indicatorProps} />
+      {needsScroll ? (
+        <CustomScrollIndicator
+          {...scrollIndicator.indicatorProps}
+          bottomInset={Math.max(8, insets.bottom + 4)}
+          rightInset={Math.max(4, insets.right + 4)}
+          topInset={Math.max(8, insets.top + 4)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -279,6 +339,7 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: colors.surface,
     flex: 1,
+    overflow: 'hidden',
   },
   background: {
     ...StyleSheet.absoluteFill,
@@ -287,6 +348,10 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     alignItems: 'center',
+  },
+  canvasSlot: {
+    position: 'relative',
+    width: '100%',
   },
   canvas: {
     height: referenceHeight,

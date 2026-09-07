@@ -1,11 +1,14 @@
-import { useId, useState, type ComponentType } from 'react';
+import { useEffect, useId, useRef, useState, type ComponentType } from 'react';
 import { useRouter } from 'expo-router';
 import {
+  Dimensions,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type ViewStyle,
 } from 'react-native';
@@ -65,17 +68,83 @@ const allergenGridTop = 414;
 const allergenGridHeight = 230;
 const otherCardTop = 664;
 const referenceDescriptionHeight = 44;
+const minimumScreenHeight = 740;
+const maximumScreenHeight = 917;
+const keyboardSafeGap = 20;
+const signUpBrandVisualHeight = 144;
 
 export default function SignUpStep3Screen() {
   const router = useRouter();
+  const { height: windowHeight } = useWindowDimensions();
+  const otherAllergyInputRef = useRef<TextInput>(null);
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>(['milk']);
   const [otherAllergy, setOtherAllergy] = useState('');
   const [descriptionHeight, setDescriptionHeight] = useState(referenceDescriptionHeight);
-  const responsiveAllergenGridTop = Math.max(allergenGridTop, descriptionTop + descriptionHeight);
-  const responsiveOtherCardTop = Math.max(
-    otherCardTop,
-    responsiveAllergenGridTop + allergenGridHeight,
+  const [isOtherAllergyFocused, setIsOtherAllergyFocused] = useState(false);
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  const [keyboardContentOffset, setKeyboardContentOffset] = useState(0);
+  const screenHeight = Dimensions.get('screen').height;
+  const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
   );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
+  const explanationGap = verticalValue(30, 20);
+  const otherCardGap = verticalValue(20, 12);
+
+  const explanationHeight = 20 + explanationGap + descriptionHeight;
+  const explanationBottomGap = 10;
+  const signUpBrandBottom = verticalValue(96, 74) + signUpBrandVisualHeight;
+
+  const responsiveDescriptionTop = Math.min(
+    verticalValue(descriptionTop, 215),
+    verticalValue(allergenGridTop, 295) - explanationHeight - explanationBottomGap,
+  );
+  const protectedDescriptionTop = Math.max(
+    responsiveDescriptionTop,
+    signUpBrandBottom + 12,
+  );
+  const responsiveAllergenGridTop = Math.max(
+    verticalValue(allergenGridTop, 295),
+    protectedDescriptionTop + explanationHeight + explanationBottomGap,
+  );
+
+  const responsiveOtherCardTop = Math.max(
+    verticalValue(otherCardTop, 535),
+    responsiveAllergenGridTop + allergenGridHeight + otherCardGap,
+  );
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+
+    const keyboardDidShow = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardTop(event.endCoordinates.screenY);
+    });
+    const keyboardDidHide = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardTop(null);
+      setKeyboardContentOffset(0);
+    });
+
+    return () => {
+      keyboardDidShow.remove();
+      keyboardDidHide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !isOtherAllergyFocused || keyboardTop === null) return undefined;
+
+    const frame = requestAnimationFrame(() => {
+      otherAllergyInputRef.current?.measureInWindow((_x, y, _width, height) => {
+        const hiddenAmount = y + height - (keyboardTop - keyboardSafeGap);
+        setKeyboardContentOffset(Math.max(0, hiddenAmount));
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [isOtherAllergyFocused, keyboardTop]);
 
   const toggleAllergen = (id: string) => {
     setSelectedAllergens((current) =>
@@ -86,11 +155,15 @@ export default function SignUpStep3Screen() {
   return (
     <SignUpScreenLayout
       ctaLabel="회원가입 완료"
+      contentOffsetY={keyboardContentOffset}
       currentStep={3}
       onBack={() => router.back()}
       onContinue={() => router.replace('/login')}
     >
-      <SignUpSection innerStyle={styles.explanation} top={300}>
+      <SignUpSection
+        innerStyle={[styles.explanation, { gap: explanationGap }]}
+        top={protectedDescriptionTop}
+      >
         <Text style={styles.sectionTitle}>
           알레르기 정보 <Text style={styles.titleAside}>(복수 선택 가능)</Text>
         </Text>
@@ -125,8 +198,14 @@ export default function SignUpStep3Screen() {
         </View>
         <View style={styles.otherInputIndent}>
           <TextInput
+            ref={otherAllergyInputRef}
             accessibilityLabel="기타 알레르기"
             onChangeText={setOtherAllergy}
+            onBlur={() => {
+              setIsOtherAllergyFocused(false);
+              setKeyboardContentOffset(0);
+            }}
+            onFocus={() => setIsOtherAllergyFocused(true)}
             placeholder="직접 입력해주세요 (선택 사항)"
             placeholderTextColor={colors.textDisabled}
             returnKeyType="done"

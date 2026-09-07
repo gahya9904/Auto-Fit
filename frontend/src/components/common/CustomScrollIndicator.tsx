@@ -17,8 +17,10 @@ interface CustomScrollIndicatorProps {
   color?: string;
   contentHeight: number;
   opacity: Animated.Value;
+  bottomInset?: number;
   rightInset?: number;
   scrollOffset: Animated.Value;
+  topInset?: number;
   viewportHeight: number;
   viewportY: number;
 }
@@ -27,12 +29,14 @@ export function CustomScrollIndicator({
   color = 'rgba(73, 205, 177, 0.45)',
   contentHeight,
   opacity,
+  bottomInset = edgeInset,
   rightInset = 4,
   scrollOffset,
+  topInset = edgeInset,
   viewportHeight,
   viewportY,
 }: CustomScrollIndicatorProps) {
-  const trackHeight = Math.max(0, viewportHeight - edgeInset * 2);
+  const trackHeight = Math.max(0, viewportHeight - topInset - bottomInset);
   const scrollRange = Math.max(0, contentHeight - viewportHeight);
   const isScrollable = scrollRange > 1 && trackHeight > 0;
 
@@ -63,7 +67,7 @@ export function CustomScrollIndicator({
         {
           height: trackHeight,
           right: rightInset,
-          top: viewportY + edgeInset,
+          top: viewportY + topInset,
         },
       ]}
     >
@@ -83,10 +87,14 @@ export function CustomScrollIndicator({
 }
 
 interface CustomScrollIndicatorOptions {
+  enabled?: boolean;
+  showInitially?: boolean;
   showOnScroll?: boolean;
 }
 
 export function useCustomScrollIndicator({
+  enabled = true,
+  showInitially = false,
   showOnScroll = true,
 }: CustomScrollIndicatorOptions = {}) {
   const [contentHeight, setContentHeight] = useState(0);
@@ -95,7 +103,8 @@ export function useCustomScrollIndicator({
   const [scrollOffset] = useState(() => new Animated.Value(0));
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDragging = useRef(false);
-  const isScrollable = contentHeight > viewport.height + 1 && viewport.height > 0;
+  const isScrollable =
+    enabled && contentHeight > viewport.height + 1 && viewport.height > 0;
 
   const clearHideTimer = useCallback(() => {
     if (hideTimer.current) {
@@ -127,10 +136,14 @@ export function useCustomScrollIndicator({
       clearHideTimer();
       opacity.setValue(0);
       scrollOffset.setValue(0);
+    } else if (showInitially) {
+      opacity.stopAnimation();
+      opacity.setValue(1);
+      scheduleFadeOut();
     }
 
     return clearHideTimer;
-  }, [clearHideTimer, isScrollable, opacity, scrollOffset]);
+  }, [clearHideTimer, isScrollable, opacity, scheduleFadeOut, scrollOffset, showInitially]);
 
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const { height, y } = event.nativeEvent.layout;
