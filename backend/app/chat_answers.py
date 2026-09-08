@@ -2,6 +2,8 @@
 
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Literal
 
 from backend.app.chat_health_scores import Assessment, build_score_answer
 from backend.app.chat_intents import classify_question
@@ -16,10 +18,46 @@ def clarification(message: str, required: str) -> dict:
     }
 
 
+@dataclass(frozen=True)
+class AnswerDecision:
+    # Internal routing metadata, not a new client response or stored DB column.
+    route: Literal["database", "clarification", "need_more_data", "ai_required"]
+    answer: dict
+
+
+async def decide_answer(
+    content: str, load_scores: Callable[[], Awaitable[list[Assessment]]], load_records=None,
+) -> AnswerDecision:
+    """Inspect supported DB evidence before considering AI; never call a model.
+
+    Insufficient evidence and unsupported queries must not become AI requests.
+    DB failures propagate unchanged instead of triggering a model fallback.
+    """
+    plan = classify_question(content)
+    answer = await _database_answer(content, plan, load_scores, load_records)
+    if answer["intent"] == "clarification":
+        route = "clarification"
+    elif answer.get("needs_more_data", False):
+        route = "need_more_data"
+    elif plan.requires_explanation and answer.get("evidence"):
+        route = "ai_required"
+    else:
+        route = "database"
+    return AnswerDecision(route, answer)
+
+
 async def answer_question(
     content: str, load_scores: Callable[[], Awaitable[list[Assessment]]], load_records=None,
 ) -> dict:
-    plan = classify_question(content)
+    decision = await decide_answer(content, load_scores, load_records)
+    if decision.route == "ai_required":
+        # No model integration yet: return only verified DB facts, not fake AI.
+        return {**decision.answer, "content": decision.answer["content"] +
+                " AI 설명 기능은 아직 연결되지 않아 확인된 기록 요약만 안내합니다."}
+    return decision.answer
+
+
+async def _database_answer(content, plan, load_scores, load_records):
     text = "".join(content.split())
     if plan.intent in {"meal_history", "exercise_history"} and load_records is not None:
         if any(word in text for word in ("왜", "이유", "원인", "추천", "어떻게", "괜찮", "뜻", "개선", "삭제", "수정", "변경", "저장", "다른사용자", "다른사람", "계획", "목표", "루틴", "종류", "무슨운동", "단백질", "탄수화물", "지방")):

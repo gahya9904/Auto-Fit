@@ -74,3 +74,24 @@ def test_requires_authentication(preview):
     del main.app.dependency_overrides[main.get_current_user]
     assert client.post("/api/chats/answer-preview", json={"content": "건강 점수"}).status_code == 401
     assert calls == []
+
+
+def test_record_explanation_preview_keeps_existing_response_contract(preview, monkeypatch):
+    client, score_calls = preview
+    record_calls = []
+
+    async def records(intent, period, url, headers, user_id):
+        record_calls.append(user_id)
+        return {"intent": intent, "content": "기록된 운동은 2회입니다.",
+                "response_source": "database", "needs_more_data": False,
+                "required_data": [],
+                "evidence": [{"metric": "exercise_sessions", "current_value": 2}]}
+
+    monkeypatch.setattr(main, "answer_records", records)
+    response = client.post("/api/chats/answer-preview", json={"content": "이번 주 운동 기록 설명해줘"})
+    assert response.status_code == 200
+    answer = response.json()["answer"]
+    assert answer["response_source"] == "database"
+    assert "아직 연결되지 않아" in answer["content"]
+    assert record_calls == ["owner"] and score_calls == []
+    assert "route" not in answer

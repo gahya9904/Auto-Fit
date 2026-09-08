@@ -15,7 +15,7 @@ from dotenv import dotenv_values
 from backend.app import main
 
 
-async def run(project, api_base=None, rate_limits=False):
+async def run(project, api_base=None, rate_limits=False, routing=False):
     # Never forward real login tokens to an arbitrary host.
     if api_base not in (None, "https://auto-fit-api-dev.onrender.com"):
         raise ValueError("Unapproved API target")
@@ -98,6 +98,38 @@ async def run(project, api_base=None, rate_limits=False):
                 # Authenticated clients must not call the service-only RPC directly.
                 direct = await remote.post("/rest/v1/rpc/save_chat_exchange", headers={"apikey": settings.supabase_publishable_key, **owner}, json={"p_user_id":created_users[0],"p_chat_id":chat,"p_client_message_id":str(uuid4()),"p_content":"denied","p_answer":None})
                 check(direct.status_code in (401,403,404), "direct client RPC denied")
+                if routing:
+                    reset = await remote.delete("/rest/v1/chat_rate_limit_events", headers=admin_headers, params={"user_id": f"eq.{created_users[0]}"})
+                    assert reset.status_code == 204, "reset synthetic routing quota"
+                    seed = await remote.post("/rest/v1/exercise_sessions", headers=admin_headers, json={
+                        "user_id": created_users[0], "status": "completed",
+                        "started_at": datetime.now(UTC).isoformat(),
+                        "planned_item_count": 1, "completed_item_count": 1,
+                        "total_duration_seconds": 600, "total_calories_burned": 50,
+                        "completion_rate": 100,
+                    })
+                    check(seed.status_code == 201, "seed synthetic exercise summary")
+                    for question, auth, source, required, notice in (
+                        ("그건 왜 그래?", owner, "need_more_data", "supported_health_score_question", False),
+                        ("이번 주 운동 몇 번 했어?", owner, "database", None, False),
+                        ("이번 주 운동 기록 설명해줘", owner, "database", None, True),
+                        ("이번 주 운동 기록 설명해줘", other, "need_more_data", "exercise_record", False),
+                        ("최근 건강 점수가 낮아진 이유는?", owner, "need_more_data", "assessment_explanation_evidence", False),
+                    ):
+                        result = await api.post("/api/chats/answer-preview", headers=auth, json={"content": question})
+                        check(result.status_code == 200, "routing preview responds")
+                        answer = result.json()["answer"]
+                        check(answer["response_source"] == source and (not required or required in answer["required_data"]) and ("아직 연결되지 않아" in answer["content"]) == notice, "routing source and fallback match evidence")
+                    new_chat = await api.post("/api/chats", headers=owner, json={})
+                    check(new_chat.status_code == 201, "create routing test chat")
+                    route_path = f"/api/chats/{new_chat.json()['chat']['chat_id']}/messages"
+                    route_body = {"client_message_id": str(uuid4()), "content": "이번 주 운동 기록 설명해줘"}
+                    saved = await api.post(route_path, headers=owner, json=route_body)
+                    check(saved.status_code == 201, "persist DB fallback answer")
+                    saved_answer = saved.json()["assistant_message"]
+                    check(saved_answer["response_source"] == "database" and "아직 연결되지 않아" in saved_answer["content"], "stored fallback does not claim AI source")
+                    replay = await api.post(route_path, headers=owner, json=route_body)
+                    check(replay.status_code == 200 and replay.json()["assistant_message"]["message_id"] == saved_answer["message_id"], "routing replay remains idempotent")
                 if rate_limits:
                     async def reset_test_quota():
                         reset = await remote.delete("/rest/v1/chat_rate_limit_events", headers=admin_headers, params={"user_id": f"eq.{created_users[0]}"})
@@ -133,7 +165,7 @@ async def run(project, api_base=None, rate_limits=False):
         finally:
             main.app.dependency_overrides.clear()
             for user_id in created_users:
-                for table in ("chat_rate_limit_events", "chat_messages", "chats", "health_assessments", "profiles"):
+                for table in ("chat_rate_limit_events", "chat_messages", "chats", "exercise_sessions", "health_assessments", "profiles"):
                     response = await remote.delete(f"/rest/v1/{table}", headers=admin_headers, params={"user_id":f"eq.{user_id}"})
                     if response.status_code not in (200,204):
                         cleanup_errors.append(f"{table}:{user_id}")
@@ -157,5 +189,6 @@ if __name__ == "__main__":
     parser.add_argument("--project", required=True)
     parser.add_argument("--api-base", choices=["https://auto-fit-api-dev.onrender.com"])
     parser.add_argument("--rate-limits", action="store_true")
+    parser.add_argument("--routing", action="store_true")
     args = parser.parse_args()
-    asyncio.run(run(args.project, args.api_base, args.rate_limits))
+    asyncio.run(run(args.project, args.api_base, args.rate_limits, args.routing))

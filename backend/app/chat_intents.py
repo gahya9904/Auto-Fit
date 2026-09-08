@@ -49,7 +49,7 @@ def classify_question(content: str) -> IntentPlan:
     domain = matches[0]
     # Suggestions, definitions and causes must not receive a record-only answer.
     explanation = any(word in text for word in (
-        "왜", "이유", "원인", "추천", "어떻게", "괜찮", "뜻", "뭐야", "무엇", "개선",
+        "왜", "이유", "원인", "추천", "어떻게", "괜찮", "뜻", "뭐야", "무엇", "개선", "설명", "해석",
     ))
     if domain == "health_score":
         change = any(word in text for word in ("변화", "변했", "비교", "낮아", "올랐", "떨어", "이전", "지난"))
