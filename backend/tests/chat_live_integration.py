@@ -119,7 +119,7 @@ async def run(project, api_base=None, rate_limits=False, routing=False):
                         result = await api.post("/api/chats/answer-preview", headers=auth, json={"content": question})
                         check(result.status_code == 200, "routing preview responds")
                         answer = result.json()["answer"]
-                        check(answer["response_source"] == source and (not required or required in answer["required_data"]) and ("아직 연결되지 않아" in answer["content"]) == notice, "routing source and fallback match evidence")
+                        check(answer["response_source"] == source and (not required or required in answer["required_data"]) and ("AI 설명을 현재 제공할 수 없어" in answer["content"]) == notice, "routing source and fallback match evidence")
                     new_chat = await api.post("/api/chats", headers=owner, json={})
                     check(new_chat.status_code == 201, "create routing test chat")
                     route_path = f"/api/chats/{new_chat.json()['chat']['chat_id']}/messages"
@@ -127,7 +127,7 @@ async def run(project, api_base=None, rate_limits=False, routing=False):
                     saved = await api.post(route_path, headers=owner, json=route_body)
                     check(saved.status_code == 201, "persist DB fallback answer")
                     saved_answer = saved.json()["assistant_message"]
-                    check(saved_answer["response_source"] == "database" and "아직 연결되지 않아" in saved_answer["content"], "stored fallback does not claim AI source")
+                    check(saved_answer["response_source"] == "database" and "AI 설명을 현재 제공할 수 없어" in saved_answer["content"], "stored fallback does not claim AI source")
                     replay = await api.post(route_path, headers=owner, json=route_body)
                     check(replay.status_code == 200 and replay.json()["assistant_message"]["message_id"] == saved_answer["message_id"], "routing replay remains idempotent")
                 if rate_limits:

@@ -92,6 +92,6 @@ def test_record_explanation_preview_keeps_existing_response_contract(preview, mo
     assert response.status_code == 200
     answer = response.json()["answer"]
     assert answer["response_source"] == "database"
-    assert "아직 연결되지 않아" in answer["content"]
+    assert "AI 설명을 현재 제공할 수 없어" in answer["content"]
     assert record_calls == ["owner"] and score_calls == []
     assert "route" not in answer

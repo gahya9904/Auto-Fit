@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import asyncio
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -20,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from backend.app.chat_health_scores import build_score_answer, fetch_scores
 from backend.app.chat_answers import answer_question
+from backend.app.chat_model import get_model_config
 from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
 from backend.app.chat_rate_limit import ChatRateLimiter
@@ -1944,7 +1946,13 @@ def build_exercise_session_analysis(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-app = FastAPI(title="Auto-Fit API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    get_model_config()  # Fail early on invalid opt-in configuration; no network call.
+    yield
+
+
+app = FastAPI(title="Auto-Fit API", version="0.1.0", lifespan=lifespan)
 
 
 @app.exception_handler(HTTPException)

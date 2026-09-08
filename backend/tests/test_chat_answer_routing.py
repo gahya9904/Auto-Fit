@@ -76,7 +76,7 @@ def test_no_model_returns_db_facts_with_explicit_notice():
     assert result["response_source"] == "database"
     assert not result["needs_more_data"]
     assert result["evidence"] == summary()["evidence"]
-    assert "아직 연결되지 않아" in result["content"]
+    assert "AI 설명을 현재 제공할 수 없어" in result["content"]
     assert set(result) == set(summary())
 
 

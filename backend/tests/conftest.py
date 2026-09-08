@@ -4,7 +4,9 @@ from backend.app import main
 
 
 @pytest.fixture(autouse=True)
-def isolate_chat_quota():
+def isolate_chat_quota(monkeypatch):
+    # Unit tests must not contact a paid model even if the shell enables it.
+    monkeypatch.setenv("CHAT_AI_ENABLED", "false")
     class UnlimitedTestQuota:
         async def check(self, bucket):
             pass

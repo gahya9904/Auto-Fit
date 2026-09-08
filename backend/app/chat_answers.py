@@ -1,4 +1,4 @@
-"""Natural-language preview orchestration; no message persistence or AI calls."""
+"""DB-first orchestration shared by preview and persisted chat messages."""
 
 import re
 from collections.abc import Awaitable, Callable
@@ -8,6 +8,7 @@ from typing import Literal
 from backend.app.chat_health_scores import Assessment, build_score_answer
 from backend.app.chat_intents import classify_question
 from backend.app.chat_records import record_period
+from backend.app.chat_model import explain_records
 
 
 def clarification(message: str, required: str) -> dict:
@@ -51,9 +52,12 @@ async def answer_question(
 ) -> dict:
     decision = await decide_answer(content, load_scores, load_records)
     if decision.route == "ai_required":
-        # No model integration yet: return only verified DB facts, not fake AI.
+        explanation = await explain_records(content, decision.answer)
+        if explanation is not None:
+            return {**decision.answer, "content": explanation,
+                    "response_source": "database_ai"}
         return {**decision.answer, "content": decision.answer["content"] +
-                " AI 설명 기능은 아직 연결되지 않아 확인된 기록 요약만 안내합니다."}
+                " AI 설명을 현재 제공할 수 없어 확인된 기록 요약만 안내합니다."}
     return decision.answer
 
 
