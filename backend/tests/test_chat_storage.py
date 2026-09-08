@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
@@ -48,6 +49,7 @@ def test_send_or_replay(client, monkeypatch, replay):
     async def no_score_query(*args):
         pytest.fail("Replay and unsupported questions should not query scores")
     monkeypatch.setattr(ChatStore, "exchange", exchange)
+    monkeypatch.setattr(ChatStore, "has_general_ai_answer", AsyncMock(return_value=False))
     monkeypatch.setattr(main, "fetch_scores", no_score_query)
     result = client.post(f"/api/chats/{CHAT}/messages", json={"client_message_id": REQUEST, "content": " 안녕 "})
     assert result.status_code == (200 if replay else 201)

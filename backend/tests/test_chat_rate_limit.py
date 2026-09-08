@@ -84,7 +84,10 @@ def test_completed_replay_skips_answer_quota(monkeypatch,replay):
     async def exchange(self,*args):
         if replay or len(args)==4:return {'is_replay':replay,'assistant_message':{'content':'test'}}
         return None
+    async def has_general_ai_answer(self, chat_id):
+        return False
     monkeypatch.setattr(ChatStore,'exchange',exchange)
+    monkeypatch.setattr(ChatStore,'has_general_ai_answer',has_general_ai_answer)
     main.app.dependency_overrides[main.get_current_user]=lambda:main.AuthenticatedUser(id='owner')
     main.app.dependency_overrides[main.get_settings]=lambda:TEST_SETTINGS
     main.app.dependency_overrides[main.get_chat_limiter]=lambda:Quota()

@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 from backend.app.chat_health_scores import Assessment, build_score_answer
-from backend.app.chat_intents import classify_question
+from backend.app.chat_intents import classify_question, is_off_topic_question
 from backend.app.chat_records import record_period
-from backend.app.chat_model import explain_records
+from backend.app.chat_model import explain_records, general_information
+from backend.app.chat_exercise_info import information_topic, needs_safety_guidance, answer_exercise_information
 
 
 def clarification(message: str, required: str) -> dict:
@@ -49,7 +50,31 @@ async def decide_answer(
 
 async def answer_question(
     content: str, load_scores: Callable[[], Awaitable[list[Assessment]]], load_records=None,
+    load_catalog=None, allow_general=False,
 ) -> dict:
+    topic = information_topic(content)
+    if topic is not None and load_catalog is not None:
+        if needs_safety_guidance(content):
+            return clarification('통증·질환 등이 언급된 질문에는 일반 운동 목록을 개인에게 적합한 운동으로 안내할 수 없습니다. 운동 가능 여부는 의료 전문가와 상담해 주세요.', 'professional_exercise_guidance')
+        return await answer_exercise_information(topic, load_catalog)
+    if is_off_topic_question(content):
+        if not allow_general:
+            return clarification(
+                '궁금하신 마음은 이해하지만 Auto-Fit은 운동·식단·건강 관리에 집중하고 있어요. 이 대화에서는 이미 관련 없는 질문을 한 번 도와드렸기 때문에, 이제부터는 건강한 변화를 위한 질문을 부탁드릴게요. 운동 기록, 식단, 건강 점수에 관해서라면 기꺼이 도와드릴게요.',
+                'autofit_topic_question',
+            )
+        response = await general_information(content)
+        if response is None:
+            return clarification(
+                '이번 질문은 Auto-Fit의 운동·식단·건강 관리 범위와 조금 거리가 있고 현재 답변을 준비하지 못했어요. 다음 질문은 건강한 변화를 위한 주제로 부탁드릴게요.',
+                'autofit_topic_question',
+            )
+        return {
+            'intent': 'general_information',
+            'content': response + '\n\n이번 질문은 Auto-Fit의 운동·식단·건강 관리 범위와 조금 거리가 있지만, 이번에는 간단히 도와드렸어요. 다음부터는 더 알맞은 도움을 드릴 수 있도록 건강한 변화를 위한 질문으로 부탁드릴게요.',
+            'response_source': 'general_ai', 'needs_more_data': False,
+            'evidence': [], 'required_data': [],
+        }
     decision = await decide_answer(content, load_scores, load_records)
     if decision.route == "ai_required":
         explanation = await explain_records(content, decision.answer)

@@ -132,6 +132,16 @@ class ChatStore:
         return {"chat_id": str(chat_id), "messages": list(reversed(page)), "has_more": more,
                 "next_cursor": encode_cursor(page[-1], "created_at", "message_id", scope) if more else None}
 
+    async def has_general_ai_answer(self, chat_id):
+        await self.get(chat_id)
+        rows = await self.request("GET", "chat_messages", params={
+            "select": "message_id", "user_id": f"eq.{self.user_id}",
+            "chat_id": f"eq.{chat_id}", "sender_type": "eq.assistant",
+            "intent": "eq.general_information", "response_source": "eq.general_ai",
+            "limit": "1",
+        })
+        return bool(rows)
+
     async def exchange(self, chat_id, client_message_id, content, answer=None):
         result = await self.request("POST", "rpc/save_chat_exchange", body={
             "p_user_id": self.user_id, "p_chat_id": str(chat_id),

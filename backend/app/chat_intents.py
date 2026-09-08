@@ -33,6 +33,16 @@ KEYWORDS = {
 }
 
 
+def matched_domains(content: str) -> list[str]:
+    text = "".join(content.casefold().split())
+    return [key for key, words in KEYWORDS.items() if any(w in text for w in words)]
+
+
+def is_off_topic_question(content: str) -> bool:
+    """True only when no Auto-Fit domain keyword is present."""
+    return not matched_domains(content)
+
+
 def classify_question(content: str) -> IntentPlan:
     """Route supported Korean questions; ambiguous requests need clarification.
 
@@ -43,7 +53,7 @@ def classify_question(content: str) -> IntentPlan:
     if not 1 <= len(content) <= 500:
         raise ValueError("content must contain 1 to 500 characters")
     text = "".join(content.casefold().split())
-    matches = [key for key, words in KEYWORDS.items() if any(w in text for w in words)]
+    matches = matched_domains(content)
     if len(matches) != 1:
         return IntentPlan("clarification", (), requires_clarification=True)
     domain = matches[0]

@@ -21,6 +21,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from backend.app.chat_health_scores import build_score_answer, fetch_scores
 from backend.app.chat_answers import answer_question
+from backend.app.chat_exercise_info import load_exercise_types
+from backend.app.chat_intents import is_off_topic_question
 from backend.app.chat_model import get_model_config
 from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
@@ -2491,7 +2493,10 @@ async def preview_chat_answer(
     async def load_records(intent, period):
         return await answer_records(intent, period, settings.supabase_url, service_headers(settings), user.id)
 
-    return {"answer": await answer_question(body.content, load_scores, load_records)}
+    async def load_catalog():
+        return await load_exercise_types(settings.supabase_url, service_headers(settings))
+
+    return {"answer": await answer_question(body.content, load_scores, load_records, load_catalog)}
 
 
 def get_chat_store(
@@ -2548,7 +2553,15 @@ async def send_chat_message(
             result = await store.exchange(chat_id, body.client_message_id, body.content)
             if result is None:
                 await limiter.check("answers")
-                answer = await answer_question(body.content, load_scores, load_records)
+                async def load_catalog():
+                    return await load_exercise_types(store.url, store.headers)
+
+                allow_general = False
+                if is_off_topic_question(body.content):
+                    allow_general = not await store.has_general_ai_answer(chat_id)
+                answer = await answer_question(
+                    body.content, load_scores, load_records, load_catalog, allow_general
+                )
                 result = await store.exchange(chat_id, body.client_message_id, body.content, answer)
     except TimeoutError:
         chat_fail("DATA_SOURCE_ERROR")
