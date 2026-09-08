@@ -1,10 +1,14 @@
 from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-5"
+
+    ai_server_api_key: str | None = None
+
     app_name: str = "Healthcare AI Server"
 
     model_config = SettingsConfigDict(
