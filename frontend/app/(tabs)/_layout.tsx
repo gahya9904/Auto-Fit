@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Tabs, usePathname } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { ChatPopup, DraggableAIChatButton, type AIChatButtonAnchor } from '@/src/components/home';
 import { BottomNavigation, type BottomNavigationLayout } from '@/src/components/navigation';
+import { prefetchActiveChat } from '@/src/features/chat/chatSessionCache';
 
 export default function TabLayout() {
   const pathname = usePathname();
@@ -33,6 +34,10 @@ export default function TabLayout() {
   }, []);
   const handleChatCloseComplete = useCallback(() => setIsChatClosing(false), []);
   const isHome = pathname.endsWith('/home');
+
+  useEffect(() => {
+    if (isHome) void prefetchActiveChat();
+  }, [isHome]);
 
   return (
     <View style={styles.root}>

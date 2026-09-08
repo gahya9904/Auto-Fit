@@ -36,6 +36,12 @@ import {
   getBottomNavigationVisualHeight,
   type BottomNavigationLayout,
 } from '@/src/components/navigation';
+import {
+  getChatSessionSnapshot,
+  mergeChatSessionMessages,
+  prefetchActiveChat,
+  updateChatSessionSnapshot,
+} from '@/src/features/chat/chatSessionCache';
 import { colors, fontFamilies, radius } from '@/src/theme';
 import type { ChatMessage as ServerChatMessage } from '@/src/types/chat';
 
@@ -133,9 +139,7 @@ function dedupeMessages(messages: UiChatMessage[]) {
 
 function mergeServerMessages(current: UiChatMessage[], serverMessages: UiChatMessage[]) {
   const currentWithoutWelcome =
-    serverMessages.length > 0
-      ? current.filter((message) => message.id !== 'welcome')
-      : current;
+    serverMessages.length > 0 ? current.filter((message) => message.id !== 'welcome') : current;
   const merged = dedupeMessages([...currentWithoutWelcome, ...serverMessages]);
   const isUnchanged =
     merged.length === current.length &&
@@ -210,7 +214,8 @@ export function ChatPopup({
   const wasVisibleRef = useRef(false);
   const visibleRef = useRef(visible);
   const chatLoadRequestRef = useRef(0);
-  const chatIdRef = useRef<string | null>(null);
+  const [initialChatSnapshot] = useState(getChatSessionSnapshot);
+  const chatIdRef = useRef<string | null>(initialChatSnapshot.chatId);
   const pendingMessageRef = useRef<PendingMessage | null>(null);
   const messagePaginationRef = useRef<{ hasMore: boolean; nextCursor: string | null }>({
     hasMore: false,
@@ -218,14 +223,21 @@ export function ChatPopup({
   });
   const reduceMotion = useReducedMotion();
   const progress = useSharedValue(0);
-  const [chatId, setChatId] = useState<string | null>(null);
+  const [chatId, setChatId] = useState<string | null>(initialChatSnapshot.chatId);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [messages, setMessages] = useState<UiChatMessage[]>([]);
+  const [messages, setMessages] = useState<UiChatMessage[]>(() => {
+    const prefetchedMessages = initialChatSnapshot.messages.map(mapServerMessage);
+    if (prefetchedMessages.length > 0) return dedupeMessages(prefetchedMessages);
+    if (initialChatSnapshot.status === 'ready' && initialChatSnapshot.chatId) {
+      return createInitialMessages();
+    }
+    return [];
+  });
   const [overlayFrame, setOverlayFrame] = useState<OverlayFrame>({ x: 0, y: 0 });
   const [popupTopBeforeKeyboard, setPopupTopBeforeKeyboard] = useState<number | null>(null);
   const chatScrollIndicator = useCustomScrollIndicator({ showOnScroll: false });
@@ -308,12 +320,29 @@ export function ChatPopup({
 
     try {
       let activeChatId = cachedChatId;
-      if (!activeChatId) {
-        const chatList = await getChats({ limit: 20, status: 'active' });
-        activeChatId =
-          chatList.chats[0]?.chat_id ?? (await createChat('건강 상담')).chat.chat_id;
+      let prefetchedHistory = cachedChatId ? null : await prefetchActiveChat();
+
+      if (requestId !== chatLoadRequestRef.current || !visibleRef.current) return;
+
+      if (!activeChatId && prefetchedHistory?.status === 'ready') {
+        activeChatId = prefetchedHistory.chatId;
       }
-      const history = await getChatMessages(activeChatId);
+
+      if (!activeChatId) {
+        if (prefetchedHistory?.status === 'error') {
+          const chatList = await getChats({ limit: 20, status: 'active' });
+          activeChatId = chatList.chats[0]?.chat_id ?? null;
+        }
+        activeChatId ??= (await createChat('건강 상담')).chat.chat_id;
+      }
+      const history =
+        !cachedChatId && prefetchedHistory?.chatId === activeChatId
+          ? {
+              has_more: prefetchedHistory.hasMore,
+              messages: prefetchedHistory.messages,
+              next_cursor: prefetchedHistory.nextCursor,
+            }
+          : await getChatMessages(activeChatId);
 
       if (requestId !== chatLoadRequestRef.current || !visibleRef.current) return;
 
@@ -336,8 +365,7 @@ export function ChatPopup({
           ? current.filter((message) => message.id !== pending?.optimisticId)
           : current;
         const merged = mergeServerMessages(withoutStoredPending, serverMessages);
-        const messagesAfterInitialLoad =
-          merged.length === 0 ? createInitialMessages() : merged;
+        const messagesAfterInitialLoad = merged.length === 0 ? createInitialMessages() : merged;
         if (!pending || pendingWasStored || pending.chatId !== activeChatId) {
           return messagesAfterInitialLoad;
         }
@@ -356,6 +384,12 @@ export function ChatPopup({
         hasMore: history.has_more,
         nextCursor: history.next_cursor,
       };
+      updateChatSessionSnapshot(
+        activeChatId,
+        history.messages,
+        history.next_cursor,
+        history.has_more,
+      );
     } catch (error) {
       if (requestId !== chatLoadRequestRef.current || !visibleRef.current) return;
       console.error('채팅 초기화 실패:', error);
@@ -400,6 +434,7 @@ export function ChatPopup({
 
     try {
       const response = await sendChatMessage(chatId, text, pending.clientMessageId);
+      mergeChatSessionMessages(chatId, [response.user_message, response.assistant_message]);
       setMessages((current) =>
         dedupeMessages([
           ...current.filter((message) => message.id !== pending.optimisticId),
