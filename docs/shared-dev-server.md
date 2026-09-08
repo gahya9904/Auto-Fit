@@ -36,7 +36,7 @@
 - SUPABASE_URL: 선택한 테스트 DB 프로젝트 URL.
 - SUPABASE_PUBLISHABLE_KEY: 같은 프로젝트 공개용 키.
 - SUPABASE_SERVICE_ROLE_KEY: 같은 프로젝트 서버 전용 키. Git·프론트·문서에 값을 넣지 않는다.
-- FRONTEND_ORIGIN: 프론트 실행 주소. 초기 로컬 개발이면 http://localhost:3000.
+- FRONTEND_ORIGIN: 기본 프론트 실행 주소. 초기 로컬 개발이면 http://localhost:3000. 공유 개발 API는 Expo Web http://localhost:8081도 명시적으로 허용한다. 운영 전환 시 로컬 개발 Origin 허용을 재검토한다.
   이것은 origin 비교이므로 팀원 각자의 localhost:3000 프론트에서도 동일하게 사용할 수 있다.
   다른 포트 또는 배포 도메인 추가는 현재 단일 origin 설정의 확장 작업이 필요하다.
 

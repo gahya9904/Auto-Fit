@@ -28,7 +28,7 @@ OpenAPI는 요청 스키마에 유용하지만 대부분 응답은 아직 `dict[
 | 본문 | `Content-Type: application/json`, 필드명 `snake_case` |
 | 사용자 ID | 요청에 넣지 않음. 서버가 검증된 로그인 사용자로 결정 |
 | 서버 전용 키 | service_role/secret은 프론트에 공유하지 않음 |
-| CORS | `FRONTEND_ORIGIN` 한 개, 기본 `http://localhost:3000`. 포트·도메인 변경 시 백엔드에 전달 |
+| CORS | `FRONTEND_ORIGIN`(기본 `http://localhost:3000`)과 Expo Web `http://localhost:8081` 허용. 다른 포트·도메인은 별도 협의 |
 | ID | 응답에서 받은 UUID를 재사용. session_id와 exercise_item_id 등 서로 다른 ID를 혼용하지 않음 |
 | 날짜 | `YYYY-MM-DD`; 시각은 timezone 포함 ISO 8601로 전송 |
 | 수치 | 응답은 직접 DB JSON 또는 Decimal 직렬화에 따라 숫자/문자열 가능. 표시 계층에서 안전하게 변환 |
