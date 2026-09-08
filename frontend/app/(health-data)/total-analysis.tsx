@@ -75,6 +75,7 @@ function Badge({
       ]}
     >
       <WarningIcon
+        color={tone}
         fill={tone}
         height={9}
         width={9}
@@ -124,6 +125,7 @@ function Reason({
         ]}
       >
         <Icon
+          color={tone}
           fill={
             fillOnly
               ? tone
@@ -508,6 +510,7 @@ export default function TotalAnalysisScreen() {
               >
                 <View style={s.summaryIcon}>
                   <ClipboardIcon
+                    color={colors.primary}
                     fill={colors.primary}
                     height={27}
                     width={27}
@@ -556,6 +559,7 @@ export default function TotalAnalysisScreen() {
 
                   <View style={s.goalIcon}>
                     <TargetIcon
+                      color={colors.primary}
                       fill={colors.primary}
                       height={32}
                       width={32}
@@ -585,6 +589,7 @@ export default function TotalAnalysisScreen() {
                   <View style={s.mini}>
                     <View style={s.miniHead}>
                       <ClipboardIcon
+                        color={colors.primaryDark}
                         fill={
                           colors.primaryDark
                         }
@@ -657,6 +662,7 @@ export default function TotalAnalysisScreen() {
                     }
                   >
                     <WarningCircleIcon
+                      color={warning}
                       fill={warning}
                       height={22}
                       width={22}
@@ -733,6 +739,7 @@ export default function TotalAnalysisScreen() {
                     <View style={s.strategyLabel}>
                       <View style={s.star}>
                         <StarIcon
+                          color="#fff"
                           fill="#fff"
                           height={13}
                           width={13}
@@ -860,6 +867,7 @@ export default function TotalAnalysisScreen() {
 
                 <View style={s.arrow}>
                   <ArrowRightIcon
+                    color={colors.primary}
                     fill={colors.primary}
                     height={16}
                     width={16}

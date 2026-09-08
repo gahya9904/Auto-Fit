@@ -53,7 +53,7 @@ function GuideItem({ description, Icon, title }: GuideItemProps) {
   return (
     <View style={styles.guideRow}>
       <View style={styles.guideIconBox}>
-        <Icon fill={colors.primary} height={25} width={25} />
+        <Icon color={colors.primary} fill={colors.primary} height={25} width={25} />
       </View>
       <View style={styles.guideTextGroup}>
         <Text style={styles.guideItemTitle}>{title}</Text>
@@ -87,7 +87,12 @@ function SelectedFileContent({ onRemove, selectedFiles }: SelectedFileContentPro
           <View style={styles.selectedFileList}>
             {selectedFiles.map((file, index) => (
               <View key={`${file.uri}-${index}`} style={styles.selectedFileInner}>
-                <FolderIcon fill={colors.textDisabled} height={30} width={30} />
+                <FolderIcon
+                  color={colors.textDisabled}
+                  fill={colors.textDisabled}
+                  height={30}
+                  width={30}
+                />
                 <View style={styles.selectedNameGroup}>
                   <Text numberOfLines={1} style={styles.selectedName}>
                     {file.name}
@@ -106,14 +111,24 @@ function SelectedFileContent({ onRemove, selectedFiles }: SelectedFileContentPro
                     pressed && styles.deleteButtonPressed,
                   ]}
                 >
-                  <TrashIcon fill={colors.textSecondary} height={18} width={18} />
+                  <TrashIcon
+                    color={colors.textSecondary}
+                    fill={colors.textSecondary}
+                    height={18}
+                    width={18}
+                  />
                 </Pressable>
               </View>
             ))}
           </View>
         ) : (
           <View style={styles.selectedFileInner}>
-            <FolderIcon fill={colors.textDisabled} height={30} width={30} />
+            <FolderIcon
+              color={colors.textDisabled}
+              fill={colors.textDisabled}
+              height={30}
+              width={30}
+            />
             <Text style={styles.emptyFileText}>
               아직 업로드된 파일이 없어요.{`\n`}위의 버튼을 눌러 데이터를 업로드 해주세요.
             </Text>

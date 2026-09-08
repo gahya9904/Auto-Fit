@@ -25,12 +25,12 @@ import LogoIcon from '@/assets/icons/Logo_Auto-Fit.svg';
 import GoogleIcon from '@/assets/icons/social/Google.svg';
 import KakaoIcon from '@/assets/icons/social/Kakao.svg';
 import { AppButton, AppTextField, IconButton } from '@/src/components/common';
+import { getSupabaseClient } from '@/src/lib/supabase';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
 const authBackground = require('../../assets/images/backgrounds/2_Auth.png');
 
 const referenceWidth = 412;
-const referenceHeight = 917;
 
 const minimumScreenHeight = 740;
 const maximumScreenHeight = 917;
@@ -46,22 +46,13 @@ type SocialLoginButtonProps = {
   style?: ViewStyle;
 };
 
-function SocialLoginButton({
-  label,
-  icon: SocialIcon,
-  onPress,
-  style,
-}: SocialLoginButtonProps) {
+function SocialLoginButton({ label, icon: SocialIcon, onPress, style }: SocialLoginButtonProps) {
   return (
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.socialButton,
-        pressed && styles.pressed,
-        style,
-      ]}
+      style={({ pressed }) => [styles.socialButton, pressed && styles.pressed, style]}
     >
       <View style={styles.socialIconBox}>
         <SocialIcon height={50} width={50} />
@@ -78,18 +69,35 @@ export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const { height: windowHeight, width: windowWidth } =
-    useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
 
   const passwordRef = useRef<TextInput>(null);
 
   const [email, setEmail] = useState('');
+  const [loginError, setLoginError] = useState<string>();
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     Keyboard.dismiss();
-    router.replace('/upload');
+    if (isLoggingIn) return;
+
+    setIsLoggingIn(true);
+    setLoginError(undefined);
+    try {
+      const { error } = await getSupabaseClient().auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (error) throw error;
+      router.replace('/upload');
+    } catch (error) {
+      console.error('로그인 실패:', error);
+      setLoginError(error instanceof Error ? error.message : '로그인 정보를 확인해 주세요.');
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const dismissKeyboard = () => {
@@ -106,68 +114,38 @@ export default function LoginScreen() {
     router.push('/password/forgot');
   };
 
-  const availableWidth = Math.max(
-    0,
-    windowWidth - insets.left - insets.right,
-  );
+  const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
 
-  const widthScale = Math.min(
-    1,
-    availableWidth / referenceWidth,
-  );
+  const widthScale = Math.min(1, availableWidth / referenceWidth);
 
   const scaledWidth = referenceWidth * widthScale;
 
-  const canvasLeft =
-    insets.left + (availableWidth - scaledWidth) / 2;
+  const canvasLeft = insets.left + (availableWidth - scaledWidth) / 2;
 
   const screenHeight = Dimensions.get('screen').height;
 
-  const responsiveHeight =
-    Platform.OS === 'web'
-      ? windowHeight
-      : screenHeight;
+  const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
 
   const heightProgress = Math.max(
     0,
     Math.min(
       1,
-      (responsiveHeight - minimumScreenHeight) /
-        (maximumScreenHeight - minimumScreenHeight),
+      (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight),
     ),
   );
 
-  const verticalValue = (
-    expanded: number,
-    compact: number,
-  ) =>
-    compact +
-    (expanded - compact) * heightProgress;
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
 
-  const contentTop = Math.max(
-    insets.top,
-    verticalValue(figmaContentTop, 42),
-  );
+  const contentTop = Math.max(insets.top, verticalValue(figmaContentTop, 42));
 
-  const brandToFormGap = verticalValue(
-    figmaBrandToFormGap - formGroupUpwardAdjustment,
-    34,
-  );
+  const brandToFormGap = verticalValue(figmaBrandToFormGap - formGroupUpwardAdjustment, 34);
 
-  const dividerTopGap = verticalValue(
-    spacing.xl,
-    13,
-  );
+  const dividerTopGap = verticalValue(spacing.xl, 13);
 
-  const socialTopGap = verticalValue(
-    spacing.xl,
-    13,
-  );
+  const socialTopGap = verticalValue(spacing.xl, 13);
 
-  const socialGap = verticalValue(
-    17,
-    10,
-  );
+  const socialGap = verticalValue(17, 10);
 
   return (
     <View style={styles.background}>
@@ -179,18 +157,10 @@ export default function LoginScreen() {
       />
 
       <KeyboardAvoidingView
-        behavior={
-          Platform.OS === 'ios'
-            ? 'padding'
-            : undefined
-        }
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardAvoidingView}
       >
-        <Pressable
-          accessible={false}
-          onPress={dismissKeyboard}
-          style={styles.keyboardDismissArea}
-        >
+        <Pressable accessible={false} onPress={dismissKeyboard} style={styles.keyboardDismissArea}>
           <View style={styles.contentViewport}>
             <View
               style={[
@@ -207,21 +177,12 @@ export default function LoginScreen() {
               ]}
             >
               <View style={styles.brandSection}>
-                <LogoIcon
-                  accessibilityLabel="Auto-Fit 로고"
-                  height={68.479}
-                  width={71.591}
-                />
+                <LogoIcon accessibilityLabel="Auto-Fit 로고" height={68.479} width={71.591} />
 
-                <Text style={styles.brandName}>
-                  Auto-Fit
-                </Text>
+                <Text style={styles.brandName}>Auto-Fit</Text>
 
                 <Text style={styles.tagline}>
-                  <Text style={styles.taglineAccent}>
-                    AI
-                  </Text>
-                  가 함께하는 나만의 헬스케어
+                  <Text style={styles.taglineAccent}>AI</Text>가 함께하는 나만의 헬스케어
                 </Text>
               </View>
 
@@ -241,17 +202,11 @@ export default function LoginScreen() {
                   keyboardType="email-address"
                   leftElement={
                     <View style={styles.inputIconSlot}>
-                      <EmailIcon
-                        color={colors.textNavigator}
-                        height={18}
-                        width={18}
-                      />
+                      <EmailIcon color={colors.textNavigator} height={18} width={18} />
                     </View>
                   }
                   onChangeText={setEmail}
-                  onSubmitEditing={() =>
-                    passwordRef.current?.focus()
-                  }
+                  onSubmitEditing={() => passwordRef.current?.focus()}
                   placeholder="이메일을 입력해주세요"
                   returnKeyType="next"
                   textContentType="emailAddress"
@@ -263,13 +218,10 @@ export default function LoginScreen() {
                   accessibilityLabel="비밀번호"
                   autoCapitalize="none"
                   autoComplete="password"
+                  error={loginError}
                   leftElement={
                     <View style={styles.inputIconSlot}>
-                      <PasswordIcon
-                        color={colors.textNavigator}
-                        height={18}
-                        width={18}
-                      />
+                      <PasswordIcon color={colors.textNavigator} height={18} width={18} />
                     </View>
                   }
                   onChangeText={setPassword}
@@ -278,31 +230,15 @@ export default function LoginScreen() {
                   returnKeyType="done"
                   rightElement={
                     <IconButton
-                      accessibilityLabel={
-                        passwordVisible
-                          ? '비밀번호 숨기기'
-                          : '비밀번호 보기'
-                      }
+                      accessibilityLabel={passwordVisible ? '비밀번호 숨기기' : '비밀번호 보기'}
                       icon={
                         passwordVisible ? (
-                          <EyeIcon
-                            color={colors.textNavigator}
-                            height={18}
-                            width={18}
-                          />
+                          <EyeIcon color={colors.textNavigator} height={18} width={18} />
                         ) : (
-                          <EyeCloseIcon
-                            color={colors.textNavigator}
-                            height={18}
-                            width={18}
-                          />
+                          <EyeCloseIcon color={colors.textNavigator} height={18} width={18} />
                         )
                       }
-                      onPress={() =>
-                        setPasswordVisible(
-                          (visible) => !visible,
-                        )
-                      }
+                      onPress={() => setPasswordVisible((visible) => !visible)}
                       size={44}
                       style={styles.eyeButton}
                     />
@@ -318,15 +254,10 @@ export default function LoginScreen() {
                   onPress={openForgotPassword}
                   style={styles.forgotPasswordButton}
                 >
-                  <Text style={styles.forgotPasswordText}>
-                    비밀번호 찾기
-                  </Text>
+                  <Text style={styles.forgotPasswordText}>비밀번호 찾기</Text>
                 </Pressable>
 
-                <AppButton
-                  onPress={handleLogin}
-                  title="로그인"
-                />
+                <AppButton loading={isLoggingIn} onPress={handleLogin} title="로그인" />
               </View>
 
               <View
@@ -339,9 +270,7 @@ export default function LoginScreen() {
                 ]}
               >
                 <View style={styles.dividerLine} />
-                <Text style={styles.dividerLabel}>
-                  또는
-                </Text>
+                <Text style={styles.dividerLabel}>또는</Text>
                 <View style={styles.dividerLine} />
               </View>
 
@@ -367,18 +296,10 @@ export default function LoginScreen() {
                 />
 
                 <View style={styles.signUpGuide}>
-                  <Text style={styles.signUpGuideText}>
-                    계정이 없으신가요?
-                  </Text>
+                  <Text style={styles.signUpGuideText}>계정이 없으신가요?</Text>
 
-                  <Pressable
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    onPress={openSignUp}
-                  >
-                    <Text style={styles.signUpLinkText}>
-                      회원가입
-                    </Text>
+                  <Pressable accessibilityRole="button" hitSlop={8} onPress={openSignUp}>
+                    <Text style={styles.signUpLinkText}>회원가입</Text>
                   </Pressable>
                 </View>
               </View>

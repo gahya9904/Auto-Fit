@@ -31,8 +31,7 @@ export function getBottomNavigationVisualHeight(windowHeight: number) {
   );
 }
 
-const bottomNavigationShadow: ViewStyle =
-  Platform.OS === 'android' ? {} : shadows.card;
+const bottomNavigationShadow: ViewStyle = Platform.OS === 'android' ? {} : shadows.card;
 
 const tabMeta = {
   home: { label: '홈', Icon: HomeIcon },
@@ -66,6 +65,7 @@ export function BottomNavigation({
   const navigationRef = useRef<View>(null);
   const visualHeight = getBottomNavigationVisualHeight(windowHeight);
   const itemHeight = visualHeight - 10;
+  const isDiet = state.routes[state.index]?.name === 'diet';
   const measureNavigation = useCallback(() => {
     navigationRef.current?.measureInWindow((x, y, width, height) => {
       onNavigationLayout?.({ height, width, x, y });
@@ -81,13 +81,13 @@ export function BottomNavigation({
         { paddingBottom: Math.max(insets.bottom, BOTTOM_NAVIGATION_MIN_BOTTOM_GAP) },
       ]}
     >
-      {Platform.OS === 'android' ? (
-        <View
-          pointerEvents="none"
-          style={[styles.androidShadowLayer, { height: visualHeight }]}
-        />
+      {isDiet ? (
+        <View pointerEvents="none" style={[styles.dietLowerMask, { top: visualHeight / 2 }]} />
       ) : null}
-      <View style={[styles.bar, bottomNavigationShadow, { height: visualHeight }]}> 
+      {Platform.OS === 'android' ? (
+        <View pointerEvents="none" style={[styles.androidShadowLayer, { height: visualHeight }]} />
+      ) : null}
+      <View style={[styles.bar, bottomNavigationShadow, { height: visualHeight }]}>
         {state.routes.map((route, index) => {
           const meta = tabMeta[route.name as keyof typeof tabMeta];
           if (!meta) return null;
@@ -158,6 +158,14 @@ const styles = StyleSheet.create({
     left: 6,
     position: 'absolute',
     right: 6,
+  },
+  dietLowerMask: {
+    backgroundColor: colors.background,
+    bottom: 0,
+    left: -6,
+    position: 'absolute',
+    right: -6,
+    zIndex: 0,
   },
   item: {
     alignItems: 'center',

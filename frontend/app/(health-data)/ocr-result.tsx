@@ -792,7 +792,12 @@ export default function OCRResultScreen() {
 
             <View style={[styles.completionSection, { top: completionTop }]}>
               <View style={styles.completionIconCircle}>
-                <CheckIcon fill={colors.primary} height={32} width={32} />
+                <CheckIcon
+                  color={colors.primary}
+                  fill={colors.primary}
+                  height={32}
+                  width={32}
+                />
               </View>
               <View style={styles.completionTexts}>
                 <Text style={styles.completionTitle}>데이터 추출이 완료되었습니다!</Text>
@@ -815,7 +820,12 @@ export default function OCRResultScreen() {
                         style={styles.filePreviewImage}
                       />
                     ) : (
-                      <DocumentIcon fill={colors.primary} height={42} width={42} />
+                      <DocumentIcon
+                        color={colors.primary}
+                        fill={colors.primary}
+                        height={42}
+                        width={42}
+                      />
                     )}
                   </View>
                   <View style={styles.fileTexts}>
@@ -872,7 +882,12 @@ export default function OCRResultScreen() {
                   <View style={styles.metricListContent}>{metricRows}</View>
                 )}
                 <View style={styles.privacyBox}>
-                  <ShieldCheckIcon fill={colors.primary} height={24} width={24} />
+                  <ShieldCheckIcon
+                    color={colors.primary}
+                    fill={colors.primary}
+                    height={24}
+                    width={24}
+                  />
                   <Text style={styles.privacyText}>
                     추출된 데이터는 사용자 동의 없이 저장되거나 공유되지 않으며,{`\n`}
                     <Text style={styles.privacyEmphasis}>분석 및 추천 서비스 제공</Text>에만

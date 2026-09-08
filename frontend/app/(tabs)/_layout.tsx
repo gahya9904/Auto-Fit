@@ -10,6 +10,7 @@ export default function TabLayout() {
   const [navigationLayout, setNavigationLayout] = useState<BottomNavigationLayout>();
   const [chatAnchor, setChatAnchor] = useState<AIChatButtonAnchor>();
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isChatClosing, setIsChatClosing] = useState(false);
   const handleNavigationLayout = useCallback((layout: BottomNavigationLayout) => {
     setNavigationLayout((current) =>
       current &&
@@ -23,10 +24,14 @@ export default function TabLayout() {
   }, []);
   const handleOpenChat = useCallback((anchor: AIChatButtonAnchor) => {
     setChatAnchor(anchor);
+    setIsChatClosing(false);
     setIsChatOpen(true);
   }, []);
-  const handleRequestCloseChat = useCallback(() => setIsChatOpen(false), []);
-  const handleChatCloseComplete = useCallback(() => setChatAnchor(undefined), []);
+  const handleRequestCloseChat = useCallback(() => {
+    setIsChatClosing(true);
+    setIsChatOpen(false);
+  }, []);
+  const handleChatCloseComplete = useCallback(() => setIsChatClosing(false), []);
   const isHome = pathname.endsWith('/home');
 
   return (
@@ -56,7 +61,7 @@ export default function TabLayout() {
       <DraggableAIChatButton
         navigationLayout={navigationLayout}
         onPress={handleOpenChat}
-        visible={isHome && !chatAnchor}
+        visible={isHome && !isChatOpen && !isChatClosing}
       />
     </View>
   );

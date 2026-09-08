@@ -28,16 +28,16 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import CloseIcon from '@/assets/icons/common/X.svg';
 import PaperPlaneIcon from '@/assets/icons/feature/PaperPlane_Fill.svg';
 import RobotIcon from '@/assets/icons/feature/Robot_Fill.svg';
-import {
-  CustomScrollIndicator,
-  useCustomScrollIndicator,
-} from '@/src/components/common';
+import { createChat, getChatMessages, getChats, sendChatMessage } from '@/src/api/chat';
+import { getApiErrorMessage } from '@/src/api/client';
+import { CustomScrollIndicator, useCustomScrollIndicator } from '@/src/components/common';
 import {
   BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
   getBottomNavigationVisualHeight,
   type BottomNavigationLayout,
 } from '@/src/components/navigation';
 import { colors, fontFamilies, radius } from '@/src/theme';
+import type { ChatMessage as ServerChatMessage } from '@/src/types/chat';
 
 import type { AIChatButtonAnchor } from './DraggableAIChatButton';
 
@@ -48,8 +48,7 @@ const referencePopupHeight = 550;
 const referencePopupNavigationGap = 48;
 const popupDuration = 360;
 const keyboardInputGap = 24;
-const welcomeMessageText =
-  'OO님 안녕하세요!\n무엇을 도와드릴까요?\n궁금한 건강 정보나 관리 방법을 물어보세요.';
+const welcomeMessageText = 'OO님 안녕하세요!\n건강 점수와 식단·운동 기록에 대해 물어보세요.';
 
 const webFixedOverlayStyle: ViewStyle | undefined =
   Platform.OS === 'web'
@@ -86,14 +85,22 @@ interface OverlayFrame {
   y: number;
 }
 
-type ChatMessage = {
+type UiChatMessage = {
+  clientMessageId?: string;
   createdAt: number;
   id: string;
   role: 'assistant' | 'user';
   text: string;
 };
 
-function createInitialMessages(): ChatMessage[] {
+type PendingMessage = {
+  chatId: string;
+  clientMessageId: string;
+  content: string;
+  optimisticId: string;
+};
+
+function createInitialMessages(): UiChatMessage[] {
   return [
     {
       createdAt: Date.now(),
@@ -102,6 +109,65 @@ function createInitialMessages(): ChatMessage[] {
       text: welcomeMessageText,
     },
   ];
+}
+
+function mapServerMessage(message: ServerChatMessage): UiChatMessage {
+  const createdAt = Date.parse(message.created_at);
+  return {
+    clientMessageId: message.client_message_id ?? undefined,
+    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+    id: message.message_id,
+    role: message.sender_type === 'user' ? 'user' : 'assistant',
+    text: message.content,
+  };
+}
+
+function dedupeMessages(messages: UiChatMessage[]) {
+  const seen = new Set<string>();
+  return messages.filter((message) => {
+    if (seen.has(message.id)) return false;
+    seen.add(message.id);
+    return true;
+  });
+}
+
+function mergeServerMessages(current: UiChatMessage[], serverMessages: UiChatMessage[]) {
+  const currentWithoutWelcome =
+    serverMessages.length > 0
+      ? current.filter((message) => message.id !== 'welcome')
+      : current;
+  const merged = dedupeMessages([...currentWithoutWelcome, ...serverMessages]);
+  const isUnchanged =
+    merged.length === current.length &&
+    merged.every(
+      (message, index) =>
+        message.id === current[index]?.id &&
+        message.text === current[index]?.text &&
+        message.createdAt === current[index]?.createdAt,
+    );
+
+  return isUnchanged ? current : merged;
+}
+
+function createClientMessageId() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0'));
+  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex
+    .slice(6, 8)
+    .join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`;
 }
 
 function formatMessageTime(timestamp: number) {
@@ -138,18 +204,28 @@ export function ChatPopup({
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const overlayRef = useRef<View>(null);
   const messageScrollRef = useRef<ScrollView>(null);
-  const messageIdRef = useRef(0);
-  const pendingResponseTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const automaticScrollRef = useRef(false);
   const automaticScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const wasVisibleRef = useRef(false);
+  const visibleRef = useRef(visible);
+  const chatLoadRequestRef = useRef(0);
+  const chatIdRef = useRef<string | null>(null);
+  const pendingMessageRef = useRef<PendingMessage | null>(null);
+  const messagePaginationRef = useRef<{ hasMore: boolean; nextCursor: string | null }>({
+    hasMore: false,
+    nextCursor: null,
+  });
   const reduceMotion = useReducedMotion();
   const progress = useSharedValue(0);
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
+  const [isInitialLoading, setIsInitialLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [messages, setMessages] = useState<ChatMessage[]>(createInitialMessages);
+  const [messages, setMessages] = useState<UiChatMessage[]>([]);
   const [overlayFrame, setOverlayFrame] = useState<OverlayFrame>({ x: 0, y: 0 });
   const [popupTopBeforeKeyboard, setPopupTopBeforeKeyboard] = useState<number | null>(null);
   const chatScrollIndicator = useCustomScrollIndicator({ showOnScroll: false });
@@ -169,18 +245,13 @@ export function ChatPopup({
   const preferredPopupTop = referencePopupTop * popupScale;
   const maximumPopupTop =
     navigationTop - referencePopupNavigationGap * popupScale - basePopupHeight;
-  const restingPopupTop = Math.max(
-    minimumPopupTop,
-    Math.min(preferredPopupTop, maximumPopupTop),
-  );
+  const restingPopupTop = Math.max(minimumPopupTop, Math.min(preferredPopupTop, maximumPopupTop));
   const keyboardSafeBottom =
     keyboardTop === null || keyboardHeight <= 0
       ? null
       : keyboardTop - overlayFrame.y - keyboardInputGap;
   const popupTop =
-    keyboardSafeBottom === null
-      ? restingPopupTop
-      : (popupTopBeforeKeyboard ?? restingPopupTop);
+    keyboardSafeBottom === null ? restingPopupTop : (popupTopBeforeKeyboard ?? restingPopupTop);
   const popupHeight =
     keyboardSafeBottom === null
       ? basePopupHeight
@@ -201,11 +272,6 @@ export function ChatPopup({
   const startScaleX = anchor.width / popupWidth;
   const startScaleY = anchor.height / Math.max(popupHeight, 1);
 
-  const clearPendingResponses = useCallback(() => {
-    pendingResponseTimersRef.current.forEach((timer) => clearTimeout(timer));
-    pendingResponseTimersRef.current.clear();
-  }, []);
-
   const scrollToLatestMessage = useCallback((animated: boolean) => {
     if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
     if (automaticScrollTimerRef.current) clearTimeout(automaticScrollTimerRef.current);
@@ -215,55 +281,141 @@ export function ChatPopup({
     scrollFrameRef.current = requestAnimationFrame(() => {
       scrollFrameRef.current = null;
       messageScrollRef.current?.scrollToEnd({ animated });
-      automaticScrollTimerRef.current = setTimeout(() => {
-        automaticScrollRef.current = false;
-        automaticScrollTimerRef.current = null;
-      }, animated ? 600 : 100);
+      automaticScrollTimerRef.current = setTimeout(
+        () => {
+          automaticScrollRef.current = false;
+          automaticScrollTimerRef.current = null;
+        },
+        animated ? 600 : 100,
+      );
     });
   }, []);
 
   const handleRequestClose = useCallback(() => {
-    clearPendingResponses();
     Keyboard.dismiss();
     onRequestClose();
-  }, [clearPendingResponses, onRequestClose]);
+  }, [onRequestClose]);
 
   const handleCloseComplete = useCallback(() => {
-    setInputText('');
-    setMessages(createInitialMessages());
     onCloseComplete();
   }, [onCloseComplete]);
 
-  const handleSend = useCallback(() => {
+  const initializeChat = useCallback(async () => {
+    const requestId = ++chatLoadRequestRef.current;
+    const cachedChatId = chatIdRef.current;
+    if (!cachedChatId) setIsInitialLoading(true);
+    setErrorMessage(null);
+
+    try {
+      let activeChatId = cachedChatId;
+      if (!activeChatId) {
+        const chatList = await getChats({ limit: 20, status: 'active' });
+        activeChatId =
+          chatList.chats[0]?.chat_id ?? (await createChat('건강 상담')).chat.chat_id;
+      }
+      const history = await getChatMessages(activeChatId);
+
+      if (requestId !== chatLoadRequestRef.current || !visibleRef.current) return;
+
+      const serverMessages = dedupeMessages(history.messages.map(mapServerMessage));
+      const pending = pendingMessageRef.current;
+      const pendingWasStored = Boolean(
+        pending &&
+        serverMessages.some((message) => message.clientMessageId === pending.clientMessageId),
+      );
+
+      if (pendingWasStored) {
+        pendingMessageRef.current = null;
+        setInputText('');
+      }
+
+      chatIdRef.current = activeChatId;
+      setChatId(activeChatId);
+      setMessages((current) => {
+        const withoutStoredPending = pendingWasStored
+          ? current.filter((message) => message.id !== pending?.optimisticId)
+          : current;
+        const merged = mergeServerMessages(withoutStoredPending, serverMessages);
+        const messagesAfterInitialLoad =
+          merged.length === 0 ? createInitialMessages() : merged;
+        if (!pending || pendingWasStored || pending.chatId !== activeChatId) {
+          return messagesAfterInitialLoad;
+        }
+        return dedupeMessages([
+          ...messagesAfterInitialLoad,
+          {
+            clientMessageId: pending.clientMessageId,
+            createdAt: Date.now(),
+            id: pending.optimisticId,
+            role: 'user',
+            text: pending.content,
+          },
+        ]);
+      });
+      messagePaginationRef.current = {
+        hasMore: history.has_more,
+        nextCursor: history.next_cursor,
+      };
+    } catch (error) {
+      if (requestId !== chatLoadRequestRef.current || !visibleRef.current) return;
+      console.error('채팅 초기화 실패:', error);
+      setErrorMessage(getApiErrorMessage(error));
+    } finally {
+      if (!cachedChatId && requestId === chatLoadRequestRef.current) {
+        setIsInitialLoading(false);
+      }
+    }
+  }, []);
+
+  const handleSend = useCallback(async () => {
     const text = inputText.trim();
-    if (!text) return;
+    if (!text || text.length > 500 || !chatId || isSending || isInitialLoading) return;
 
-    setMessages((current) => [
-      ...current,
-      {
-        createdAt: Date.now(),
-        id: `user-${Date.now()}-${messageIdRef.current++}`,
-        role: 'user',
-        text,
-      },
-    ]);
-    setInputText('');
+    const existingPending = pendingMessageRef.current;
+    const pending =
+      existingPending?.chatId === chatId && existingPending.content === text
+        ? existingPending
+        : {
+            chatId,
+            clientMessageId: createClientMessageId(),
+            content: text,
+            optimisticId: `optimistic-${Date.now()}`,
+          };
 
-    const timer = setTimeout(() => {
-      pendingResponseTimersRef.current.delete(timer);
-      setMessages((current) => [
+    pendingMessageRef.current = pending;
+    setErrorMessage(null);
+    setIsSending(true);
+    setMessages((current) =>
+      dedupeMessages([
         ...current,
         {
+          clientMessageId: pending.clientMessageId,
           createdAt: Date.now(),
-          id: `assistant-${Date.now()}-${messageIdRef.current++}`,
-          role: 'assistant',
-          text: 'AI 답변',
+          id: pending.optimisticId,
+          role: 'user',
+          text,
         },
-      ]);
-    }, 1000);
+      ]),
+    );
 
-    pendingResponseTimersRef.current.add(timer);
-  }, [inputText]);
+    try {
+      const response = await sendChatMessage(chatId, text, pending.clientMessageId);
+      setMessages((current) =>
+        dedupeMessages([
+          ...current.filter((message) => message.id !== pending.optimisticId),
+          mapServerMessage(response.user_message),
+          mapServerMessage(response.assistant_message),
+        ]),
+      );
+      pendingMessageRef.current = null;
+      setInputText((current) => (current.trim() === text ? '' : current));
+    } catch (error) {
+      console.error('채팅 메시지 전송 실패:', error);
+      setErrorMessage(getApiErrorMessage(error));
+    } finally {
+      setIsSending(false);
+    }
+  }, [chatId, inputText, isInitialLoading, isSending]);
 
   useEffect(() => {
     const duration = reduceMotion ? 1 : popupDuration;
@@ -281,16 +433,16 @@ export function ChatPopup({
   }, [handleCloseComplete, progress, reduceMotion, visible]);
 
   useEffect(() => {
+    visibleRef.current = visible;
+
     if (visible && !wasVisibleRef.current) {
-      clearPendingResponses();
-      setInputText('');
-      setMessages(createInitialMessages());
+      void initializeChat();
     } else if (!visible) {
-      clearPendingResponses();
+      chatLoadRequestRef.current += 1;
     }
 
     wasVisibleRef.current = visible;
-  }, [clearPendingResponses, visible]);
+  }, [initializeChat, visible]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -317,11 +469,11 @@ export function ChatPopup({
 
   useEffect(
     () => () => {
-      clearPendingResponses();
+      chatLoadRequestRef.current += 1;
       if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
       if (automaticScrollTimerRef.current) clearTimeout(automaticScrollTimerRef.current);
     },
-    [clearPendingResponses],
+    [],
   );
 
   useEffect(() => {
@@ -367,13 +519,15 @@ export function ChatPopup({
     });
   };
 
+  const isSendDisabled = isInitialLoading || isSending || !chatId || inputText.trim().length === 0;
+
   return (
     <View
       {...webOverlayProps}
       ref={overlayRef}
       accessibilityViewIsModal
       onLayout={handleOverlayLayout}
-      pointerEvents="auto"
+      pointerEvents={visible ? 'auto' : 'none'}
       style={[styles.overlay, webFixedOverlayStyle]}
     >
       <Animated.View style={[styles.dim, dimStyle]} />
@@ -404,6 +558,7 @@ export function ChatPopup({
                 <View style={styles.titleRobotCircle}>
                   <View style={styles.titleRobotBack} />
                   <RobotIcon
+                    color={colors.surface}
                     fill={colors.surface}
                     height={45}
                     style={styles.titleRobotIcon}
@@ -419,7 +574,7 @@ export function ChatPopup({
                 onPress={handleRequestClose}
                 style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
               >
-                <CloseIcon height={17} stroke={colors.primary} width={17} />
+                <CloseIcon color={colors.primary} height={17} stroke={colors.primary} width={17} />
               </Pressable>
             </View>
             <View style={styles.divider} />
@@ -460,7 +615,12 @@ export function ChatPopup({
                   chatMessage.role === 'assistant' ? (
                     <View key={chatMessage.id} style={styles.botRow}>
                       <View style={styles.profileCircle}>
-                        <RobotIcon fill={colors.primary} height={30} width={30} />
+                        <RobotIcon
+                          color={colors.primary}
+                          fill={colors.primary}
+                          height={30}
+                          width={30}
+                        />
                       </View>
                       <View style={styles.botContents}>
                         <Text style={styles.botName}>AI 건강 챗봇</Text>
@@ -481,6 +641,11 @@ export function ChatPopup({
                     </View>
                   ),
                 )}
+                {errorMessage ? (
+                  <Text accessibilityLiveRegion="polite" style={styles.errorText}>
+                    {errorMessage}
+                  </Text>
+                ) : null}
               </View>
             </ScrollView>
             <CustomScrollIndicator
@@ -493,6 +658,8 @@ export function ChatPopup({
           <View style={styles.composer}>
             <TextInput
               accessibilityLabel="AI 채팅 메시지"
+              editable={!isInitialLoading}
+              maxLength={500}
               onChangeText={setInputText}
               onFocus={() => {
                 if (keyboardTop === null) setPopupTopBeforeKeyboard(restingPopupTop);
@@ -508,12 +675,18 @@ export function ChatPopup({
             <Pressable
               accessibilityLabel="메시지 보내기"
               accessibilityRole="button"
+              disabled={isSendDisabled}
               hitSlop={4}
               onPress={handleSend}
-              style={({ pressed }) => [styles.sendButton, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.sendButton,
+                isSending && styles.sendButtonDisabled,
+                pressed && styles.pressed,
+              ]}
             >
               <SendButtonGradient />
               <PaperPlaneIcon
+                color={colors.surface}
                 fill={colors.surface}
                 height={22}
                 style={styles.sendIcon}
@@ -701,6 +874,14 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     width: '100%',
   },
+  errorText: {
+    color: colors.danger,
+    fontFamily: fontFamilies.pretendardRegular,
+    fontSize: 11,
+    includeFontPadding: false,
+    lineHeight: 15,
+    textAlign: 'center',
+  },
   composer: {
     alignItems: 'center',
     backgroundColor: '#F2F3F5',
@@ -731,6 +912,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     width: 40,
+  },
+  sendButtonDisabled: {
+    opacity: 0.45,
   },
   sendIcon: {
     zIndex: 1,

@@ -30,7 +30,7 @@ export function HealthUploadOptionCard({
     <AppCard bordered padding="none" style={[styles.card, style]}>
       <View style={styles.content}>
         <View style={styles.iconCircle}>
-          <Icon fill={colors.primary} height={32} width={32} />
+          <Icon color={colors.primary} fill={colors.primary} height={32} width={32} />
         </View>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.description}>
