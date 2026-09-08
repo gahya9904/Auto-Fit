@@ -23,7 +23,7 @@ def disabled(monkeypatch):
 
 def enable(monkeypatch, handler):
     monkeypatch.setenv("CHAT_AI_ENABLED", "true")
-    monkeypatch.setenv("CHAT_AI_URL", "https://ai.example/ai/chat")
+    monkeypatch.setenv("CHAT_AI_URL", "https://ai.example/chat")
     monkeypatch.setenv("CHAT_AI_API_KEY", "test-only-" + "x" * 32)
     original = httpx.AsyncClient
     monkeypatch.setattr(chat_model.httpx, "AsyncClient", lambda **kw:
@@ -37,9 +37,9 @@ def test_disabled_never_opens_client(monkeypatch):
     assert asyncio.run(chat_model.explain_records("질문", summary())) is None
 
 
-@pytest.mark.parametrize("url", ["http://ai.example/ai/chat", "https://ai.example/chat",
-    "https://user:pass@ai.example/ai/chat", "https://ai.example/ai/chat?token=x",
-    "https://ai.example/ai/chat#fragment", "https:///ai/chat"])
+@pytest.mark.parametrize("url", ["http://ai.example/chat", "https://ai.example/ai/chat",
+    "https://user:pass@ai.example/chat", "https://ai.example/chat?token=x",
+    "https://ai.example/chat#fragment", "https:///chat"])
 def test_invalid_url(monkeypatch, url):
     monkeypatch.setenv("CHAT_AI_ENABLED", "true")
     monkeypatch.setenv("CHAT_AI_URL", url)
@@ -58,7 +58,7 @@ def test_config_checked_at_startup(monkeypatch):
 
 def test_wire_contract_and_data_minimization(monkeypatch):
     def handler(req):
-        assert str(req.url) == "https://ai.example/ai/chat"
+        assert str(req.url) == "https://ai.example/chat"
         assert req.headers["authorization"] == "Bearer test-only-" + "x" * 32
         body = json.loads(req.content)
         assert set(body) == {"question", "user_info", "chat_history"}
@@ -75,7 +75,7 @@ def test_wire_contract_and_data_minimization(monkeypatch):
 
 @pytest.mark.parametrize("response", [
     httpx.Response(500), httpx.Response(401),
-    httpx.Response(307, headers={"Location": "https://other.example/ai/chat"}),
+    httpx.Response(307, headers={"Location": "https://other.example/chat"}),
     httpx.Response(200, text="not json"),
     httpx.Response(200, json={"answer": " ", "model": "test"}),
     httpx.Response(200, json={"answer": 123, "model": "test"}),

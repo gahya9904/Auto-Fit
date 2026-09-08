@@ -1,4 +1,4 @@
-"""Opt-in, server-to-server adapter for the teammate's POST /ai/chat service."""
+"""Opt-in, server-to-server adapter for the teammate's POST /chat service."""
 
 import asyncio
 import json
@@ -27,9 +27,9 @@ def get_model_config() -> ModelConfig | None:
     parsed = urlsplit(url)
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username
             or parsed.password or parsed.query or parsed.fragment
-            or parsed.path != "/ai/chat" or len(key) < 32
+            or parsed.path != "/chat" or len(key) < 32
             or not key.isascii() or any(c.isspace() for c in key)):
-        raise ValueError("Configure a trusted HTTPS /ai/chat URL and a server-only key (32+ characters)")
+        raise ValueError("Configure a trusted HTTPS /chat URL and a server-only key (32+ characters)")
     return ModelConfig(url, key)
 
 
