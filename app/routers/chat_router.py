@@ -3,14 +3,15 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.security import security, verify_api_key
 from app.schemas.chat import ChatRequest, ChatResponse
-from app.services.llm_service import llm_service
-
+from app.services.llm_service import generate_chat_response
+from app.core.config import get_settings
 
 router = APIRouter(
     prefix="/chat",
     tags=["chat"],
 )
 
+settings = get_settings()
 
 @router.post(
     "",
@@ -23,11 +24,11 @@ async def chat(
     verify_api_key(credentials)
 
     try:
-        answer = await llm_service.generate(request)
+        answer = await generate_chat_response(request)
 
         return ChatResponse(
             answer=answer,
-            model=llm_service.model,
+            model=settings.openai_model,
         )
 
     except RuntimeError:
