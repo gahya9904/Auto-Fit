@@ -16,3 +16,10 @@ app.include_router(chat_router)
 app.include_router(body_router)
 app.include_router(ocr_router)
 app.include_router(food_router)
+
+@app.get("/")
+async def root():
+    return {
+        "status": "ok",
+        "service": "Auto-Fit AI Server"
+    }
