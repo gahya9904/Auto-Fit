@@ -15,7 +15,10 @@ from dotenv import dotenv_values
 from backend.app import main
 
 
-async def run(project):
+async def run(project, api_base=None, rate_limits=False):
+    # Never forward real login tokens to an arbitrary host.
+    if api_base not in (None, "https://auto-fit-api-dev.onrender.com"):
+        raise ValueError("Unapproved API target")
     config = dotenv_values("backend/.env")
     assert config["SUPABASE_URL"].rstrip("/") == f"https://{project}.supabase.co", "Wrong target"
     settings = main.Settings(config["SUPABASE_URL"].rstrip("/"), config["SUPABASE_PUBLISHABLE_KEY"], config["SUPABASE_SERVICE_ROLE_KEY"], "http://localhost:3000")
@@ -55,8 +58,10 @@ async def run(project):
                 })
                 check(response.status_code == 201, "seed synthetic health score")
 
-            main.app.dependency_overrides[main.get_settings] = lambda: settings
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://test", timeout=40) as api:
+            if api_base is None:
+                main.app.dependency_overrides[main.get_settings] = lambda: settings
+            transport = httpx.ASGITransport(app=main.app) if api_base is None else None
+            async with httpx.AsyncClient(transport=transport, base_url=api_base or "http://test", timeout=90) as api:
                 owner = {"Authorization": f"Bearer {tokens[0]}"}
                 other = {"Authorization": f"Bearer {tokens[1]}"}
                 check((await api.get("/api/chats")).status_code == 401, "unauthenticated access rejected")
@@ -93,16 +98,54 @@ async def run(project):
                 # Authenticated clients must not call the service-only RPC directly.
                 direct = await remote.post("/rest/v1/rpc/save_chat_exchange", headers={"apikey": settings.supabase_publishable_key, **owner}, json={"p_user_id":created_users[0],"p_chat_id":chat,"p_client_message_id":str(uuid4()),"p_content":"denied","p_answer":None})
                 check(direct.status_code in (401,403,404), "direct client RPC denied")
+                if rate_limits:
+                    async def reset_test_quota():
+                        reset = await remote.delete("/rest/v1/chat_rate_limit_events", headers=admin_headers, params={"user_id": f"eq.{created_users[0]}"})
+                        assert reset.status_code == 204, "reset own synthetic quota"
+
+                    async def preview():
+                        return await api.post("/api/chats/answer-preview", headers=owner, json={"content": "안녕"})
+
+                    await reset_test_quota()
+                    for _ in range(10):
+                        check((await preview()).status_code == 200, "answer within ten-request quota")
+                    blocked = await preview()
+                    check(blocked.status_code == 429, "eleventh answer rejected")
+                    detail = blocked.json()["detail"]
+                    retry = detail["retry_after"]
+                    check(detail["code"] == "RATE_LIMITED" and 1 <= retry <= 60 and blocked.headers["Retry-After"] == str(retry), "rate-limit retry contract")
+                    check((await api.post(path, headers=owner, json=body)).status_code == 200, "saved replay allowed with exhausted answer quota")
+                    check((await api.get(path, headers=owner)).status_code == 200, "history allowed with exhausted answer quota")
+                    check((await api.post("/api/chats/answer-preview", headers=other, json={"content": "안녕"})).status_code == 200, "another user has independent quota")
+                    print(f"Waiting {retry + 1}s for the real rolling window to expire.", flush=True)
+                    await asyncio.sleep(retry + 1)
+                    check((await preview()).status_code == 200, "answer allowed after natural window expiry")
+                    await reset_test_quota()
+                    concurrent = await asyncio.gather(*(preview() for _ in range(20)))
+                    check(sorted(r.status_code for r in concurrent) == [200] * 10 + [429] * 10, "twenty concurrent answers allow exactly ten")
+                    await reset_test_quota()
+                    seed = await remote.post("/rest/v1/chat_rate_limit_events", headers=admin_headers, json=[{"user_id": created_users[0], "bucket": "requests"} for _ in range(59)])
+                    check(seed.status_code == 201, "seed synthetic general-quota boundary")
+                    check((await api.get("/api/chats", headers=owner)).status_code == 200, "sixtieth general request allowed")
+                    check((await api.get("/api/chats", headers=owner)).status_code == 429, "sixty-first general request rejected")
+                    direct = await remote.post("/rest/v1/rpc/consume_chat_rate_limit", headers={"apikey": settings.supabase_publishable_key, **owner}, json={"p_user_id": created_users[0], "p_bucket": "answers"})
+                    check(direct.status_code in (401,403,404), "client cannot mutate quota directly")
         finally:
             main.app.dependency_overrides.clear()
             for user_id in created_users:
-                for table in ("chat_messages", "chats", "health_assessments", "profiles"):
+                for table in ("chat_rate_limit_events", "chat_messages", "chats", "health_assessments", "profiles"):
                     response = await remote.delete(f"/rest/v1/{table}", headers=admin_headers, params={"user_id":f"eq.{user_id}"})
                     if response.status_code not in (200,204):
                         cleanup_errors.append(f"{table}:{user_id}")
+                    verify = await remote.get(f"/rest/v1/{table}", headers=admin_headers, params={"user_id":f"eq.{user_id}", "select":"user_id", "limit":1})
+                    if verify.status_code != 200 or verify.json() != []:
+                        cleanup_errors.append(f"remaining:{table}:{user_id}")
                 response = await remote.delete(f"/auth/v1/admin/users/{user_id}", headers=admin_headers)
                 if response.status_code not in (200,204):
                     cleanup_errors.append(f"auth:{user_id}")
+                verify = await remote.get(f"/auth/v1/admin/users/{user_id}", headers=admin_headers)
+                if verify.status_code != 404:
+                    cleanup_errors.append(f"remaining:auth:{user_id}")
             if cleanup_errors:
                 raise RuntimeError("Test resource cleanup required: " + ",".join(cleanup_errors))
             print(f"Cleaned up {len(created_users)} synthetic users and their test records.", flush=True)
@@ -112,4 +155,7 @@ async def run(project):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
-    asyncio.run(run(parser.parse_args().project))
+    parser.add_argument("--api-base", choices=["https://auto-fit-api-dev.onrender.com"])
+    parser.add_argument("--rate-limits", action="store_true")
+    args = parser.parse_args()
+    asyncio.run(run(args.project, args.api_base, args.rate_limits))

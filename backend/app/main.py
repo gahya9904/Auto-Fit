@@ -22,6 +22,7 @@ from backend.app.chat_health_scores import build_score_answer, fetch_scores
 from backend.app.chat_answers import answer_question
 from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
+from backend.app.chat_rate_limit import ChatRateLimiter
 
 
 @dataclass(frozen=True)
@@ -2441,12 +2442,26 @@ async def get_diet_meal_logs(
     }
 
 
+def get_chat_limiter(
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> ChatRateLimiter:
+    return ChatRateLimiter(settings.supabase_url, service_headers(settings), user.id)
+
+
+async def get_chat_access(limiter: ChatRateLimiter = Depends(get_chat_limiter)):
+    await limiter.check("requests")
+    return limiter
+
+
 @app.post("/api/chats/health-score-preview")
 async def preview_health_score_answer(
     body: HealthScorePreviewRequest,
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
+    limiter: ChatRateLimiter = Depends(get_chat_access),
 ) -> dict[str, Any]:
+    await limiter.check("answers")
     rows = await fetch_scores(settings.supabase_url, service_headers(settings), user.id)
     return {"answer": build_score_answer(rows, body.mode, body.explain)}
 
@@ -2456,7 +2471,9 @@ async def preview_chat_answer(
     body: ChatAnswerPreviewRequest,
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
+    limiter: ChatRateLimiter = Depends(get_chat_access),
 ) -> dict[str, Any]:
+    await limiter.check("answers")
     async def load_scores():
         return await fetch_scores(settings.supabase_url, service_headers(settings), user.id)
 
@@ -2469,6 +2486,7 @@ async def preview_chat_answer(
 def get_chat_store(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
+    limiter: ChatRateLimiter = Depends(get_chat_access),
 ) -> ChatStore:
     return ChatStore(settings.supabase_url, service_headers(settings), user.id)
 
@@ -2506,6 +2524,7 @@ async def list_chat_messages(
 async def send_chat_message(
     chat_id: UUID, body: ChatMessageRequest, response: Response,
     store: ChatStore = Depends(get_chat_store),
+    limiter: ChatRateLimiter = Depends(get_chat_access),
 ):
     async def load_scores():
         return await fetch_scores(store.url, store.headers, store.user_id)
@@ -2517,6 +2536,7 @@ async def send_chat_message(
         async with asyncio.timeout(30):
             result = await store.exchange(chat_id, body.client_message_id, body.content)
             if result is None:
+                await limiter.check("answers")
                 answer = await answer_question(body.content, load_scores, load_records)
                 result = await store.exchange(chat_id, body.client_message_id, body.content, answer)
     except TimeoutError:
