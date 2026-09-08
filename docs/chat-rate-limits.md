@@ -1,6 +1,7 @@
 # 챗봇 요청 제한
 
-상태: 2026-09-08 DB 적용 완료. 공용 서버 배포 후 검증 결과는 별도 기록한다.
+상태: 2026-09-08 DB 적용·Render 배포·공용 서버 검증 완료.
+배포 코드: `7e8171f`. [실제 검증 결과](chat-rate-limit-deployment-results.md).
 적용 migration: `20260908033403_chat_rate_limits.sql` (제한 및 정리 작업 포함).
 
 | 범위 | 사용자별 제한 |
