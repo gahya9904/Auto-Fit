@@ -39,6 +39,7 @@
 
 - `GET /health`: FastAPI 실행 상태 확인
 - `POST /api/test/roundtrip`: Supabase JWT 검증 후 로그인 사용자의 프로필 조회
+- `GET /api/profile`: 로그인 사용자의 프로필과 온보딩 완료 상태 조회
 - `PATCH /api/profile`: 검증된 JWT의 사용자 ID로 본인 프로필 저장 후 재조회
 - `GET /api/allergies`: 활성 알레르기 기준정보와 본인 선택 조회
 - `PUT /api/allergies`: 본인 알레르기 복수 선택을 트랜잭션으로 전체 교체

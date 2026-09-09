@@ -2009,6 +2009,15 @@ async def roundtrip(
     }
 
 
+@app.get("/api/profile")
+async def get_profile(
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    profile = await fetch_profile(user.id, settings)
+    return {"profile": profile}
+
+
 @app.patch("/api/profile")
 async def save_profile(
     body: ProfileUpdateRequest,

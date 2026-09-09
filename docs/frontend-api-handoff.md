@@ -36,12 +36,13 @@ OpenAPI는 요청 스키마에 유용하지만 대부분 응답은 아직 `dict[
 GET은 JSON 본문 없이 호출한다. 아래 표의 `{}`는 빈 객체 본문을 보내야 하는 POST다.
 POST라고 모두 201은 아니다. 코드가 지정한 성공 코드를 표에 명시했다.
 
-## 2. 인증·프로필·온보딩 (6개)
+## 2. 인증·프로필·온보딩 (7개)
 
 | Method | 경로 | 입력 | 성공 응답 주요 경로 | 성공 코드 |
 |---|---|---|---|---|
 | GET | `/health` | 없음 | `status` | 200 |
 | POST | `/api/test/roundtrip` | `message` 1~200자 | `ok, message, received_at, user_id, profile` | 200 |
+| GET | `/api/profile` | 없음 | `profile` | 200 |
 | PATCH | `/api/profile` | ProfileUpdateRequest | `ok, profile` | 200 |
 | GET | `/api/allergies` | 없음 | `catalog[], selected[]` | 200 |
 | PUT | `/api/allergies` | `allergy_type_ids[], custom_names[]` | `ok, selected[]` | 200 |
@@ -53,7 +54,7 @@ POST라고 모두 201은 아니다. 코드가 지정한 성공 코드를 표에 
 - 알레르기 PUT은 전체 선택 교체다. 체크된 전체 ID를 보내고 선택 해제는 빈 배열로 보낸다.
 - 카탈로그 선택 최대 12개, 기타 이름 최대 5개(각 1~50자), 중복 정리.
 - 온보딩은 name/birth_date/gender가 필요하며 누락 시 409와 fields 반환. 이미 완료됐으면 already_completed=true.
-- **전용 GET /api/profile은 아직 없다.** roundtrip의 profile은 연결 테스트용이며 정식 초기 프로필 조회 API가 필요하다.
+- 로그인 후 `GET /api/profile`로 현재 사용자의 가입 완료 여부와 기본 정보를 조회한다.
 - 프로필 응답 주요 필드: user_id, name, nickname, birth_date, gender, target_weight, activity_level, onboarding_completed_at, updated_at.
 
 ## 3. 운동 설정·추천 (6개)

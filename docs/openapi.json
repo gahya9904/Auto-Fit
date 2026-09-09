@@ -86,6 +86,52 @@
       }
     },
     "/api/profile": {
+      "get": {
+        "summary": "Get Profile",
+        "operationId": "get_profile_api_profile_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Profile Api Profile Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "patch": {
         "summary": "Save Profile",
         "operationId": "save_profile_api_profile_patch",
@@ -2395,8 +2441,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 10,
-                "minimum": 0
+                "maximum": 10.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -2457,20 +2503,20 @@
           },
           "weekly_frequency": {
             "type": "integer",
-            "maximum": 7,
-            "minimum": 1,
+            "maximum": 7.0,
+            "minimum": 1.0,
             "title": "Weekly Frequency"
           },
           "weekly_duration_minutes": {
             "type": "integer",
-            "maximum": 10080,
-            "minimum": 1,
+            "maximum": 10080.0,
+            "minimum": 1.0,
             "title": "Weekly Duration Minutes"
           },
           "goal_period_weeks": {
             "type": "integer",
-            "maximum": 260,
-            "minimum": 1,
+            "maximum": 260.0,
+            "minimum": 1.0,
             "title": "Goal Period Weeks"
           },
           "starts_on": {
@@ -2503,8 +2549,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 300,
-                "minimum": 0
+                "maximum": 300.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -2516,8 +2562,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 100,
-                "minimum": 0
+                "maximum": 100.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -2529,8 +2575,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 10000,
-                "minimum": 0
+                "maximum": 10000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -2542,8 +2588,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 1000,
-                "minimum": 0
+                "maximum": 1000.0,
+                "minimum": 0.0
               },
               {
                 "type": "string",
@@ -2623,8 +2669,8 @@
         "properties": {
           "available_minutes": {
             "type": "integer",
-            "maximum": 300,
-            "minimum": 5,
+            "maximum": 300.0,
+            "minimum": 5.0,
             "title": "Available Minutes"
           },
           "location": {
@@ -2692,8 +2738,8 @@
         "properties": {
           "perceived_difficulty": {
             "type": "integer",
-            "maximum": 5,
-            "minimum": 1,
+            "maximum": 5.0,
+            "minimum": 1.0,
             "title": "Perceived Difficulty"
           },
           "post_condition": {
@@ -2748,8 +2794,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 100000,
-                "minimum": 0
+                "maximum": 100000.0,
+                "minimum": 0.0
               },
               {
                 "type": "string",
@@ -2863,8 +2909,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 100000,
-                "exclusiveMinimum": 0
+                "maximum": 100000.0,
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "string",
@@ -2883,8 +2929,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 100000,
-                "minimum": 0
+                "maximum": 100000.0,
+                "minimum": 0.0
               },
               {
                 "type": "string",
@@ -2900,8 +2946,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 10000,
-                "minimum": 0
+                "maximum": 10000.0,
+                "minimum": 0.0
               },
               {
                 "type": "string",
@@ -2917,8 +2963,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 10000,
-                "minimum": 0
+                "maximum": 10000.0,
+                "minimum": 0.0
               },
               {
                 "type": "string",
@@ -2934,8 +2980,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 10000,
-                "minimum": 0
+                "maximum": 10000.0,
+                "minimum": 0.0
               },
               {
                 "type": "string",
@@ -3016,8 +3062,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 500,
-                "minimum": 20
+                "maximum": 500.0,
+                "minimum": 20.0
               },
               {
                 "type": "string",

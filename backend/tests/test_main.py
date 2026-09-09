@@ -116,6 +116,32 @@ def test_profile_update_rejects_client_supplied_user_id() -> None:
         main.app.dependency_overrides.clear()
 
 
+def test_profile_get_uses_authenticated_user_id(monkeypatch) -> None:
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def fake_profile(user_id: str, settings: main.Settings):
+        assert user_id == "authenticated-user"
+        assert settings == TEST_SETTINGS
+        return {
+            "user_id": user_id,
+            "name": "테스트 사용자",
+            "onboarding_completed_at": None,
+        }
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_profile", fake_profile)
+
+    try:
+        client = TestClient(main.app)
+        response = client.get("/api/profile")
+        assert response.status_code == 200
+        assert response.json()["profile"]["user_id"] == "authenticated-user"
+    finally:
+        main.app.dependency_overrides.clear()
+
+
 def test_profile_update_rejects_empty_payload() -> None:
     async def fake_user() -> main.AuthenticatedUser:
         return main.AuthenticatedUser(id="authenticated-user")
