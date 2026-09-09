@@ -11,7 +11,8 @@
     },
     "android": {
       "predictiveBackGestureEnabled": false,
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "resize",
+      "package": "com.gahya.autofit"
     },
     "web": {
       "bundler": "metro",
@@ -32,6 +33,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c61cabf1-6dc4-4364-8195-8c7f68675611"
+      }
     }
   }
 }

@@ -1,5 +1,5 @@
 import { useRef, useState, type ComponentType } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Dimensions,
   Image,
@@ -25,6 +25,10 @@ import LogoIcon from '@/assets/icons/Logo_Auto-Fit.svg';
 import GoogleIcon from '@/assets/icons/social/Google.svg';
 import KakaoIcon from '@/assets/icons/social/Kakao.svg';
 import { AppButton, AppTextField, IconButton } from '@/src/components/common';
+import {
+  signInWithSocialProvider,
+  type SocialLoginProvider,
+} from '@/src/features/auth/socialOAuth';
 import { getSupabaseClient } from '@/src/lib/supabase';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
@@ -40,17 +44,26 @@ const figmaBrandToFormGap = 71.521;
 const formGroupUpwardAdjustment = spacing.sm;
 
 type SocialLoginButtonProps = {
+  disabled?: boolean;
   label: string;
   icon: ComponentType<SvgProps>;
   onPress: () => void;
   style?: ViewStyle;
 };
 
-function SocialLoginButton({ label, icon: SocialIcon, onPress, style }: SocialLoginButtonProps) {
+function SocialLoginButton({
+  disabled = false,
+  label,
+  icon: SocialIcon,
+  onPress,
+  style,
+}: SocialLoginButtonProps) {
   return (
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [styles.socialButton, pressed && styles.pressed, style]}
     >
@@ -67,23 +80,30 @@ function SocialLoginButton({ label, icon: SocialIcon, onPress, style }: SocialLo
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { oauthError } = useLocalSearchParams<{ oauthError?: string | string[] }>();
   const insets = useSafeAreaInsets();
 
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
 
   const passwordRef = useRef<TextInput>(null);
+  const activeLoginProviderRef = useRef<'email' | SocialLoginProvider | null>(null);
 
   const [email, setEmail] = useState('');
-  const [loginError, setLoginError] = useState<string>();
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | undefined>(() =>
+    Array.isArray(oauthError) ? oauthError[0] : oauthError,
+  );
+  const [activeLoginProvider, setActiveLoginProvider] = useState<
+    'email' | SocialLoginProvider | null
+  >(null);
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
 
   const handleLogin = async () => {
     Keyboard.dismiss();
-    if (isLoggingIn) return;
+    if (activeLoginProviderRef.current) return;
 
-    setIsLoggingIn(true);
+    activeLoginProviderRef.current = 'email';
+    setActiveLoginProvider('email');
     setLoginError(undefined);
     try {
       const { error } = await getSupabaseClient().auth.signInWithPassword({
@@ -96,7 +116,28 @@ export default function LoginScreen() {
       console.error('로그인 실패:', error);
       setLoginError(error instanceof Error ? error.message : '로그인 정보를 확인해 주세요.');
     } finally {
-      setIsLoggingIn(false);
+      activeLoginProviderRef.current = null;
+      setActiveLoginProvider(null);
+    }
+  };
+
+  const handleSocialLogin = async (provider: SocialLoginProvider) => {
+    Keyboard.dismiss();
+    if (activeLoginProviderRef.current) return;
+
+    activeLoginProviderRef.current = provider;
+    setActiveLoginProvider(provider);
+    setLoginError(undefined);
+
+    try {
+      const result = await signInWithSocialProvider(provider);
+      if (result.status === 'success') router.replace('/upload');
+    } catch (error) {
+      console.error(`${provider} 로그인 실패:`, error);
+      setLoginError(error instanceof Error ? error.message : '소셜 로그인에 실패했습니다.');
+    } finally {
+      activeLoginProviderRef.current = null;
+      setActiveLoginProvider(null);
     }
   };
 
@@ -257,7 +298,11 @@ export default function LoginScreen() {
                   <Text style={styles.forgotPasswordText}>비밀번호 찾기</Text>
                 </Pressable>
 
-                <AppButton loading={isLoggingIn} onPress={handleLogin} title="로그인" />
+                <AppButton
+                  loading={activeLoginProvider === 'email'}
+                  onPress={handleLogin}
+                  title="로그인"
+                />
               </View>
 
               <View
@@ -284,15 +329,17 @@ export default function LoginScreen() {
                 ]}
               >
                 <SocialLoginButton
+                  disabled={activeLoginProvider !== null}
                   icon={GoogleIcon}
                   label="Google로 계속하기"
-                  onPress={dismissKeyboard}
+                  onPress={() => void handleSocialLogin('google')}
                 />
 
                 <SocialLoginButton
+                  disabled={activeLoginProvider !== null}
                   icon={KakaoIcon}
                   label="Kakao로 계속하기"
-                  onPress={dismissKeyboard}
+                  onPress={() => void handleSocialLogin('kakao')}
                 />
 
                 <View style={styles.signUpGuide}>
