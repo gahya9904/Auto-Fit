@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Animated,
   Dimensions,
@@ -13,7 +13,6 @@ import {
   Text,
   useWindowDimensions,
   View,
-  type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Down from '@/assets/icons/common/chevrons/Down.svg';
@@ -22,11 +21,12 @@ import Right from '@/assets/icons/common/chevrons/Right.svg';
 import Up from '@/assets/icons/common/chevrons/Up.svg';
 import Bmr from '@/assets/icons/data/BMR.svg';
 import Fat from '@/assets/icons/data/Fat.svg';
+import LeafFill from '@/assets/icons/deco/Leaf_Fill.svg';
 import Plant from '@/assets/icons/deco/Plant.svg';
 import Moon from '@/assets/icons/day/Moon.svg';
 import Star from '@/assets/icons/day/Star.svg';
 import Sun from '@/assets/icons/day/Sun.svg';
-import Fish from '@/assets/icons/food/Fish.svg';
+import FishSimple from '@/assets/icons/food/FishSimple.svg';
 import Fridge from '@/assets/icons/feature/Fridge.svg';
 import ForkKnife from '@/assets/icons/feature/navigator/Diet.svg';
 import Pencil from '@/assets/icons/feature/Pencil_Line.svg';
@@ -38,7 +38,7 @@ import {
   BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
   getBottomNavigationVisualHeight,
 } from '@/src/components/navigation';
-import { colors, fontFamilies } from '@/src/theme';
+import { fontFamilies } from '@/src/theme';
 
 const hero = require('../../assets/images/illustrations/diet/Diet.png');
 const breakfastImage = require('../../assets/images/illustrations/temp/Image_MealPicture_1.png');
@@ -66,8 +66,7 @@ type Meal = {
   foods: string;
   tags: string[];
   note: string;
-  fridgeBadge: string;
-  ingredients: string;
+  usedIngredients: string[];
   intake: [string, string][];
 };
 
@@ -77,6 +76,8 @@ type NutritionGoal = {
   target: number;
   unit: string;
   Icon: typeof Bmr;
+  accentColor: string;
+  softColor: string;
 };
 
 const defaultMealStatuses: MealStatuses = {
@@ -91,13 +92,12 @@ const meals: Meal[] = [
     id: 'breakfast',
     title: '아침',
     kcal: 480,
-    color: '#31A990',
+    color: '#2FAF96',
     image: breakfastImage,
     foods: '현미밥, 연어구이, 두부샐러드, 미역국, 키위',
     tags: ['근육 유지', '혈당 관리', '식이섬유'],
     note: '연어와 두부로 단백질을 보충하고 혈당 부담을 낮춘 구성',
-    fridgeBadge: '냉장고 재료 3개 활용',
-    ingredients: '두부 · 현미밥 · 토마토',
+    usedIngredients: ['두부', '현미밥', '토마토'],
     intake: [
       ['현미밥', '1공기 (약 150g)'],
       ['연어구이', '1토막 (약 100g)'],
@@ -110,13 +110,12 @@ const meals: Meal[] = [
     id: 'lunch',
     title: '점심',
     kcal: 480,
-    color: '#E49B42',
+    color: '#0066FF',
     image: lunchImage,
     foods: '현미밥, 연어구이, 두부샐러드, 미역국, 키위',
     tags: ['고단백', '건강한 지방', '영양 균형'],
     note: '한 끼에 필요한 단백질과 건강한 지방을 균형 있게 담은 구성',
-    fridgeBadge: '냉장고 재료 3개 활용',
-    ingredients: '두부 · 현미밥 · 토마토',
+    usedIngredients: ['두부', '현미밥', '토마토'],
     intake: [
       ['현미밥', '1공기 (약 150g)'],
       ['연어구이', '1토막 (약 100g)'],
@@ -129,13 +128,12 @@ const meals: Meal[] = [
     id: 'dinner',
     title: '저녁',
     kcal: 520,
-    color: '#5489D8',
+    color: '#464646',
     image: dinnerImage,
     foods: '현미밥, 닭가슴살구이, 두부버섯볶음, 브로콜리무침',
     tags: ['근육 유지', '혈당 관리', '식이섬유'],
     note: '현미밥과 닭가슴살로 포만감과 영양 균형을 맞춘 구성',
-    fridgeBadge: '냉장고 재료 4개 활용',
-    ingredients: '현미밥 · 닭가슴살 · 두부 · 브로콜리',
+    usedIngredients: ['현미밥', '닭가슴살', '두부', '브로콜리'],
     intake: [
       ['현미밥', '1공기 (약 150g)'],
       ['닭가슴살구이', '1조각 (약 120g)'],
@@ -147,13 +145,12 @@ const meals: Meal[] = [
     id: 'snack',
     title: '간식',
     kcal: 480,
-    color: '#A357C7',
+    color: '#AA2CD9',
     image: snackImage,
     foods: '그릭요거트, 블루베리, 호두',
     tags: ['고단백', '식이섬유', '건강한 지방'],
     note: '그릭요거트로 단백질을 보충하고 혈당 부담을 낮춘 구성',
-    fridgeBadge: '냉장고 재료 3개 활용',
-    ingredients: '그릭요거트 · 블루베리 · 호두',
+    usedIngredients: ['그릭요거트', '블루베리', '호두'],
     intake: [
       ['그릭요거트', '100g'],
       ['블루베리', '10개 (약 30g)'],
@@ -163,10 +160,42 @@ const meals: Meal[] = [
 ];
 
 const nutritionGoals: NutritionGoal[] = [
-  { label: '열량', current: 1650, target: 1700, unit: 'kcal', Icon: Bmr },
-  { label: '탄수화물', current: 210, target: 230, unit: 'g', Icon: Plant },
-  { label: '단백질', current: 30, target: 90, unit: 'g', Icon: Fish },
-  { label: '지방', current: 45, target: 50, unit: 'g', Icon: Fat },
+  {
+    label: '열량',
+    current: 1650,
+    target: 1700,
+    unit: 'kcal',
+    Icon: Bmr,
+    accentColor: '#E57373',
+    softColor: '#FFF1F1',
+  },
+  {
+    label: '탄수화물',
+    current: 210,
+    target: 230,
+    unit: 'g',
+    Icon: Plant,
+    accentColor: '#2FAF96',
+    softColor: '#E8F8F4',
+  },
+  {
+    label: '단백질',
+    current: 30,
+    target: 90,
+    unit: 'g',
+    Icon: FishSimple,
+    accentColor: '#0066FF',
+    softColor: '#E2EEFF',
+  },
+  {
+    label: '지방',
+    current: 45,
+    target: 50,
+    unit: 'g',
+    Icon: Fat,
+    accentColor: '#F6D200',
+    softColor: '#FFFAE8',
+  },
 ];
 
 const mealCardLayoutAnimation = {
@@ -211,9 +240,9 @@ function getDateCopy(date: Date, offset: number) {
 }
 
 function MealIcon({ id, color }: { id: MealType; color: string }) {
-  if (id === 'dinner') return <Moon color={color} height={15} width={15} />;
-  if (id === 'snack') return <Star color={color} height={15} width={15} />;
-  return <Sun color={color} height={15} width={15} />;
+  if (id === 'dinner') return <Moon color={color} height={20} width={20} />;
+  if (id === 'snack') return <Star color={color} height={20} width={20} />;
+  return <Sun color={color} height={20} width={20} />;
 }
 
 function FadeUp({ children }: { children: ReactNode }) {
@@ -242,32 +271,39 @@ function FadeUp({ children }: { children: ReactNode }) {
   return <Animated.View style={{ opacity, transform: [{ translateY }] }}>{children}</Animated.View>;
 }
 
-function Goal({ label, current, target, unit, Icon }: NutritionGoal) {
+function Goal({ label, current, target, unit, Icon, accentColor, softColor }: NutritionGoal) {
   const ratio = target > 0 ? current / target : 0;
   const barProgress = Math.max(0, Math.min(ratio, 1));
   const percentage = Math.round(ratio * 100);
 
   return (
     <View style={styles.goal}>
-      <View style={styles.goalIcon}>
-        <Icon color={colors.primaryDark} height={20} width={20} />
-      </View>
-      <View style={styles.goalCopy}>
-        <View style={styles.goalLabelRow}>
-          <Text style={styles.goalLabel}>{label}</Text>
-          <View style={styles.percentageBadge}>
-            <Text style={styles.percentageText}>{percentage}%</Text>
+      <View style={styles.goalTop}>
+        <View style={[styles.goalIcon, { backgroundColor: softColor }]}>
+          <Icon color={accentColor} fill={accentColor} height={20} width={20} />
+        </View>
+        <View style={styles.goalCopy}>
+          <View style={styles.goalLabelRow}>
+            <Text style={styles.goalLabel}>{label}</Text>
+            <View style={[styles.percentageBadge, { backgroundColor: softColor }]}>
+              <Text style={[styles.percentageText, { color: accentColor }]}>{percentage}%</Text>
+            </View>
           </View>
-        </View>
-        <Text style={styles.goalValue}>
-          {current.toLocaleString()}{' '}
-          <Text style={styles.goalTarget}>
-            / {target.toLocaleString()} {unit}
+          <Text style={styles.goalValue}>
+            {current.toLocaleString()}{' '}
+            <Text style={styles.goalTarget}>
+              / {target.toLocaleString()} {unit}
+            </Text>
           </Text>
-        </Text>
-        <View style={styles.goalTrack}>
-          <View style={[styles.goalFill, { width: `${barProgress * 100}%` }]} />
         </View>
+      </View>
+      <View style={styles.goalTrack}>
+        <View
+          style={[
+            styles.goalFill,
+            { backgroundColor: accentColor, width: `${barProgress * 100}%` },
+          ]}
+        />
       </View>
     </View>
   );
@@ -277,7 +313,7 @@ function StatusBadge({ status }: { status: MealStatus }) {
   if (status === 'eaten') {
     return (
       <View style={[styles.statusBadge, styles.eatenBadge]}>
-        <Check color="#31A990" height={11} width={11} />
+        <Check color="#2FAF96" height={13} width={13} />
         <Text style={[styles.statusBadgeText, styles.eatenBadgeText]}>먹었어요</Text>
       </View>
     );
@@ -285,7 +321,7 @@ function StatusBadge({ status }: { status: MealStatus }) {
   if (status === 'modified') {
     return (
       <View style={[styles.statusBadge, styles.modifiedBadge]}>
-        <Pencil color="#5489D8" height={11} width={11} />
+        <Pencil color="#0066FF" height={13} width={13} />
         <Text style={[styles.statusBadgeText, styles.modifiedBadgeText]}>수정하기</Text>
       </View>
     );
@@ -293,42 +329,57 @@ function StatusBadge({ status }: { status: MealStatus }) {
   if (status === 'skipped') {
     return (
       <View style={[styles.statusBadge, styles.skippedBadge]}>
-        <Prohibit color="#767676" height={11} width={11} />
+        <Prohibit color="#767676" height={13} width={13} />
         <Text style={[styles.statusBadgeText, styles.skippedBadgeText]}>건너뜀</Text>
       </View>
     );
   }
   return (
     <View style={[styles.statusBadge, styles.recommendedBadge]}>
-      <Refresh color="#31A990" height={11} width={11} />
+      <Refresh color="#2FAF96" height={13} width={13} />
       <Text style={[styles.statusBadgeText, styles.recommendedBadgeText]}>다른 식단</Text>
     </View>
   );
 }
 
-function tagStyle(tag: string, index: number) {
-  if (tag === '영양 균형') return { backgroundColor: '#F4F4F4', borderColor: '#D8DDDC' };
-  if (tag === '건강한 지방') return { backgroundColor: '#FFF8E8', borderColor: '#F0D899' };
-  if (tag === '고단백') return { backgroundColor: '#F6EEFB', borderColor: '#DABAE8' };
-  return [
-    { backgroundColor: '#EEF4FF', borderColor: '#AFC8FF' },
-    { backgroundColor: '#ECFAF6', borderColor: '#A9E2D4' },
-    { backgroundColor: '#EFF9F1', borderColor: '#BEE3C6' },
-  ][index % 3];
-}
+const DIET_TAG_STYLES: Record<
+  string,
+  { backgroundColor: string; borderColor: string; textColor: string }
+> = {
+  '근육 유지': { backgroundColor: '#EEF4FF', borderColor: '#AFC8FF', textColor: '#4F7FE8' },
+  '혈당 관리': { backgroundColor: '#ECFAF6', borderColor: '#A9E2D4', textColor: '#31A990' },
+  '체지방 관리': { backgroundColor: '#FFF3EA', borderColor: '#FFCBAA', textColor: '#EA8245' },
+  고단백: { backgroundColor: '#F4F0FF', borderColor: '#D6C7F5', textColor: '#8064C6' },
+  식이섬유: { backgroundColor: '#EFF9F1', borderColor: '#BEE3C6', textColor: '#58A870' },
+  '건강한 지방': { backgroundColor: '#FFF8E8', borderColor: '#EED99E', textColor: '#C8952F' },
+  '나트륨 조절': { backgroundColor: '#FFF0F0', borderColor: '#F3BABA', textColor: '#DD6A6A' },
+  '영양 균형': { backgroundColor: '#F2F5F7', borderColor: '#CCD6DC', textColor: '#657783' },
+};
 
-function actionStyle(status: MealStatus, selectedStatus: MealStatus): ViewStyle[] {
+const defaultTagStyle = DIET_TAG_STYLES['영양 균형'];
+
+function actionStyle(status: MealStatus, selectedStatus: MealStatus, pressed: boolean) {
   const selected = status === selectedStatus;
-  if (status === 'eaten')
-    return [styles.actionButton, selected ? styles.actionEatenSelected : styles.actionEaten];
+  if (status === 'eaten') {
+    return [
+      styles.actionButton,
+      selected ? styles.actionEatenSelected : styles.actionEaten,
+      pressed && styles.actionEatenPressed,
+    ];
+  }
   if (status === 'modified') {
     return [
       styles.actionButton,
       styles.actionWide,
       selected ? styles.actionModifiedSelected : styles.actionModified,
+      pressed && styles.actionModifiedPressed,
     ];
   }
-  return [styles.actionButton, selected ? styles.actionSkippedSelected : styles.actionSkipped];
+  return [
+    styles.actionButton,
+    selected ? styles.actionSkippedSelected : styles.actionSkipped,
+    pressed && styles.actionSkippedPressed,
+  ];
 }
 
 function MealCard({
@@ -344,19 +395,35 @@ function MealCard({
   onToggle: () => void;
   onStatusChange: (status: MealStatus) => void;
 }) {
-  const dimmed = status === 'skipped';
+  const [pendingStatus, setPendingStatus] = useState<MealStatus | null>(null);
+  const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const displayedStatus = pendingStatus ?? status;
+  const dimmed = displayedStatus === 'skipped';
   const borderStyle =
-    status === 'eaten'
+    displayedStatus === 'eaten'
       ? styles.mealCardEaten
-      : status === 'modified'
+      : displayedStatus === 'modified'
         ? styles.mealCardModified
-        : status === 'skipped'
+        : displayedStatus === 'skipped'
           ? styles.mealCardSkipped
           : null;
 
+  useEffect(
+    () => () => {
+      if (statusTimer.current) clearTimeout(statusTimer.current);
+    },
+    [],
+  );
+
   const chooseStatus = (nextStatus: MealStatus) => {
-    animateMealCardLayout();
-    onStatusChange(nextStatus);
+    if (statusTimer.current) clearTimeout(statusTimer.current);
+    setPendingStatus(nextStatus);
+    statusTimer.current = setTimeout(() => {
+      animateMealCardLayout();
+      onStatusChange(nextStatus);
+      setPendingStatus(null);
+      statusTimer.current = null;
+    }, 100);
   };
 
   return (
@@ -365,68 +432,97 @@ function MealCard({
       onPress={onToggle}
       style={[styles.mealCard, borderStyle]}
     >
-      <View style={styles.mealCardTop}>
-        <View style={styles.mealTitleRow}>
-          <MealIcon color={meal.color} id={meal.id} />
-          <Text style={[styles.mealTitle, { color: meal.color }]}>{meal.title}</Text>
-          <Text style={styles.mealKcal}>{meal.kcal} kcal</Text>
-        </View>
-        <Pressable
-          hitSlop={6}
-          onPress={(event) => event.stopPropagation()}
-          style={styles.statusPressable}
-        >
-          <StatusBadge status={status} />
-        </Pressable>
-      </View>
-
       <View style={styles.mealSummary}>
-        <View style={[styles.mealContent, dimmed && styles.skippedContent]}>
-          <Image resizeMode="cover" source={meal.image} style={styles.mealImage} />
-          <View style={styles.mealCopy}>
-            <Text numberOfLines={2} style={styles.foodsText}>
-              {meal.foods}
-            </Text>
-            <View style={styles.tags}>
-              {meal.tags.map((tag, index) => (
-                <View key={tag} style={[styles.tag, tagStyle(tag, index)]}>
-                  <Text style={styles.tagText}>{tag}</Text>
-                </View>
-              ))}
+        <Image
+          resizeMode="cover"
+          source={meal.image}
+          style={[styles.mealImage, dimmed && styles.skippedContent]}
+        />
+        <View style={styles.mealRight}>
+          <View style={styles.mealMetadataRow}>
+            <View style={styles.mealMetadataLeft}>
+              <View style={styles.mealNameRow}>
+                <MealIcon color={meal.color} id={meal.id} />
+                <Text style={[styles.mealTitle, { color: meal.color }]}>{meal.title}</Text>
+              </View>
+              <View style={styles.mealMetadataDivider} />
+              <Text style={styles.mealKcal}>{meal.kcal} kcal</Text>
+            </View>
+            <Pressable
+              hitSlop={6}
+              onPress={(event) => event.stopPropagation()}
+              style={styles.statusPressable}
+            >
+              <StatusBadge status={displayedStatus} />
+            </Pressable>
+          </View>
+          <View style={styles.mealBottomRow}>
+            <View style={[styles.mealCopy, dimmed && styles.skippedContent]}>
+              <Text numberOfLines={2} style={styles.foodsText}>
+                {meal.foods}
+              </Text>
+              <View style={styles.tags}>
+                {meal.tags.map((tag) => {
+                  const palette = DIET_TAG_STYLES[tag] ?? defaultTagStyle;
+                  return (
+                    <View
+                      key={tag}
+                      style={[
+                        styles.tag,
+                        {
+                          backgroundColor: palette.backgroundColor,
+                          borderColor: palette.borderColor,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.tagText, { color: palette.textColor }]}>{tag}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={styles.chevronArea}>
+              <View style={styles.chevronCircle}>
+                {expanded ? (
+                  <Up color="#2FAF96" height={15} width={15} />
+                ) : (
+                  <Down color="#2FAF96" height={15} width={15} />
+                )}
+              </View>
             </View>
           </View>
-        </View>
-        <View style={styles.chevronCircle}>
-          {expanded ? (
-            <Up color="#555555" height={13} width={13} />
-          ) : (
-            <Down color="#555555" height={13} width={13} />
-          )}
         </View>
       </View>
 
       {expanded ? (
         <FadeUp>
           <View style={styles.expandedContent}>
-            <View style={styles.mealDivider} />
             <Text style={styles.mealNote}>{meal.note}</Text>
+            <View style={styles.mealDivider} />
 
             <View style={styles.fridgeDetailCard}>
               <View style={styles.fridgeDetailHeader}>
-                <Text style={styles.detailTitle}>냉장고 재료 활용</Text>
+                <View style={styles.detailTitleRow}>
+                  <LeafFill color="#2FAF96" fill="#2FAF96" height={25} width={25} />
+                  <Text style={[styles.detailTitle, styles.fridgeDetailTitle]}>
+                    냉장고 재료 활용
+                  </Text>
+                </View>
                 <View style={styles.detailBadge}>
-                  <Text style={styles.detailBadgeText}>{meal.fridgeBadge}</Text>
+                  <Text style={styles.detailBadgeText}>{meal.usedIngredients.length}개 활용</Text>
                 </View>
               </View>
               <View style={styles.fridgeIngredientRow}>
-                <Fridge color="#31A990" height={20} width={17} />
-                <Text style={styles.fridgeIngredient}>{meal.ingredients}</Text>
+                <Text style={styles.fridgeIngredient}>{meal.usedIngredients.join(' · ')}</Text>
               </View>
             </View>
 
             <View style={styles.intakeCard}>
               <View style={styles.intakeTitleRow}>
-                <Text style={styles.detailTitle}>권장 섭취량</Text>
+                <View style={styles.detailTitleRow}>
+                  <ForkKnife color="#5C4D3C" height={25} width={25} />
+                  <Text style={[styles.detailTitle, styles.intakeTitle]}>권장 섭취량</Text>
+                </View>
                 <View style={styles.intakeBadge}>
                   <Text style={styles.intakeBadgeText}>1인 기준</Text>
                 </View>
@@ -434,9 +530,10 @@ function MealCard({
               <View style={styles.intakeItems}>
                 {meal.intake.map(([name, amount]) => (
                   <View key={name} style={styles.intakeItem}>
-                    <ForkKnife color="#5C4D3C" height={25} width={25} />
                     <Text style={styles.intakeName}>{name}</Text>
-                    <Text style={styles.intakeAmount}>{amount}</Text>
+                    <Text numberOfLines={1} style={styles.intakeAmount}>
+                      {amount}
+                    </Text>
                   </View>
                 ))}
               </View>
@@ -448,9 +545,9 @@ function MealCard({
                   event.stopPropagation();
                   chooseStatus('eaten');
                 }}
-                style={actionStyle('eaten', status)}
+                style={({ pressed }) => actionStyle('eaten', displayedStatus, pressed)}
               >
-                <Check color="#31A990" height={12} width={12} />
+                <Check color="#2FAF96" height={15} width={15} />
                 <Text style={[styles.actionText, styles.actionEatenText]}>먹었어요</Text>
               </Pressable>
               <Pressable
@@ -458,9 +555,9 @@ function MealCard({
                   event.stopPropagation();
                   chooseStatus('modified');
                 }}
-                style={actionStyle('modified', status)}
+                style={({ pressed }) => actionStyle('modified', displayedStatus, pressed)}
               >
-                <Pencil color="#5489D8" height={12} width={12} />
+                <Pencil color="#0066FF" height={15} width={15} />
                 <Text style={[styles.actionText, styles.actionModifiedText]}>
                   다른 음식 먹었어요
                 </Text>
@@ -470,9 +567,9 @@ function MealCard({
                   event.stopPropagation();
                   chooseStatus('skipped');
                 }}
-                style={actionStyle('skipped', status)}
+                style={({ pressed }) => actionStyle('skipped', displayedStatus, pressed)}
               >
-                <Prohibit color="#767676" height={12} width={12} />
+                <Prohibit color="#727272" height={15} width={15} />
                 <Text style={[styles.actionText, styles.actionSkippedText]}>건너뛰었어요</Text>
               </Pressable>
             </View>
@@ -611,7 +708,7 @@ export default function DietScreen() {
           <View style={styles.sectionStack}>
             <View style={styles.fridgeCard}>
               <View style={styles.fridgeIconCircle}>
-                <Fridge color="#31A990" height={25} width={17} />
+                <Fridge color="#2FAF96" height={32} width={32} />
               </View>
               <View style={styles.fridgeCopy}>
                 <Text style={styles.fridgeTitle}>
@@ -638,7 +735,7 @@ export default function DietScreen() {
                   pressed && styles.pressed,
                 ]}
               >
-                <Left color="#555555" height={13} width={13} />
+                <Left color="#2FAF96" height={15} width={15} />
               </Pressable>
 
               <View style={styles.dateChoices}>
@@ -656,6 +753,7 @@ export default function DietScreen() {
                         <Text style={[styles.dateValue, selected && styles.dateValueSelected]}>
                           {item.date}
                         </Text>
+                        {selected ? <View style={styles.dateSelectedLine} /> : null}
                       </Pressable>
                       {index === 0 ? <View style={styles.dateDivider} /> : null}
                     </View>
@@ -673,7 +771,7 @@ export default function DietScreen() {
                   pressed && styles.pressed,
                 ]}
               >
-                <Right color="#555555" height={13} width={13} />
+                <Right color="#2FAF96" height={15} width={15} />
               </Pressable>
             </View>
 
@@ -711,7 +809,7 @@ export default function DietScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F8FAFA', overflow: 'hidden' },
+  root: { flex: 1, backgroundColor: '#F7F8FA', overflow: 'hidden' },
   canvas: {
     alignSelf: 'flex-start',
     paddingBottom: 10,
@@ -720,11 +818,13 @@ const styles = StyleSheet.create({
     width: referenceWidth,
   },
   screenTitle: {
-    color: '#333333',
+    color: '#464646',
     fontFamily: fontFamilies.pretendardBold,
     fontSize: 15,
+    letterSpacing: 1.5,
     lineHeight: 20,
-    marginLeft: 21,
+    textAlign: 'center',
+    width: referenceWidth,
   },
   hero: {
     height: 143,
@@ -767,7 +867,9 @@ const styles = StyleSheet.create({
   fridgeCard: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
+    borderColor: '#E5EAE9',
     borderRadius: 10,
+    borderWidth: 1,
     flexDirection: 'row',
     height: 70,
     paddingHorizontal: 17,
@@ -793,15 +895,17 @@ const styles = StyleSheet.create({
   dateCard: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
+    borderColor: '#E5EAE9',
     borderRadius: 10,
+    borderWidth: 1,
     flexDirection: 'row',
     height: 70,
     justifyContent: 'space-between',
-    paddingHorizontal: 17,
+    paddingHorizontal: 20,
   },
   arrowButton: {
     alignItems: 'center',
-    backgroundColor: '#F4F6F6',
+    backgroundColor: '#E8F8F4',
     borderRadius: 14,
     height: 28,
     justifyContent: 'center',
@@ -809,8 +913,14 @@ const styles = StyleSheet.create({
   },
   arrowDisabled: { opacity: 0.3 },
   pressed: { opacity: 0.7 },
-  dateChoices: { alignItems: 'center', flexDirection: 'row', height: 60 },
-  dateChoiceWrap: { alignItems: 'center', flexDirection: 'row' },
+  dateChoices: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    height: 60,
+    justifyContent: 'space-between',
+    width: 258,
+  },
+  dateChoiceWrap: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   dateChoice: {
     alignItems: 'center',
     borderRadius: 10,
@@ -828,66 +938,89 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 4,
   },
-  dateValueSelected: { color: '#31A990', fontFamily: fontFamilies.pretendardMedium, fontSize: 12 },
+  dateValueSelected: {
+    color: '#464646',
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 12,
+  },
+  dateSelectedLine: {
+    backgroundColor: '#2FAF96',
+    borderRadius: 1,
+    height: 2,
+    marginTop: 7,
+    width: 35,
+  },
   nutritionCard: {
     backgroundColor: '#FFFFFF',
+    borderColor: '#E5EAE9',
     borderRadius: 10,
+    borderWidth: 1,
     height: 210,
     paddingHorizontal: 17,
-    paddingTop: 15,
+    paddingVertical: 15,
   },
-  nutritionTitle: { color: '#333333', fontFamily: fontFamilies.pretendardBold, fontSize: 17 },
+  nutritionTitle: {
+    color: '#464646',
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 17,
+    lineHeight: 17,
+  },
   nutritionDescription: {
-    color: '#777777',
-    fontFamily: fontFamilies.pretendardRegular,
+    color: '#767676',
+    fontFamily: fontFamilies.pretendardMedium,
     fontSize: 11,
+    letterSpacing: 1.1,
+    lineHeight: 13,
     marginTop: 3,
   },
-  goalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  goalsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginLeft: 5,
+    marginTop: 5,
+    width: 326,
+  },
   goal: {
     alignItems: 'center',
-    backgroundColor: '#F8FAFA',
-    borderRadius: 8,
-    flexDirection: 'row',
-    height: 70,
-    paddingHorizontal: 9,
-    width: 160,
+    gap: 12,
+    height: 65,
+    justifyContent: 'center',
+    width: 158,
   },
+  goalTop: { alignItems: 'flex-start', flexDirection: 'row', gap: 5, width: '100%' },
   goalIcon: {
     alignItems: 'center',
-    backgroundColor: '#EAF8F5',
     borderRadius: 15,
     height: 30,
     justifyContent: 'center',
     width: 30,
   },
-  goalCopy: { flex: 1, marginLeft: 7 },
+  goalCopy: { flex: 1, gap: 3, justifyContent: 'center' },
   goalLabelRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  goalLabel: { color: '#555555', fontFamily: fontFamilies.pretendardMedium, fontSize: 11 },
+  goalLabel: { color: '#464646', fontFamily: fontFamilies.pretendardSemiBold, fontSize: 11 },
   percentageBadge: {
     alignItems: 'center',
-    backgroundColor: '#EAF8F5',
     borderRadius: 8,
     height: 15,
     justifyContent: 'center',
     width: 35,
   },
-  percentageText: { color: '#31A990', fontFamily: fontFamilies.pretendardSemiBold, fontSize: 10 },
+  percentageText: { fontFamily: fontFamilies.pretendardSemiBold, fontSize: 10 },
   goalValue: {
-    color: '#333333',
-    fontFamily: fontFamilies.pretendardBold,
+    color: '#464646',
+    fontFamily: fontFamilies.pretendardSemiBold,
     fontSize: 14,
-    marginTop: 3,
   },
-  goalTarget: { color: '#999999', fontFamily: fontFamilies.pretendardRegular, fontSize: 10 },
+  goalTarget: { color: '#767676', fontFamily: fontFamilies.pretendardMedium, fontSize: 10 },
   goalTrack: {
-    backgroundColor: '#E5EBEA',
+    backgroundColor: '#E5EAE9',
     borderRadius: 3,
     height: 5,
-    marginTop: 5,
     overflow: 'hidden',
+    width: '100%',
   },
-  goalFill: { backgroundColor: '#49CDB1', borderRadius: 3, height: 5 },
+  goalFill: { borderRadius: 3, height: 5 },
   mealSectionTitle: {
     color: '#333333',
     fontFamily: fontFamilies.pretendardBold,
@@ -898,29 +1031,35 @@ const styles = StyleSheet.create({
   mealList: { gap: 10 },
   mealCard: {
     backgroundColor: '#FFFFFF',
-    borderColor: 'transparent',
+    borderColor: '#E5EAE9',
     borderRadius: 10,
-    borderWidth: 1.5,
+    borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 12,
   },
-  mealCardEaten: { borderColor: '#49CDB1' },
-  mealCardModified: { borderColor: '#78A7DB' },
-  mealCardSkipped: { borderColor: '#D8DDDC' },
-  mealCardTop: {
+  mealCardEaten: { borderColor: '#49CDB1', borderWidth: 2 },
+  mealCardModified: { borderColor: '#5FA0FB', borderWidth: 2 },
+  mealCardSkipped: { borderColor: '#E5EAE9' },
+  mealSummary: { flexDirection: 'row', gap: 13, height: 110, width: 350 },
+  mealRight: { flex: 1, gap: 17, height: 110 },
+  mealMetadataRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    height: 20,
     justifyContent: 'space-between',
-    marginBottom: 8,
   },
-  mealTitleRow: { alignItems: 'center', flexDirection: 'row' },
-  mealTitle: { fontFamily: fontFamilies.pretendardBold, fontSize: 15, marginLeft: 5 },
+  mealMetadataLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: 130,
+  },
+  mealNameRow: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  mealMetadataDivider: { backgroundColor: '#E5EAE9', height: 12, width: 1 },
+  mealTitle: { fontFamily: fontFamilies.pretendardBold, fontSize: 15 },
   mealKcal: {
-    color: '#777777',
-    fontFamily: fontFamilies.pretendardRegular,
+    color: '#464646',
+    fontFamily: fontFamilies.pretendardMedium,
     fontSize: 12,
-    marginLeft: 8,
   },
   statusPressable: { borderRadius: 10 },
   statusBadge: {
@@ -933,115 +1072,128 @@ const styles = StyleSheet.create({
     width: 65,
   },
   statusBadgeText: { fontFamily: fontFamilies.pretendardSemiBold, fontSize: 10 },
-  recommendedBadge: { backgroundColor: '#EAF8F5' },
-  recommendedBadgeText: { color: '#31A990' },
-  eatenBadge: { backgroundColor: '#EAF8F5' },
-  eatenBadgeText: { color: '#31A990' },
-  modifiedBadge: { backgroundColor: '#EDF4FC' },
-  modifiedBadgeText: { color: '#5489D8' },
-  skippedBadge: { backgroundColor: '#F1F2F2' },
+  recommendedBadge: { backgroundColor: '#E8F8F4' },
+  recommendedBadgeText: { color: '#2FAF96' },
+  eatenBadge: { backgroundColor: '#E8F8F4' },
+  eatenBadgeText: { color: '#2FAF96' },
+  modifiedBadge: { backgroundColor: '#E2EEFF' },
+  modifiedBadgeText: { color: '#0066FF' },
+  skippedBadge: { backgroundColor: '#EAEAEA' },
   skippedBadgeText: { color: '#767676' },
-  mealSummary: { height: 110, position: 'relative' },
-  mealContent: { flexDirection: 'row', height: 110, paddingRight: 32 },
   skippedContent: { opacity: 0.5 },
-  mealImage: { backgroundColor: '#F3F5F4', borderRadius: 8, height: 110, width: 110 },
-  mealCopy: { flex: 1, justifyContent: 'center', marginLeft: 17 },
+  mealImage: { backgroundColor: '#F3F5F4', borderRadius: 10, height: 110, width: 110 },
+  mealBottomRow: { flex: 1, flexDirection: 'row' },
+  mealCopy: { flex: 1, justifyContent: 'space-between' },
   foodsText: {
-    color: '#333333',
+    color: '#464646',
     fontFamily: fontFamilies.pretendardSemiBold,
     fontSize: 16,
-    lineHeight: 22,
+    lineHeight: 19,
+    width: 200,
   },
-  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 9 },
+  tags: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 3, width: 200 },
   tag: {
     borderRadius: 10,
-    borderWidth: 0.7,
+    borderWidth: 0.5,
     height: 20,
     justifyContent: 'center',
-    paddingHorizontal: 7,
+    paddingHorizontal: 8,
   },
-  tagText: { color: '#66706E', fontFamily: fontFamilies.pretendardMedium, fontSize: 11 },
+  tagText: { fontFamily: fontFamilies.pretendardMedium, fontSize: 11 },
+  chevronArea: { alignItems: 'center', alignSelf: 'stretch', paddingTop: 10, width: 25 },
   chevronCircle: {
     alignItems: 'center',
-    backgroundColor: '#F1F3F3',
-    borderRadius: 13,
-    bottom: 7,
+    backgroundColor: '#E8F8F4',
+    borderRadius: 12.5,
     height: 25,
     justifyContent: 'center',
-    position: 'absolute',
-    right: 0,
     width: 25,
   },
-  expandedContent: { gap: 10, paddingTop: 10 },
-  mealDivider: { backgroundColor: '#E8ECEB', height: 1 },
+  expandedContent: { gap: 12, paddingTop: 12 },
+  mealDivider: { backgroundColor: '#E5EAE9', height: 1 },
   mealNote: {
-    color: '#555555',
-    fontFamily: fontFamilies.pretendardRegular,
+    color: '#767676',
+    fontFamily: fontFamilies.pretendardMedium,
     fontSize: 14,
-    lineHeight: 20,
   },
   fridgeDetailCard: {
     backgroundColor: '#EEF9F7',
-    borderRadius: 8,
+    borderRadius: 10,
     height: 65,
     paddingHorizontal: 10,
-    paddingTop: 9,
+    paddingVertical: 5,
   },
-  fridgeDetailHeader: { alignItems: 'center', flexDirection: 'row', gap: 7 },
-  detailTitle: { color: '#333333', fontFamily: fontFamilies.pretendardBold, fontSize: 13 },
-  detailBadge: {
-    alignItems: 'center',
-    backgroundColor: '#D8F2EC',
-    borderRadius: 9,
-    height: 18,
-    justifyContent: 'center',
-    paddingHorizontal: 7,
-  },
-  detailBadgeText: { color: '#31A990', fontFamily: fontFamilies.pretendardMedium, fontSize: 10 },
-  fridgeIngredientRow: {
+  fridgeDetailHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 7,
-    height: 30,
-    marginTop: 1,
+    justifyContent: 'space-between',
   },
-  fridgeIngredient: { color: '#555555', fontFamily: fontFamilies.pretendardMedium, fontSize: 13 },
-  intakeCard: { backgroundColor: '#FBF7F1', borderRadius: 8, padding: 10 },
-  intakeTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
-  intakeBadge: {
+  detailTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  detailTitle: { fontFamily: fontFamilies.pretendardSemiBold, fontSize: 13 },
+  fridgeDetailTitle: { color: '#2FAF96' },
+  detailBadge: {
     alignItems: 'center',
-    backgroundColor: '#F2E7D8',
-    borderRadius: 9,
+    backgroundColor: '#DBF4ED',
+    borderRadius: 10,
     height: 18,
     justifyContent: 'center',
     width: 45,
   },
-  intakeBadgeText: { color: '#8E6F4E', fontFamily: fontFamilies.pretendardMedium, fontSize: 10 },
-  intakeItems: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 9 },
-  intakeItem: {
+  detailBadgeText: { color: '#2FAF96', fontFamily: fontFamilies.pretendardMedium, fontSize: 10 },
+  fridgeIngredientRow: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7FCFB',
     borderRadius: 7,
+    flexDirection: 'row',
+    height: 25,
+    marginTop: 5,
+    paddingLeft: 20,
+  },
+  fridgeIngredient: { color: '#464646', fontFamily: fontFamilies.pretendardMedium, fontSize: 13 },
+  intakeCard: { backgroundColor: '#FBF7F1', borderRadius: 10, gap: 10, padding: 10 },
+  intakeTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  intakeTitle: { color: '#5C4D3C' },
+  intakeBadge: {
+    alignItems: 'center',
+    backgroundColor: '#EFECE7',
+    borderRadius: 10,
+    height: 18,
+    justifyContent: 'center',
+    width: 45,
+  },
+  intakeBadgeText: { color: '#767676', fontFamily: fontFamilies.pretendardMedium, fontSize: 10 },
+  intakeItems: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
+  intakeItem: {
+    alignItems: 'flex-start',
+    backgroundColor: '#FCFBF9',
+    borderRadius: 10,
     height: 50,
     justifyContent: 'center',
+    paddingHorizontal: 10,
     width: 103.3,
   },
   intakeName: {
-    color: '#555555',
-    fontFamily: fontFamilies.pretendardSemiBold,
+    color: '#767676',
+    fontFamily: fontFamilies.pretendardMedium,
     fontSize: 14,
     lineHeight: 17,
   },
   intakeAmount: {
-    color: '#777777',
-    fontFamily: fontFamilies.pretendardRegular,
-    fontSize: 10,
-    marginTop: 1,
+    color: '#464646',
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 11,
+    lineHeight: 14,
+    marginTop: 2,
+    width: '100%',
   },
   actions: { flexDirection: 'row', gap: 7.5 },
   actionButton: {
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: 5,
     borderWidth: 0.5,
     flexDirection: 'row',
     gap: 4,
@@ -1050,14 +1202,17 @@ const styles = StyleSheet.create({
     width: 105,
   },
   actionWide: { width: 125 },
-  actionEaten: { backgroundColor: '#FFFFFF', borderColor: '#8EDCCB' },
-  actionEatenSelected: { backgroundColor: '#DFF5F0', borderColor: '#49CDB1', borderWidth: 1.5 },
-  actionModified: { backgroundColor: '#FFFFFF', borderColor: '#9FBDDE' },
-  actionModifiedSelected: { backgroundColor: '#E8F1FA', borderColor: '#78A7DB', borderWidth: 1.5 },
-  actionSkipped: { backgroundColor: '#FFFFFF', borderColor: '#C9CECD' },
-  actionSkippedSelected: { backgroundColor: '#ECEEEE', borderColor: '#AEB5B3', borderWidth: 1.5 },
+  actionEaten: { backgroundColor: '#FFFFFF', borderColor: '#2FAF96' },
+  actionEatenSelected: { backgroundColor: '#E8F8F4', borderColor: '#2FAF96' },
+  actionEatenPressed: { backgroundColor: '#E8F8F4', borderColor: '#2FAF96' },
+  actionModified: { backgroundColor: '#FFFFFF', borderColor: '#0066FF' },
+  actionModifiedSelected: { backgroundColor: '#E2EEFF', borderColor: '#0066FF' },
+  actionModifiedPressed: { backgroundColor: '#E2EEFF', borderColor: '#0066FF' },
+  actionSkipped: { backgroundColor: '#FFFFFF', borderColor: '#727272' },
+  actionSkippedSelected: { backgroundColor: '#F4F4F4', borderColor: '#727272' },
+  actionSkippedPressed: { backgroundColor: '#F4F4F4', borderColor: '#727272' },
   actionText: { fontFamily: fontFamilies.pretendardMedium, fontSize: 13 },
-  actionEatenText: { color: '#31A990' },
-  actionModifiedText: { color: '#5489D8' },
-  actionSkippedText: { color: '#767676' },
+  actionEatenText: { color: '#2FAF96' },
+  actionModifiedText: { color: '#0066FF' },
+  actionSkippedText: { color: '#727272' },
 });
