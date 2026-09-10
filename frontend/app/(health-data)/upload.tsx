@@ -192,7 +192,6 @@ export default function HealthDataUploadScreen() {
   const handleContinue = useCallback(() => {
     if (selectedFiles.length === 0) return;
 
-    console.log('selectedFiles', selectedFiles);
     // TODO: OCR API 연동
     router.push({
       pathname: '/ocr-result',
