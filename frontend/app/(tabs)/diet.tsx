@@ -34,6 +34,11 @@ import Prohibit from '@/assets/icons/system/Prohibit.svg';
 import Refresh from '@/assets/icons/system/Refresh.svg';
 import { CustomScrollIndicator, useCustomScrollIndicator } from '@/src/components/common';
 import {
+  FridgeManagerSheets,
+  type DietSheet,
+  type FridgeIngredient,
+} from '@/src/components/diet/FridgeManagerSheets';
+import {
   BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
   getBottomNavigationVisualHeight,
 } from '@/src/components/navigation';
@@ -195,6 +200,17 @@ const nutritionGoals: NutritionGoal[] = [
     accentColor: '#F6D200',
     softColor: '#FFFAE8',
   },
+];
+
+const initialFridgeIngredients: FridgeIngredient[] = [
+  { id: 'chicken-breast', name: '닭가슴살', icon: 'meat' },
+  { id: 'eggs', name: '계란', icon: 'egg' },
+  { id: 'tofu', name: '두부', icon: 'bean' },
+  { id: 'broccoli', name: '브로콜리', icon: 'vegetable' },
+  { id: 'tomato', name: '토마토', icon: 'vegetable' },
+  { id: 'onion', name: '양파', icon: 'vegetable' },
+  { id: 'avocado', name: '아보카도', icon: 'fruit' },
+  { id: 'spinach', name: '시금치', icon: 'vegetable' },
 ];
 
 const isWeb = Platform.OS === 'web';
@@ -440,10 +456,7 @@ const MealCard = memo(function MealCard({
 
     onTransitionChange(meal.id, true);
 
-    const animation = Animated.parallel([
-      heightAnimation,
-      opacityAnimation,
-    ]);
+    const animation = Animated.parallel([heightAnimation, opacityAnimation]);
 
     animation.start(({ finished }) => {
       if (finished) {
@@ -455,14 +468,7 @@ const MealCard = memo(function MealCard({
       animation.stop();
       endTransition();
     };
-  }, [
-    detailHeight,
-    detailOpacity,
-    detailProgress,
-    expanded,
-    meal.id,
-    onTransitionChange,
-  ]);
+  }, [detailHeight, detailOpacity, detailProgress, expanded, meal.id, onTransitionChange]);
 
   const chooseStatus = (nextStatus: MealStatus) => {
     if (statusTimer.current) clearTimeout(statusTimer.current);
@@ -481,28 +487,17 @@ const MealCard = memo(function MealCard({
       <View style={styles.fridgeDetailCard}>
         <View style={styles.fridgeDetailHeader}>
           <View style={styles.detailTitleRow}>
-            <LeafFill
-              color="#2FAF96"
-              fill="#2FAF96"
-              height={25}
-              width={25}
-            />
-            <Text style={[styles.detailTitle, styles.fridgeDetailTitle]}>
-              냉장고 재료 활용
-            </Text>
+            <LeafFill color="#2FAF96" fill="#2FAF96" height={25} width={25} />
+            <Text style={[styles.detailTitle, styles.fridgeDetailTitle]}>냉장고 재료 활용</Text>
           </View>
 
           <View style={styles.detailBadge}>
-            <Text style={styles.detailBadgeText}>
-              {meal.usedIngredients.length}개 활용
-            </Text>
+            <Text style={styles.detailBadgeText}>{meal.usedIngredients.length}개 활용</Text>
           </View>
         </View>
 
         <View style={styles.fridgeIngredientRow}>
-          <Text style={styles.fridgeIngredient}>
-            {meal.usedIngredients.join(' · ')}
-          </Text>
+          <Text style={styles.fridgeIngredient}>{meal.usedIngredients.join(' · ')}</Text>
         </View>
       </View>
 
@@ -510,9 +505,7 @@ const MealCard = memo(function MealCard({
         <View style={styles.intakeTitleRow}>
           <View style={styles.detailTitleRow}>
             <ForkKnife color="#5C4D3C" height={25} width={25} />
-            <Text style={[styles.detailTitle, styles.intakeTitle]}>
-              권장 섭취량
-            </Text>
+            <Text style={[styles.detailTitle, styles.intakeTitle]}>권장 섭취량</Text>
           </View>
 
           <View style={styles.intakeBadge}>
@@ -538,14 +531,10 @@ const MealCard = memo(function MealCard({
             event.stopPropagation();
             chooseStatus('eaten');
           }}
-          style={({ pressed }) =>
-            actionStyle('eaten', displayedStatus, pressed)
-          }
+          style={({ pressed }) => actionStyle('eaten', displayedStatus, pressed)}
         >
           <Check color="#2FAF96" height={15} width={15} />
-          <Text style={[styles.actionText, styles.actionEatenText]}>
-            먹었어요
-          </Text>
+          <Text style={[styles.actionText, styles.actionEatenText]}>먹었어요</Text>
         </Pressable>
 
         <Pressable
@@ -553,14 +542,10 @@ const MealCard = memo(function MealCard({
             event.stopPropagation();
             chooseStatus('modified');
           }}
-          style={({ pressed }) =>
-            actionStyle('modified', displayedStatus, pressed)
-          }
+          style={({ pressed }) => actionStyle('modified', displayedStatus, pressed)}
         >
           <Pencil color="#0066FF" height={15} width={15} />
-          <Text style={[styles.actionText, styles.actionModifiedText]}>
-            다른 음식 먹었어요
-          </Text>
+          <Text style={[styles.actionText, styles.actionModifiedText]}>다른 음식 먹었어요</Text>
         </Pressable>
 
         <Pressable
@@ -568,14 +553,10 @@ const MealCard = memo(function MealCard({
             event.stopPropagation();
             chooseStatus('skipped');
           }}
-          style={({ pressed }) =>
-            actionStyle('skipped', displayedStatus, pressed)
-          }
+          style={({ pressed }) => actionStyle('skipped', displayedStatus, pressed)}
         >
           <Prohibit color="#727272" height={15} width={15} />
-          <Text style={[styles.actionText, styles.actionSkippedText]}>
-            건너뛰었어요
-          </Text>
+          <Text style={[styles.actionText, styles.actionSkippedText]}>건너뛰었어요</Text>
         </Pressable>
       </View>
     </>
@@ -649,24 +630,22 @@ const MealCard = memo(function MealCard({
         </View>
       </View>
 
-  {detailHeight === 0 ? (
-    <View
-      collapsable={false}
-      pointerEvents="none"
-      onLayout={(event) => {
-        const nextHeight = event.nativeEvent.layout.height;
+      {detailHeight === 0 ? (
+        <View
+          collapsable={false}
+          pointerEvents="none"
+          onLayout={(event) => {
+            const nextHeight = event.nativeEvent.layout.height;
 
-        if (nextHeight > 0) {
-          setDetailHeight(nextHeight);
-        }
-      }}
-      style={styles.expandedMeasure}
-    >
-      <View style={styles.expandedContent}>
-        {renderDetailContent()}
-      </View>
-    </View>
-  ) : null}
+            if (nextHeight > 0) {
+              setDetailHeight(nextHeight);
+            }
+          }}
+          style={styles.expandedMeasure}
+        >
+          <View style={styles.expandedContent}>{renderDetailContent()}</View>
+        </View>
+      ) : null}
 
       <Animated.View
         pointerEvents={expanded ? 'auto' : 'none'}
@@ -684,9 +663,7 @@ const MealCard = memo(function MealCard({
           },
         ]}
       >
-        <View style={styles.expandedContent}>
-          {renderDetailContent()}
-        </View>
+        <View style={styles.expandedContent}>{renderDetailContent()}</View>
       </Animated.View>
     </Pressable>
   );
@@ -705,6 +682,9 @@ export default function DietScreen() {
   const [expandedMeals, setExpandedMeals] = useState<Set<MealType>>(() => new Set());
   const [statusesByDate, setStatusesByDate] = useState<Record<string, MealStatuses>>({});
   const [canvasHeight, setCanvasHeight] = useState(0);
+  const [activeSheet, setActiveSheet] = useState<DietSheet>(null);
+  const [fridgeIngredients, setFridgeIngredients] =
+    useState<FridgeIngredient[]>(initialFridgeIngredients);
   const activeMealTransitions = useRef(new Set<MealType>());
   const pendingCanvasHeight = useRef(0);
 
@@ -732,6 +712,15 @@ export default function DietScreen() {
     const date = addDays(today, offset);
     return { ...getDateCopy(date, offset), key: toDateKey(date), offset };
   });
+  const fridgePreview = fridgeIngredients
+    .slice(0, 5)
+    .map((item) => item.name)
+    .join(' · ');
+  const fridgeRemainder = Math.max(0, fridgeIngredients.length - 5);
+  const fridgeDescription =
+    fridgeIngredients.length === 0
+      ? '등록된 재료가 없어요'
+      : `${fridgePreview}${fridgeRemainder > 0 ? ` 외 ${fridgeRemainder}개` : ''}`;
 
   const handleMealTransitionChange = useCallback((mealId: MealType, active: boolean) => {
     if (active) {
@@ -804,7 +793,7 @@ export default function DietScreen() {
   };
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, Platform.OS === 'web' && styles.webViewport]}>
       <ScrollView
         bounces={false}
         contentContainerStyle={{ paddingBottom: bottomPadding, paddingTop: canvasTop }}
@@ -819,6 +808,7 @@ export default function DietScreen() {
         overScrollMode="never"
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
+        style={Platform.OS === 'web' ? styles.webScrollViewport : undefined}
       >
         <View style={[styles.canvasSlot, { height: canvasHeight * widthScale }]}>
           <View
@@ -851,23 +841,31 @@ export default function DietScreen() {
             </View>
 
             <View style={styles.sectionStack}>
-              <View style={styles.fridgeCard}>
+              <Pressable
+                accessibilityLabel="냉장고 재료 관리 열기"
+                accessibilityRole="button"
+                onPress={() => setActiveSheet('fridge')}
+                style={({ pressed }) => [styles.fridgeCard, pressed && styles.pressed]}
+              >
                 <View style={styles.fridgeIconCircle}>
                   <Fridge color="#2FAF96" height={25} width={17} />
                 </View>
                 <View style={styles.fridgeCopy}>
                   <Text style={styles.fridgeTitle}>
-                    <Text style={styles.fridgeTitleEmphasis}>냉장고 재료 8개</Text> 활용 중
+                    <Text style={styles.fridgeTitleEmphasis}>
+                      냉장고 재료 {fridgeIngredients.length}개
+                    </Text>{' '}
+                    활용 중
                   </Text>
-                  <Text style={styles.fridgeDescription}>
-                    닭가슴살 · 계란 · 두부 · 토마토 · 브로콜리 외 3개
+                  <Text numberOfLines={1} style={styles.fridgeDescription}>
+                    {fridgeDescription}
                   </Text>
                 </View>
                 <View style={styles.manageRow}>
                   <Text style={styles.manageText}>관리하기</Text>
                   <Right color="#767676" height={15} width={15} />
                 </View>
-              </View>
+              </Pressable>
 
               <View style={styles.dateCard}>
                 <Pressable
@@ -954,12 +952,20 @@ export default function DietScreen() {
         </View>
       </ScrollView>
       <CustomScrollIndicator {...indicator.indicatorProps} color="rgba(73, 205, 177, 0.56)" />
+      <FridgeManagerSheets
+        activeSheet={activeSheet}
+        ingredients={fridgeIngredients}
+        onActiveSheetChange={setActiveSheet}
+        onIngredientsChange={setFridgeIngredients}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#F7F8FA', overflow: 'hidden' },
+  webViewport: { height: '100%', maxHeight: '100%', minHeight: 0 },
+  webScrollViewport: { flex: 1, maxHeight: '100%', minHeight: 0 },
   canvasSlot: { position: 'relative', width: '100%' },
   canvas: {
     alignSelf: 'flex-start',

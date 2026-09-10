@@ -82,7 +82,14 @@ export function BottomNavigation({
       ]}
     >
       {isDiet ? (
-        <View pointerEvents="none" style={[styles.dietLowerMask, { top: visualHeight / 2 }]} />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.dietLowerMask,
+            Platform.OS === 'web' && styles.webDietLowerMask,
+            { top: visualHeight / 2 },
+          ]}
+        />
       ) : null}
       {Platform.OS === 'android' ? (
         <View pointerEvents="none" style={[styles.androidShadowLayer, { height: visualHeight }]} />
@@ -167,6 +174,7 @@ const styles = StyleSheet.create({
     right: -6,
     zIndex: 0,
   },
+  webDietLowerMask: { left: 0, right: 0 },
   item: {
     alignItems: 'center',
     borderRadius: 30,

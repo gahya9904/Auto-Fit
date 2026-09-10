@@ -31,6 +31,9 @@ export interface AppBottomSheetProps extends PropsWithChildren {
   overlayStyle?: StyleProp<ViewStyle>;
   sheetStyle?: StyleProp<ViewStyle>;
   separateAnimations?: boolean;
+  animationDistance?: number;
+  sheetOffset?: Animated.Value;
+  lockBackgroundScroll?: boolean;
 }
 
 export function AppBottomSheet({
@@ -46,6 +49,9 @@ export function AppBottomSheet({
   overlayStyle,
   sheetStyle,
   separateAnimations = false,
+  animationDistance = 420,
+  sheetOffset,
+  lockBackgroundScroll = false,
 }: AppBottomSheetProps) {
   const insets = useSafeAreaInsets();
   const [isMounted, setIsMounted] = useState(visible);
@@ -62,7 +68,7 @@ export function AppBottomSheet({
       const mountFrame = requestAnimationFrame(() => {
         setIsMounted(true);
         dimOpacity.setValue(0);
-        sheetTranslateY.setValue(420);
+        sheetTranslateY.setValue(animationDistance);
 
         animationFrame = requestAnimationFrame(() => {
           Animated.parallel([
@@ -98,13 +104,45 @@ export function AppBottomSheet({
       Animated.timing(sheetTranslateY, {
         duration: 240,
         easing: Easing.in(Easing.cubic),
-        toValue: 420,
+        toValue: animationDistance,
         useNativeDriver,
       }),
     ]).start(({ finished }) => {
       if (finished) setIsMounted(false);
     });
-  }, [dimOpacity, separateAnimations, sheetTranslateY, visible]);
+  }, [animationDistance, dimOpacity, separateAnimations, sheetTranslateY, visible]);
+
+  const modalVisible = separateAnimations ? isMounted : visible;
+
+  useEffect(() => {
+    if (
+      Platform.OS !== 'web' ||
+      !lockBackgroundScroll ||
+      !modalVisible ||
+      typeof document === 'undefined'
+    ) {
+      return;
+    }
+
+    const body = document.body;
+    const root = document.documentElement;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyOverscrollBehavior = body.style.overscrollBehavior;
+    const previousRootOverflow = root.style.overflow;
+    const previousRootOverscrollBehavior = root.style.overscrollBehavior;
+
+    body.style.overflow = 'hidden';
+    body.style.overscrollBehavior = 'none';
+    root.style.overflow = 'hidden';
+    root.style.overscrollBehavior = 'none';
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      body.style.overscrollBehavior = previousBodyOverscrollBehavior;
+      root.style.overflow = previousRootOverflow;
+      root.style.overscrollBehavior = previousRootOverscrollBehavior;
+    };
+  }, [lockBackgroundScroll, modalVisible]);
 
   const content = scrollable ? (
     <ScrollView
@@ -142,16 +180,35 @@ export function AppBottomSheet({
     sheetStyle,
   ];
 
+  const animatedTranslateY = sheetOffset
+    ? Animated.subtract(sheetTranslateY, sheetOffset)
+    : sheetTranslateY;
+  const animatedSheet = (
+    <Animated.View
+      accessibilityViewIsModal
+      style={[sheetStyles, { transform: [{ translateY: animatedTranslateY }] }]}
+    >
+      {sheetContent}
+    </Animated.View>
+  );
+  const staticSheet = (
+    <View accessibilityViewIsModal style={sheetStyles}>
+      {sheetContent}
+    </View>
+  );
+  const renderedSheet = separateAnimations ? animatedSheet : staticSheet;
+
   return (
     <Modal
       animationType={separateAnimations ? 'none' : 'slide'}
       onRequestClose={onClose}
       transparent
-      visible={separateAnimations ? isMounted : visible}
+      visible={modalVisible}
     >
       <View
         style={[
           styles.overlay,
+          Platform.OS === 'web' && styles.webOverlay,
           separateAnimations && styles.separateOverlay,
           !separateAnimations && overlayStyle,
         ]}
@@ -172,18 +229,7 @@ export function AppBottomSheet({
           onPress={onClose}
           style={StyleSheet.absoluteFill}
         />
-        {separateAnimations ? (
-          <Animated.View
-            accessibilityViewIsModal
-            style={[sheetStyles, { transform: [{ translateY: sheetTranslateY }] }]}
-          >
-            {sheetContent}
-          </Animated.View>
-        ) : (
-          <View accessibilityViewIsModal style={sheetStyles}>
-            {sheetContent}
-          </View>
-        )}
+        {renderedSheet}
       </View>
     </Modal>
   );
@@ -191,6 +237,14 @@ export function AppBottomSheet({
 
 const styles = StyleSheet.create({
   overlay: { backgroundColor: colors.overlay, flex: 1, justifyContent: 'flex-end' },
+  webOverlay: {
+    bottom: 0,
+    left: 0,
+    overflow: 'hidden',
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
   separateOverlay: { backgroundColor: colors.transparent },
   dimLayer: { backgroundColor: colors.overlay },
   sheet: {
