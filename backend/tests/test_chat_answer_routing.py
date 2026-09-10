@@ -87,3 +87,45 @@ def test_database_error_is_not_ai_fallback():
     with pytest.raises(HTTPException) as error:
         asyncio.run(decide_answer("이번 주 운동 기록 설명해줘", forbidden, unavailable))
     assert error.value.status_code == 502
+
+
+def test_routine_request_returns_generated_recommendation_action():
+    async def generate_routine():
+        return {
+            "missing": [],
+            "generated": True,
+            "result": {
+                "recommendation": {
+                    "exercise_recommendation_id": "recommendation-1",
+                }
+            },
+        }
+
+    result = asyncio.run(answer_question(
+        "오늘 맞춤 운동 루틴 만들어줘",
+        forbidden,
+        prepare_routine=generate_routine,
+    ))
+
+    assert result["intent"] == "exercise_routine_generation"
+    assert result["response_source"] == "database"
+    assert result["evidence"][0]["exercise_recommendation_id"] == "recommendation-1"
+    assert result["evidence"][0]["next_endpoint"] == "/api/exercise/sessions/start"
+
+
+def test_routine_request_reports_missing_profile_inputs():
+    async def missing_preferences():
+        return {
+            "missing": ["exercise_preferences", "recommendation_context"],
+            "generated": False,
+            "result": None,
+        }
+
+    result = asyncio.run(answer_question(
+        "운동 루틴 추천해줘",
+        forbidden,
+        prepare_routine=missing_preferences,
+    ))
+
+    assert result["response_source"] == "need_more_data"
+    assert result["required_data"] == ["exercise_preferences", "recommendation_context"]

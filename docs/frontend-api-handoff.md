@@ -1,19 +1,19 @@
 # Auto-Fit 프론트엔드 협업용 전체 API 안내
 
-기준일: 2026-09-08. 근거: `backend/app/main.py`, 챗봇 모듈, 저장소 SQL, 기존 검증 기록.
-현재 FastAPI operation은 **38개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
+기준일: 2026-09-10. 근거: `backend/app/main.py`, 챗봇 모듈, 저장소 SQL, 기존 검증 기록.
+현재 FastAPI operation은 **40개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
 
 ## 공유 파일
 
 - 이 문서: 화면별 API, 호출 순서, 응답 주요 경로, 예제, 미구현 영역.
-- [입력 필드 전체 참조](api-input-reference.md): 38개 operation의 파라미터·본문 필드·제약.
+- [입력 필드 전체 참조](api-input-reference.md): 40개 operation의 파라미터·본문 필드·제약.
 - [OpenAPI 원본](openapi.json): 코드에서 추출한 3.1 스키마. API 도구에 가져오기 가능.
 - [챗봇 상세 계약](chat-api-contract.md): 메시지·근거 전체 형식과 재전송 규칙.
 - [실연동 검증 기록](chat-integration-results.md): 실제 검증 범위와 한계.
 
 OpenAPI는 요청 스키마에 유용하지만 대부분 응답은 아직 `dict[str, Any]`로 선언되어 있다.
 따라서 자동 생성된 응답 타입만으로 프론트 타입이 완성되지는 않는다. 아래 주요 응답 경로와
-실제 개발 서버 응답을 함께 확인해야 한다. 이번 문서는 서버 구현을 변경하지 않았다.
+실제 개발 서버 응답을 함께 확인해야 한다. 이 문서는 현재 로컬 서버 구현을 기준으로 한다.
 
 ## 1. 접속·인증 공통 규칙
 
@@ -42,7 +42,7 @@ POST라고 모두 201은 아니다. 코드가 지정한 성공 코드를 표에 
 |---|---|---|---|---|
 | GET | `/health` | 없음 | `status` | 200 |
 | POST | `/api/test/roundtrip` | `message` 1~200자 | `ok, message, received_at, user_id, profile` | 200 |
-| GET | `/api/profile` | 없음 | `profile` | 200 |
+| GET | `/api/profile` | 없음 | `profile, exercise_preferences` | 200 |
 | PATCH | `/api/profile` | ProfileUpdateRequest | `ok, profile` | 200 |
 | GET | `/api/allergies` | 없음 | `catalog[], selected[]` | 200 |
 | PUT | `/api/allergies` | `allergy_type_ids[], custom_names[]` | `ok, selected[]` | 200 |
@@ -55,7 +55,7 @@ POST라고 모두 201은 아니다. 코드가 지정한 성공 코드를 표에 
 - 카탈로그 선택 최대 12개, 기타 이름 최대 5개(각 1~50자), 중복 정리.
 - 온보딩은 name/birth_date/gender가 필요하며 누락 시 409와 fields 반환. 이미 완료됐으면 already_completed=true.
 - 로그인 후 `GET /api/profile`로 현재 사용자의 가입 완료 여부와 기본 정보를 조회한다.
-- 프로필 응답 주요 필드: user_id, name, nickname, birth_date, gender, target_weight, activity_level, onboarding_completed_at, updated_at.
+- 프로필 응답 주요 필드: user_id, name, nickname, birth_date, gender, target_weight, activity_level, onboarding_completed_at, updated_at. 같은 응답의 exercise_preferences는 연결된 운동 목표·경험 수준이며 미설정 시 null이다.
 
 ## 3. 운동 설정·추천 (6개)
 
@@ -91,7 +91,7 @@ total_duration_minutes, intensity, recommendation_summary, ai_reason, status 등
 `result.items[]`는 exercise_item_id, exercise_name, sequence_order, sets, repetitions,
 execution_type, target_duration_seconds, target_weight_kg, rest_seconds, instruction 등을 가진다.
 운동 상세·수행 화면에는 여기서 받은 exercise_item_id를 사용한다.
-현재 추천 생성기는 **rules_v1**이며 ai_reason이라는 필드명이 AI 모델 호출을 의미하지 않는다.
+현재 추천 생성기는 **rules_v1**이며 기본 프로필의 activity_level도 강도 결정에 반영한다. ai_reason이라는 필드명이 AI 모델 호출을 의미하지 않는다.
 
 ## 4. 운동 수행·피드백 (9개)
 
@@ -158,7 +158,7 @@ perceived_difficulty 1~5. post_condition very_bad/bad/normal/good/very_good.
 analysis: generator, summary, metrics, feedback_summary, insights[], next_session_adjustments[], safety_notice.
 분석은 현재 rules_v1이다. 다음 운동 조정 문구가 실제 다음 추천에 반영되는지까지 보장하는 계약은 아니다.
 
-## 5. 운동 목표·기록·진행 현황 (4개)
+## 5. 운동 목표·기록·진행 현황 (5개)
 
 | Method | 경로 | 입력 | 성공 응답 | 코드 |
 |---|---|---|---|---|
@@ -166,6 +166,7 @@ analysis: generator, summary, metrics, feedback_summary, insights[], next_sessio
 | PUT | `/api/exercise/goals/active` | ExerciseGoalRequest | `ok, goal` | 200 |
 | GET | `/api/exercise/history` | query: `from_date, to_date` 필수 | `period, count, history[]` | 200 |
 | GET | `/api/exercise/progress` | query: `period=week/month/three_months`, 기본 month | `progress` | 200 |
+| GET | `/api/exercise/summary` | 없음 | `summary.recent_7_days, summary.cumulative` | 200 |
 
 ```json
 {"goal_type":"maintenance","weekly_frequency":3,"weekly_duration_minutes":120,"goal_period_weeks":8,"starts_on":"2026-09-08"}
@@ -182,6 +183,7 @@ target_workout_count, target_duration_minutes, goal_achievement_rate.
 **현재 일반 운동 history와 식사 meal-logs API의 날짜 경계는 UTC**, 챗봇 요약의 날짜 경계는 KST다.
 같은 '오늘'이어도 결과가 달라질 수 있으므로 실제 서비스 연동 전 날짜 기준 통일이 필요하다.
 progress는 서버 date.today 기준이며 three_months는 이번 달과 앞선 두 달의 첫날부터 오늘까지다.
+summary는 완료 상태 세션을 기준으로 최근 7일(오늘 포함 7일)과 누적 운동 횟수, 완료 종목 수, 시간, 열량, 활동일을 반환한다.
 채팅 이외 목록 API에는 일반화된 페이지네이션이 없다. 대량 데이터 완전 조회를 보장하지 않는다.
 
 ## 6. 식단·냉장고 (6개)
@@ -255,7 +257,8 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 정식 메시지에는 message_id, chat_id, sender_type, created_at이 추가된다.
 출처: database/database_ai/general_ai/need_more_data. **현재 생성하는 것은 database와 need_more_data**다.
 건강 점수 최신·이전 비교, 식사·운동 기록 요약을 지원한다. 기록 기간은 오늘/어제/이번 주/지난주/최근 7일.
-임의 자연어·후속 대화 문맥·모델 해석은 아직 지원하지 않는다. 모델은 팀원 개발 완료, 백엔드 접속 규격은 미확인.
+명시적인 루틴 생성 요청(예: `오늘 운동 루틴 만들어줘`)은 운동 설정과 미사용 추천 컨텍스트가 있으면 기존 추천 생성·저장 흐름을 실행한다. 답변 intent는 exercise_routine_generation이며 evidence에 exercise_recommendation_id와 다음 `/api/exercise/sessions/start` 경로가 들어간다. 입력이 부족하면 required_data에 exercise_preferences 또는 recommendation_context를 반환한다. answer-preview는 쓰기 없이 준비 상태만 확인한다.
+그 밖의 임의 자연어·후속 대화 문맥·모델 해석은 아직 지원하지 않는다. 모델은 팀원 개발 완료, 백엔드 접속 규격은 미확인.
 보관기간은 메시지 생성 후 30일(720시간)이다. 5분 주기로 만료 메시지를 삭제한다. 상세는 [보관 정책](chat-retention-policy.md)을 따른다. 요청 제한은 구현했고 AI 연동은 미완료이다.
 
 ## 8. 화면별 호출 순서
@@ -306,7 +309,7 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 
 ## 11. 검증 상태와 담당
 
-전체 자동 테스트 152개 통과 기록. 챗봇 저장/건강 점수는 실제 Supabase 연동 24개 검증 완료.
+전체 자동 테스트 259개 통과 기록. 발표 시나리오 로컬 API 흐름 검증을 포함한다. 챗봇 저장/건강 점수는 실제 Supabase 연동 24개 검증 완료.
 신규 챗봇 식사·운동은 모의 HTTP 검증 완료, 실제 DB 통합은 남아 있다.
 나머지 31개 API는 이번 인수인계에서 코드·SQL을 확인한 것이며 전부 최신 실연동 검증한 것은 아니다.
 

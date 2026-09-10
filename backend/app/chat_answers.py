@@ -20,6 +20,58 @@ def clarification(message: str, required: str) -> dict:
     }
 
 
+def is_routine_generation_request(content: str) -> bool:
+    text = "".join(content.casefold().split())
+    if "루틴" in text:
+        return any(word in text for word in ("추천", "만들", "짜", "생성"))
+    return any(
+        phrase in text
+        for phrase in ("운동추천해줘", "운동추천해주세요", "오늘운동뭐해", "오늘운동계획짜")
+    )
+
+
+def routine_answer(outcome: dict) -> dict:
+    missing = outcome.get("missing") or []
+    if missing:
+        labels = {
+            "exercise_preferences": "운동 목표와 경험 수준",
+            "recommendation_context": "운동 가능 시간·장소·장비와 현재 컨디션",
+        }
+        missing_labels = ", ".join(labels.get(item, item) for item in missing)
+        return {
+            "intent": "exercise_routine_generation",
+            "content": f"맞춤 루틴을 만들려면 {missing_labels} 정보가 필요합니다.",
+            "response_source": "need_more_data",
+            "needs_more_data": True,
+            "evidence": [],
+            "required_data": missing,
+        }
+
+    recommendation = (outcome.get("result") or {}).get("recommendation") or {}
+    generated = bool(outcome.get("generated"))
+    evidence = [{
+        "type": "exercise_routine",
+        "ready": True,
+        "generated": generated,
+        "exercise_recommendation_id": recommendation.get("exercise_recommendation_id"),
+        "next_endpoint": "/api/exercise/sessions/start" if generated
+        else "/api/exercise/recommendations/generate",
+    }]
+    return {
+        "intent": "exercise_routine_generation",
+        "content": (
+            "프로필과 오늘의 컨디션을 반영한 맞춤 루틴을 생성해 저장했습니다. "
+            "운동 시작 화면에서 바로 시작할 수 있어요."
+            if generated else
+            "맞춤 루틴을 만들 준비가 됐습니다. 실제 채팅에서 생성 요청을 보내면 저장까지 진행됩니다."
+        ),
+        "response_source": "database",
+        "needs_more_data": False,
+        "evidence": evidence,
+        "required_data": [],
+    }
+
+
 @dataclass(frozen=True)
 class AnswerDecision:
     # Internal routing metadata, not a new client response or stored DB column.
@@ -50,8 +102,15 @@ async def decide_answer(
 
 async def answer_question(
     content: str, load_scores: Callable[[], Awaitable[list[Assessment]]], load_records=None,
-    load_catalog=None, allow_general=False,
+    load_catalog=None, allow_general=False, prepare_routine=None,
 ) -> dict:
+    if is_routine_generation_request(content):
+        if prepare_routine is None:
+            return clarification(
+                "맞춤 루틴 생성은 운동 프로필과 오늘의 컨디션 확인이 필요합니다.",
+                "exercise_preferences",
+            )
+        return routine_answer(await prepare_routine())
     topic = information_topic(content)
     if topic is not None and load_catalog is not None:
         if needs_safety_guidance(content):

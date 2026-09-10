@@ -15,7 +15,9 @@ from dotenv import dotenv_values
 from backend.app import main
 
 
-async def run(project, api_base=None, rate_limits=False, routing=False):
+async def run(
+    project, api_base=None, rate_limits=False, routing=False, presentation=False
+):
     # Never forward real login tokens to an arbitrary host.
     if api_base not in (None, "https://auto-fit-api-dev.onrender.com"):
         raise ValueError("Unapproved API target")
@@ -24,6 +26,7 @@ async def run(project, api_base=None, rate_limits=False, routing=False):
     settings = main.Settings(config["SUPABASE_URL"].rstrip("/"), config["SUPABASE_PUBLISHABLE_KEY"], config["SUPABASE_SERVICE_ROLE_KEY"], "http://localhost:3000")
     admin_headers = main.service_headers(settings)
     created_users = []
+    created_recommendations = []
     cleanup_errors = []
     checks = 0
 
@@ -130,6 +133,107 @@ async def run(project, api_base=None, rate_limits=False, routing=False):
                     check(saved_answer["response_source"] == "database" and "AI 설명을 현재 제공할 수 없어" in saved_answer["content"], "stored fallback does not claim AI source")
                     replay = await api.post(route_path, headers=owner, json=route_body)
                     check(replay.status_code == 200 and replay.json()["assistant_message"]["message_id"] == saved_answer["message_id"], "routing replay remains idempotent")
+                if presentation:
+                    profile = await api.patch("/api/profile", headers=owner, json={
+                        "name": "Auto-Fit 발표 테스트",
+                        "birth_date": "1995-01-01",
+                        "gender": "other",
+                        "activity_level": "light",
+                        "target_weight": 65,
+                    })
+                    check(profile.status_code == 200, "save presentation profile")
+                    onboarding = await api.post(
+                        "/api/onboarding/complete", headers=owner, json={}
+                    )
+                    check(onboarding.status_code == 200, "complete presentation onboarding")
+                    preferences = await api.put(
+                        "/api/exercise/preferences",
+                        headers=owner,
+                        json={"goal_type": "maintenance", "experience_level": "beginner"},
+                    )
+                    check(preferences.status_code == 200, "save exercise preferences")
+                    context = await api.post(
+                        "/api/exercise/recommendation-contexts",
+                        headers=owner,
+                        json={
+                            "available_minutes": 30,
+                            "location": "home",
+                            "available_equipment": ["mat"],
+                            "condition_level": "좋음",
+                            "discomfort_areas": [],
+                            "condition_note": "합성 발표 테스트",
+                        },
+                    )
+                    check(context.status_code == 200, "save recommendation context")
+                    presentation_chat = await api.post(
+                        "/api/chats", headers=owner, json={"title": "발표 루틴 테스트"}
+                    )
+                    check(presentation_chat.status_code == 201, "create presentation chat")
+                    presentation_path = (
+                        f"/api/chats/{presentation_chat.json()['chat']['chat_id']}/messages"
+                    )
+                    generated = await api.post(
+                        presentation_path,
+                        headers=owner,
+                        json={
+                            "client_message_id": str(uuid4()),
+                            "content": "오늘 운동 루틴 만들어줘",
+                        },
+                    )
+                    check(generated.status_code == 201, "generate routine through chatbot")
+                    generated_answer = generated.json()["assistant_message"]
+                    recommendation_id = generated_answer["evidence"][0][
+                        "exercise_recommendation_id"
+                    ]
+                    check(bool(recommendation_id), "chat answer returns recommendation id")
+                    created_recommendations.append(recommendation_id)
+                    routine = await api.get(
+                        "/api/exercise/recommendations/latest", headers=owner
+                    )
+                    check(
+                        routine.status_code == 200
+                        and routine.json()["result"]["recommendation"][
+                            "exercise_recommendation_id"
+                        ] == recommendation_id,
+                        "read stored generated routine",
+                    )
+                    started = await api.post(
+                        "/api/exercise/sessions/start", headers=owner, json={}
+                    )
+                    check(started.status_code == 200, "start generated exercise session")
+                    started_result = started.json()["result"]
+                    session_id = started_result["session"]["exercise_session_id"]
+                    for item in started_result["items"]:
+                        recorded = await api.post(
+                            f"/api/exercise/sessions/{session_id}/items/"
+                            f"{item['exercise_item_id']}",
+                            headers=owner,
+                            json={
+                                "completed": True,
+                                "skipped": False,
+                                "duration_minutes": item["duration_minutes"],
+                            },
+                        )
+                        check(recorded.status_code == 200, "record routine exercise item")
+                    completed = await api.post(
+                        f"/api/exercise/sessions/{session_id}/complete",
+                        headers=owner,
+                        json={},
+                    )
+                    check(
+                        completed.status_code == 200
+                        and completed.json()["result"]["session"]["status"]
+                        == "completed",
+                        "complete generated exercise session",
+                    )
+                    summary = await api.get("/api/exercise/summary", headers=owner)
+                    check(
+                        summary.status_code == 200
+                        and summary.json()["summary"]["recent_7_days"][
+                            "workout_count"
+                        ] >= 1,
+                        "read seven-day and cumulative exercise summary",
+                    )
                 if rate_limits:
                     async def reset_test_quota():
                         reset = await remote.delete("/rest/v1/chat_rate_limit_events", headers=admin_headers, params={"user_id": f"eq.{created_users[0]}"})
@@ -165,7 +269,34 @@ async def run(project, api_base=None, rate_limits=False, routing=False):
         finally:
             main.app.dependency_overrides.clear()
             for user_id in created_users:
-                for table in ("chat_rate_limit_events", "chat_messages", "chats", "exercise_sessions", "health_assessments", "profiles"):
+                for recommendation_id in created_recommendations:
+                    response = await remote.delete(
+                        "/rest/v1/exercise_items",
+                        headers=admin_headers,
+                        params={"exercise_recommendation_id": f"eq.{recommendation_id}"},
+                    )
+                    if response.status_code not in (200, 204):
+                        cleanup_errors.append(f"exercise_items:{recommendation_id}")
+                    verify = await remote.get(
+                        "/rest/v1/exercise_items",
+                        headers=admin_headers,
+                        params={
+                            "exercise_recommendation_id": f"eq.{recommendation_id}",
+                            "select": "exercise_item_id",
+                            "limit": 1,
+                        },
+                    )
+                    if verify.status_code != 200 or verify.json() != []:
+                        cleanup_errors.append(
+                            f"remaining:exercise_items:{recommendation_id}"
+                        )
+                for table in (
+                    "chat_rate_limit_events", "chat_messages", "chats",
+                    "exercise_discomfort_logs", "exercise_session_feedback",
+                    "exercise_logs", "exercise_sessions",
+                    "exercise_recommendation_contexts", "exercise_recommendations",
+                    "user_exercise_profiles", "health_assessments", "profiles",
+                ):
                     response = await remote.delete(f"/rest/v1/{table}", headers=admin_headers, params={"user_id":f"eq.{user_id}"})
                     if response.status_code not in (200,204):
                         cleanup_errors.append(f"{table}:{user_id}")
@@ -190,5 +321,12 @@ if __name__ == "__main__":
     parser.add_argument("--api-base", choices=["https://auto-fit-api-dev.onrender.com"])
     parser.add_argument("--rate-limits", action="store_true")
     parser.add_argument("--routing", action="store_true")
+    parser.add_argument("--presentation", action="store_true")
     args = parser.parse_args()
-    asyncio.run(run(args.project, args.api_base, args.rate_limits, args.routing))
+    asyncio.run(run(
+        args.project,
+        args.api_base,
+        args.rate_limits,
+        args.routing,
+        args.presentation,
+    ))

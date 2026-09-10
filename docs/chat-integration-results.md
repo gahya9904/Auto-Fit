@@ -40,5 +40,14 @@
 backend/.venv/bin/python -m backend.tests.chat_live_integration --project eeeqibyssajykrhvecbv
 ```
 
+프로필 → 운동 설정 → 챗봇 루틴 생성 → 운동 완료 → 7일·누적 요약의 발표 흐름까지
+검증하려면 `--presentation`을 추가한다. 이 옵션은 합성 추천·운동 데이터도 생성 후 정리한다.
+
+```sh
+backend/.venv/bin/python -m backend.tests.chat_live_integration \
+  --project eeeqibyssajykrhvecbv \
+  --presentation
+```
+
 스크립트는 종료 시 자신이 생성한 리소스를 정리한다. 프로세스를 강제 종료하면 정리가 생략될 수 있다.
 키·토큰·비밀번호는 출력하지 않는다.

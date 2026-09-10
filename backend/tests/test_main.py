@@ -129,15 +129,22 @@ def test_profile_get_uses_authenticated_user_id(monkeypatch) -> None:
             "onboarding_completed_at": None,
         }
 
+    async def fake_preferences(user_id: str, settings: main.Settings):
+        assert user_id == "authenticated-user"
+        assert settings == TEST_SETTINGS
+        return {"goal_type": "maintenance", "experience_level": "beginner"}
+
     main.app.dependency_overrides[main.get_current_user] = fake_user
     main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
     monkeypatch.setattr(main, "fetch_profile", fake_profile)
+    monkeypatch.setattr(main, "fetch_exercise_preferences", fake_preferences)
 
     try:
         client = TestClient(main.app)
         response = client.get("/api/profile")
         assert response.status_code == 200
         assert response.json()["profile"]["user_id"] == "authenticated-user"
+        assert response.json()["exercise_preferences"]["goal_type"] == "maintenance"
     finally:
         main.app.dependency_overrides.clear()
 
@@ -532,6 +539,22 @@ def test_build_exercise_recommendation_plan_uses_context_and_preferences() -> No
     assert plan["items"][1]["sets"] == 2
 
 
+def test_build_exercise_recommendation_plan_uses_profile_activity_level() -> None:
+    plan = main.build_exercise_recommendation_plan(
+        {"goal_type": "maintenance", "experience_level": "beginner"},
+        {
+            "available_minutes": 30,
+            "available_equipment": [],
+            "condition_level": "좋음",
+            "discomfort_areas": [],
+        },
+        {"activity_level": "sedentary"},
+    )
+
+    assert plan["recommendation"]["intensity"] == "low"
+    assert "활동 수준" in plan["recommendation"]["ai_reason"]
+
+
 def test_generate_exercise_recommendation_uses_authenticated_user(monkeypatch) -> None:
     async def fake_user() -> main.AuthenticatedUser:
         return main.AuthenticatedUser(id="authenticated-user")
@@ -539,6 +562,10 @@ def test_generate_exercise_recommendation_uses_authenticated_user(monkeypatch) -
     async def fake_preferences(user_id: str, settings: main.Settings):
         assert user_id == "authenticated-user"
         return {"goal_type": "maintenance", "experience_level": "beginner"}
+
+    async def fake_profile(user_id: str, settings: main.Settings):
+        assert user_id == "authenticated-user"
+        return {"user_id": user_id, "activity_level": "light"}
 
     async def fake_context(user_id: str, settings: main.Settings):
         assert user_id == "authenticated-user"
@@ -559,12 +586,14 @@ def test_generate_exercise_recommendation_uses_authenticated_user(monkeypatch) -
         assert user_id == "authenticated-user"
         assert context_id == "context-123"
         assert plan["recommendation"]["goal"] == "maintenance"
+        assert plan["recommendation"]["intensity"] == "low"
         assert settings == TEST_SETTINGS
         return {"recommendation": {"user_id": user_id}, "items": plan["items"]}
 
     main.app.dependency_overrides[main.get_current_user] = fake_user
     main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
     monkeypatch.setattr(main, "fetch_exercise_preferences", fake_preferences)
+    monkeypatch.setattr(main, "fetch_profile", fake_profile)
     monkeypatch.setattr(main, "fetch_latest_unlinked_exercise_context", fake_context)
     monkeypatch.setattr(main, "create_exercise_recommendation", fake_create)
 
@@ -585,9 +614,13 @@ def test_generate_exercise_recommendation_requires_preferences(monkeypatch) -> N
     async def fake_preferences(user_id: str, settings: main.Settings):
         return None
 
+    async def fake_profile(user_id: str, settings: main.Settings):
+        return {"user_id": user_id, "activity_level": "moderate"}
+
     main.app.dependency_overrides[main.get_current_user] = fake_user
     main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
     monkeypatch.setattr(main, "fetch_exercise_preferences", fake_preferences)
+    monkeypatch.setattr(main, "fetch_profile", fake_profile)
 
     try:
         client = TestClient(main.app)
@@ -1234,6 +1267,55 @@ def test_get_exercise_progress_combines_goal_history_and_categories(monkeypatch)
         response = TestClient(main.app).get("/api/exercise/progress?period=month")
         assert response.status_code == 200
         assert response.json()["progress"]["summary"]["workout_count"] == 0
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_build_exercise_summary_returns_recent_and_cumulative_totals() -> None:
+    sessions = [
+        {
+            "completed_at": "2026-09-10T01:00:00Z",
+            "started_at": "2026-09-10T00:30:00Z",
+            "completed_item_count": 3,
+            "total_duration_seconds": 1800,
+            "total_calories_burned": 150.5,
+        },
+        {
+            "completed_at": "2026-09-03T01:00:00Z",
+            "started_at": "2026-09-03T00:30:00Z",
+            "completed_item_count": 2,
+            "total_duration_seconds": 1200,
+            "total_calories_burned": 90,
+        },
+    ]
+
+    summary = main.build_exercise_summary(sessions, main.date(2026, 9, 10))
+
+    assert summary["recent_7_days"]["period"]["from"] == "2026-09-04"
+    assert summary["recent_7_days"]["workout_count"] == 1
+    assert summary["recent_7_days"]["duration_minutes"] == 30
+    assert summary["cumulative"]["workout_count"] == 2
+    assert summary["cumulative"]["exercise_count"] == 5
+    assert summary["cumulative"]["calories_burned"] == 240.5
+
+
+def test_get_exercise_summary_uses_authenticated_user(monkeypatch) -> None:
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def fake_sessions(user_id: str, settings: main.Settings):
+        assert user_id == "authenticated-user"
+        assert settings == TEST_SETTINGS
+        return []
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_completed_exercise_sessions", fake_sessions)
+    try:
+        response = TestClient(main.app).get("/api/exercise/summary")
+        assert response.status_code == 200
+        assert response.json()["summary"]["recent_7_days"]["workout_count"] == 0
+        assert response.json()["summary"]["cumulative"]["workout_count"] == 0
     finally:
         main.app.dependency_overrides.clear()
 

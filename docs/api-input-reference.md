@@ -1,6 +1,6 @@
 # Auto-Fit 전체 API 입력 필드 참조
 
-기준: 2026-09-09 로컬 FastAPI OpenAPI. 총 39개 operation. 코드 자동 추출이며 실제 서버 배포 상태를 보증하지 않는다.
+기준: 2026-09-10 로컬 FastAPI OpenAPI. 총 40개 operation. 코드 자동 추출이며 실제 서버 배포 상태를 보증하지 않는다.
 
 인증·호출 순서·응답 형태·추가 검증은 [프론트엔드 협업 안내](frontend-api-handoff.md), 원본은 [openapi.json](openapi.json)을 참고한다.
 
@@ -267,6 +267,16 @@ OpenAPI에 명시된 상태 코드: 200, 422. 런타임 인증·상태·DB 오�
 | 위치 | 이름 | 필수 | 타입 | 조건 |
 |---|---|---|---|---|
 | query | period | 아니오 | string | enum=["week","month","three_months"]; default="month" |
+| header | authorization | 아니오 | string 또는 null | — |
+
+요청 본문 없음.
+
+OpenAPI에 명시된 상태 코드: 200, 422. 런타임 인증·상태·DB 오류는 협업 안내 참고.
+
+## GET /api/exercise/summary
+
+| 위치 | 이름 | 필수 | 타입 | 조건 |
+|---|---|---|---|---|
 | header | authorization | 아니오 | string 또는 null | — |
 
 요청 본문 없음.

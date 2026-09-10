@@ -35,11 +35,37 @@
 
 성공하면 브라우저가 보낸 테스트 문구와 로그인 사용자의 `profiles` 데이터가 함께 표시됩니다. 액세스 토큰과 Service Role Key는 화면에 출력하지 않습니다.
 
+## 발표 시나리오 검증
+
+로컬 회귀 테스트는 프로필 저장부터 운동 완료·요약 조회까지 전체 API 흐름을 검증합니다.
+
+```bash
+python -m pytest -q backend/tests/test_presentation_flow.py
+```
+
+실제 테스트 Supabase 프로젝트에서는 `backend/.env`를 설정한 뒤 다음 opt-in 검사를 실행합니다.
+임시 Auth 사용자와 합성 운동 데이터를 생성하며, 정상 종료 시 해당 리소스를 정리합니다.
+
+```bash
+python -m backend.tests.chat_live_integration \
+  --project eeeqibyssajykrhvecbv \
+  --presentation
+```
+
+배포 서버까지 검사하려면 승인된 개발 서버 옵션을 추가합니다.
+
+```bash
+python -m backend.tests.chat_live_integration \
+  --project eeeqibyssajykrhvecbv \
+  --api-base https://auto-fit-api-dev.onrender.com \
+  --presentation
+```
+
 ## API
 
 - `GET /health`: FastAPI 실행 상태 확인
 - `POST /api/test/roundtrip`: Supabase JWT 검증 후 로그인 사용자의 프로필 조회
-- `GET /api/profile`: 로그인 사용자의 프로필과 온보딩 완료 상태 조회
+- `GET /api/profile`: 로그인 사용자의 기본 프로필·온보딩 상태와 연결된 운동 설정 조회
 - `PATCH /api/profile`: 검증된 JWT의 사용자 ID로 본인 프로필 저장 후 재조회
 - `GET /api/allergies`: 활성 알레르기 기준정보와 본인 선택 조회
 - `PUT /api/allergies`: 본인 알레르기 복수 선택을 트랜잭션으로 전체 교체
@@ -63,6 +89,7 @@
 - `PUT /api/exercise/goals/active`: 주간 횟수·시간·목표 기간을 포함한 활성 운동 목표 저장 또는 갱신
 - `GET /api/exercise/history?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`: 최대 367일 범위의 완료·종료 운동 기록 조회
 - `GET /api/exercise/progress?period=week|month|three_months`: 기간별 운동 합계·주간 추이·카테고리 분포·연속 운동일 조회
+- `GET /api/exercise/summary`: 최근 7일과 누적 완료 운동 횟수·종목 수·시간·열량 조회
 - `GET /api/diet/inventory`: 본인의 사용 가능한 냉장고 재료 조회
 - `POST /api/diet/inventory`: 본인의 냉장고 재료·수량·구매일·유통기한 추가
 - `POST /api/diet/recommendations/generate`: 냉장고 재료와 알레르기를 반영해 오늘 식단 추천 생성
@@ -80,7 +107,7 @@
 
 운동 추천 조건은 `exercise_recommendation_contexts`에 요청 시점별 스냅샷으로 저장합니다. 추천 생성 전에는 `exercise_recommendation_id`가 비어 있고, 실제 추천 결과가 생성된 뒤 연결합니다. 이 테이블 역시 브라우저 역할의 직접 접근을 막고 백엔드만 접근합니다.
 
-운동 추천 생성은 `create_exercise_recommendation` RPC에서 추천, 운동 항목, 입력 컨텍스트 연결을 한 트랜잭션으로 처리합니다. 외래키는 사용하지 않으며 `(exercise_recommendation_id, sequence_order)` 고유 인덱스와 백엔드 검증으로 중복·부분 저장을 방지합니다. 현재 `rules_v1`은 데이터 흐름 검증용 규칙 기반 생성기이며 이후 AI 생성기로 교체할 수 있습니다.
+운동 추천 생성은 기본 프로필의 활동 수준도 반영하며, `create_exercise_recommendation` RPC에서 추천, 운동 항목, 입력 컨텍스트 연결을 한 트랜잭션으로 처리합니다. 외래키는 사용하지 않으며 `(exercise_recommendation_id, sequence_order)` 고유 인덱스와 백엔드 검증으로 중복·부분 저장을 방지합니다. 현재 `rules_v1`은 데이터 흐름 검증용 규칙 기반 생성기이며 이후 AI 생성기로 교체할 수 있습니다. 저장형 채팅에서 사용자가 명시적으로 루틴 생성을 요청하면 같은 생성 흐름을 실행하고 추천 ID와 다음 세션 시작 경로를 답변 근거로 반환합니다.
 
 운동 세션과 불편 상태 기록도 외래키 없이 RPC 내부의 사용자 소유권·세션 상태·추천 항목 소속 검증으로 처리합니다. `adjust` 조치는 현재 운동을 제외한 미완료 항목의 시간·횟수·중량·예상 칼로리를 20% 완화하고 강도를 한 단계 낮춥니다. `stop` 조치는 남은 항목을 건너뜀으로 기록하고 세션을 종료합니다.
 

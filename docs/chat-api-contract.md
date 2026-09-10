@@ -2,7 +2,7 @@
 
 상태: 프론트엔드 공유용 확정안
 
-기준일: 2026-09-07
+기준일: 2026-09-10
 
 구현 상태(2026-09-08): 저장 API 5개와 요청 제한 구현, 공용 서버 통합 검사 45개 완료.
 `20260908012312_chat_message_storage.sql`을 Auto-Fit 프로젝트에 적용했다.
@@ -22,6 +22,7 @@ Render 배포 코드 `7e8171f`에서 실제 Auth/DB 연결을 검증했다. 프�
 - API 필드명은 기존 Auto-Fit API와 동일하게 `snake_case`를 사용한다.
 - DB 관계는 외래키 없이 백엔드의 사용자 소유권 검사로 보호한다.
 - 대화 보관기간은 메시지 생성 후 30일(720시간)이다. 만료 후 5분 주기로 삭제하며 상세는 [보관 정책](chat-retention-policy.md)을 따른다.
+- 저장형 채팅의 명시적 루틴 생성 요청은 기존 운동 추천 RPC를 호출한다. `answer-preview`는 같은 요청에서도 쓰지 않고 준비 상태만 반환한다.
 
 ## 2. 공통 규칙
 
@@ -223,6 +224,8 @@ POST /api/chats/{chat_id}/messages
 - 동일한 `client_message_id`로 다른 내용을 보내면 `409 IDEMPOTENCY_CONFLICT`를 반환한다.
 - 중복 ID의 범위는 사용자 단위이며, 같은 ID를 다른 채팅방에 사용해도 충돌이다.
 - 이미 성공한 요청의 재전송은 채팅방을 보관한 이후에도 기존 결과를 반환한다.
+- `오늘 운동 루틴 만들어줘`처럼 생성 의도가 명시되면 운동 설정과 미사용 추천 컨텍스트를 확인한 뒤 추천을 저장한다. 성공 답변의 `intent`는 `exercise_routine_generation`이고, `evidence[0]`에 `exercise_recommendation_id`와 다음 호출 경로 `/api/exercise/sessions/start`가 포함된다.
+- 운동 설정 또는 추천 컨텍스트가 없으면 생성하지 않고 `need_more_data`로 응답하며 `required_data`에 `exercise_preferences` 또는 `recommendation_context`를 넣는다.
 
 성공: `201 Created`
 

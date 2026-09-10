@@ -752,6 +752,7 @@ async def fetch_latest_unlinked_exercise_context(
 def build_exercise_recommendation_plan(
     preferences: dict[str, Any],
     context: dict[str, Any],
+    profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     goal = preferences["goal_type"]
     experience = preferences["experience_level"]
@@ -761,7 +762,10 @@ def build_exercise_recommendation_plan(
     condition = str(context.get("condition_level") or "").casefold()
 
     risk_words = ("나쁨", "피곤", "통증", "어지", "bad", "tired", "pain", "dizzy")
+    activity_level = (profile or {}).get("activity_level")
     if discomfort_areas or any(word in condition for word in risk_words):
+        intensity = "low"
+    elif experience == "beginner" and activity_level in {None, "sedentary", "light"}:
         intensity = "low"
     elif experience == "advanced":
         intensity = "high"
@@ -854,8 +858,8 @@ def build_exercise_recommendation_plan(
             "intensity": intensity,
             "recommendation_summary": f"{goal_labels[goal]} 목표를 위한 {available_minutes}분 루틴",
             "ai_reason": (
-                "운동 목표, 경험 수준, 사용 가능 시간과 장비, 현재 컨디션 및 "
-                "불편 부위를 반영한 규칙 기반 테스트 추천입니다."
+                "기본 프로필의 활동 수준, 운동 목표, 경험 수준, 사용 가능 시간과 "
+                "장비, 현재 컨디션 및 불편 부위를 반영한 규칙 기반 테스트 추천입니다."
             ),
         },
         "items": items,
@@ -887,6 +891,35 @@ async def create_exercise_recommendation(
             detail="Supabase exercise recommendation creation failed",
         )
     return response.json()
+
+
+async def prepare_exercise_routine(
+    user_id: str,
+    settings: Settings,
+    *,
+    generate: bool,
+) -> dict[str, Any]:
+    profile, preferences = await asyncio.gather(
+        fetch_profile(user_id, settings),
+        fetch_exercise_preferences(user_id, settings),
+    )
+    if not preferences:
+        return {"missing": ["exercise_preferences"], "generated": False, "result": None}
+
+    context = await fetch_latest_unlinked_exercise_context(user_id, settings)
+    if not context:
+        return {"missing": ["recommendation_context"], "generated": False, "result": None}
+    if not generate:
+        return {"missing": [], "generated": False, "result": None}
+
+    plan = build_exercise_recommendation_plan(preferences, context, profile)
+    result = await create_exercise_recommendation(
+        user_id,
+        context["exercise_recommendation_context_id"],
+        plan,
+        settings,
+    )
+    return {"missing": [], "generated": True, "result": result}
 
 
 async def fetch_latest_exercise_recommendation(
@@ -1300,6 +1333,87 @@ async def fetch_exercise_history(
         }
         for session in sessions
     ]
+
+
+async def fetch_completed_exercise_sessions(
+    user_id: str,
+    settings: Settings,
+) -> list[dict[str, Any]]:
+    page_size = 1000
+    sessions: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=10) as client:
+        while True:
+            response = await client.get(
+                f"{settings.supabase_url}/rest/v1/exercise_sessions",
+                headers=service_headers(settings),
+                params={
+                    "select": (
+                        "exercise_session_id,started_at,completed_at,"
+                        "completed_item_count,total_duration_seconds,"
+                        "total_calories_burned,completion_rate"
+                    ),
+                    "user_id": f"eq.{user_id}",
+                    "status": "eq.completed",
+                    "order": "completed_at.desc,exercise_session_id.desc",
+                    "limit": str(page_size),
+                    "offset": str(len(sessions)),
+                },
+            )
+            if not response.is_success:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Supabase exercise summary query failed",
+                )
+            page = response.json()
+            sessions.extend(page)
+            if len(page) < page_size:
+                return sessions
+
+
+def build_exercise_summary(
+    sessions: list[dict[str, Any]],
+    today: date | None = None,
+) -> dict[str, Any]:
+    end = today or date.today()
+    recent_start = end - timedelta(days=6)
+
+    def completed_on(session: dict[str, Any]) -> date:
+        value = session.get("completed_at") or session["started_at"]
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+
+    def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        completed_dates = {completed_on(row) for row in rows}
+        return {
+            "workout_count": len(rows),
+            "exercise_count": sum(
+                int(row.get("completed_item_count") or 0) for row in rows
+            ),
+            "duration_minutes": round(
+                sum(float(row.get("total_duration_seconds") or 0) for row in rows)
+                / 60,
+                1,
+            ),
+            "calories_burned": round(
+                sum(float(row.get("total_calories_burned") or 0) for row in rows),
+                1,
+            ),
+            "active_days": len(completed_dates),
+            "latest_completed_at": rows[0].get("completed_at") if rows else None,
+        }
+
+    ordered = sorted(sessions, key=completed_on, reverse=True)
+    recent = [row for row in ordered if recent_start <= completed_on(row) <= end]
+    first_completed_on = completed_on(ordered[-1]).isoformat() if ordered else None
+    return {
+        "recent_7_days": {
+            "period": {"from": recent_start.isoformat(), "to": end.isoformat()},
+            **aggregate(recent),
+        },
+        "cumulative": {
+            "period": {"from": first_completed_on, "to": end.isoformat()},
+            **aggregate(ordered),
+        },
+    }
 
 
 async def fetch_exercise_category_map(
@@ -2014,8 +2128,14 @@ async def get_profile(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    profile = await fetch_profile(user.id, settings)
-    return {"profile": profile}
+    profile, exercise_preferences = await asyncio.gather(
+        fetch_profile(user.id, settings),
+        fetch_exercise_preferences(user.id, settings),
+    )
+    return {
+        "profile": profile,
+        "exercise_preferences": exercise_preferences,
+    }
 
 
 @app.patch("/api/profile")
@@ -2136,28 +2256,18 @@ async def generate_exercise_recommendation(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    preferences = await fetch_exercise_preferences(user.id, settings)
-    if not preferences:
+    outcome = await prepare_exercise_routine(user.id, settings, generate=True)
+    if "exercise_preferences" in outcome["missing"]:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Exercise preferences are required before generating a recommendation",
         )
-
-    context = await fetch_latest_unlinked_exercise_context(user.id, settings)
-    if not context:
+    if "recommendation_context" in outcome["missing"]:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A new exercise recommendation context is required",
         )
-
-    plan = build_exercise_recommendation_plan(preferences, context)
-    result = await create_exercise_recommendation(
-        user.id,
-        context["exercise_recommendation_context_id"],
-        plan,
-        settings,
-    )
-    return {"ok": True, "generator": "rules_v1", "result": result}
+    return {"ok": True, "generator": "rules_v1", "result": outcome["result"]}
 
 
 @app.post("/api/exercise/sessions/start")
@@ -2373,6 +2483,15 @@ async def get_exercise_progress(
     }
 
 
+@app.get("/api/exercise/summary")
+async def get_exercise_summary(
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    sessions = await fetch_completed_exercise_sessions(user.id, settings)
+    return {"summary": build_exercise_summary(sessions)}
+
+
 @app.get("/api/diet/inventory")
 async def get_diet_inventory(
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2505,7 +2624,16 @@ async def preview_chat_answer(
     async def load_catalog():
         return await load_exercise_types(settings.supabase_url, service_headers(settings))
 
-    return {"answer": await answer_question(body.content, load_scores, load_records, load_catalog)}
+    async def preview_routine():
+        return await prepare_exercise_routine(user.id, settings, generate=False)
+
+    return {"answer": await answer_question(
+        body.content,
+        load_scores,
+        load_records,
+        load_catalog,
+        prepare_routine=preview_routine,
+    )}
 
 
 def get_chat_store(
@@ -2550,6 +2678,7 @@ async def send_chat_message(
     chat_id: UUID, body: ChatMessageRequest, response: Response,
     store: ChatStore = Depends(get_chat_store),
     limiter: ChatRateLimiter = Depends(get_chat_access),
+    settings: Settings = Depends(get_settings),
 ):
     async def load_scores():
         return await fetch_scores(store.url, store.headers, store.user_id)
@@ -2565,11 +2694,21 @@ async def send_chat_message(
                 async def load_catalog():
                     return await load_exercise_types(store.url, store.headers)
 
+                async def generate_routine():
+                    return await prepare_exercise_routine(
+                        store.user_id, settings, generate=True
+                    )
+
                 allow_general = False
                 if is_off_topic_question(body.content):
                     allow_general = not await store.has_general_ai_answer(chat_id)
                 answer = await answer_question(
-                    body.content, load_scores, load_records, load_catalog, allow_general
+                    body.content,
+                    load_scores,
+                    load_records,
+                    load_catalog,
+                    allow_general,
+                    generate_routine,
                 )
                 result = await store.exchange(chat_id, body.client_message_id, body.content, answer)
     except TimeoutError:

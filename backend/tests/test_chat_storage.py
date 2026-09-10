@@ -56,6 +56,43 @@ def test_send_or_replay(client, monkeypatch, replay):
     assert len(calls) == (1 if replay else 2)
 
 
+def test_persisted_routine_request_generates_and_stores_answer(client, monkeypatch):
+    calls = []
+
+    async def exchange(self, chat_id, client_id, content, answer=None):
+        calls.append(answer)
+        if answer is None:
+            return None
+        return {"is_replay": False, "assistant_message": answer}
+
+    async def prepare(user_id, settings, *, generate):
+        assert user_id == "owner"
+        assert settings == TEST_SETTINGS
+        assert generate is True
+        return {
+            "missing": [],
+            "generated": True,
+            "result": {
+                "recommendation": {
+                    "exercise_recommendation_id": "recommendation-1",
+                }
+            },
+        }
+
+    monkeypatch.setattr(ChatStore, "exchange", exchange)
+    monkeypatch.setattr(main, "prepare_exercise_routine", prepare)
+
+    response = client.post(
+        f"/api/chats/{CHAT}/messages",
+        json={"client_message_id": REQUEST, "content": "오늘 운동 루틴 만들어줘"},
+    )
+
+    assert response.status_code == 201
+    assert len(calls) == 2
+    assert calls[1]["intent"] == "exercise_routine_generation"
+    assert calls[1]["evidence"][0]["exercise_recommendation_id"] == "recommendation-1"
+
+
 @pytest.mark.parametrize("body", [{}, {"status": None}, {"status": "closed"}, {"title": " "}, {"user_id": "victim"}])
 def test_patch_validation(client, body):
     assert client.patch(f"/api/chats/{CHAT}", json=body).status_code == 422
