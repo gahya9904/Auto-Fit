@@ -58,6 +58,7 @@ const resultBackground = require('../../assets/images/backgrounds/4_Upload.png')
 
 const referenceWidth = 412;
 const referenceHeight = 917;
+const referenceExtractedCardHeight = 450;
 const referenceTitleTop = 38;
 const keyboardSafeGap = 16;
 const baseBottomContentPadding = 20;
@@ -363,7 +364,7 @@ function MetricRow({
   return (
     <View ref={onRowRef} style={styles.metricRow}>
       <View style={styles.metricIconCircle}>
-        <Icon {...iconColorProps} height={22} width={22} />
+        <Icon {...iconColorProps} height={24} width={24} />
       </View>
       <View style={styles.metricMain}>
         <View style={styles.metricContent}>
@@ -412,7 +413,12 @@ function MetricRow({
             ) : (
               <Text style={styles.metricValueText}>{value}</Text>
             )}
-            {definition.unit ? <Text style={styles.metricUnit}> {definition.unit}</Text> : null}
+            {definition.unit ? (
+              <Text style={styles.metricUnit}>
+                {' '}
+                {definition.unit}
+              </Text>
+            ) : null}
           </View>
           <Pressable
             accessibilityLabel={`${definition.label} ${isEditing ? '확인' : '수정'}`}
@@ -424,7 +430,12 @@ function MetricRow({
               pressed && styles.pressed,
             ]}
           >
-            <Text style={[styles.modifyButtonText, isEditing && styles.confirmButtonText]}>
+            <Text
+              style={[
+                styles.modifyButtonText,
+                isEditing && styles.confirmButtonText,
+              ]}
+            >
               {isEditing ? '확인' : '수정'}
             </Text>
           </Pressable>
@@ -463,7 +474,7 @@ export default function OCRResultScreen() {
   const correctionFrame = useRef<number | null>(null);
   const editingMetricKeyRef = useRef<OCRMetricKey | null>(null);
   const metricRowRefs = useRef<Partial<Record<OCRMetricKey, View>>>({});
-  const inbodyScrollRef = useRef<ScrollView>(null);
+  const metricListScrollRef = useRef<ScrollView>(null);
   const keyboardCanvasOffsetRef = useRef(0);
   const screenViewportRef = useRef<View>(null);
   const innerScrollIndicator = useCustomScrollIndicator();
@@ -482,6 +493,8 @@ export default function OCRResultScreen() {
   );
   const verticalValue = (expanded: number, compact: number) =>
     compact + (expanded - compact) * heightProgress;
+  const currentResult = results[currentIndex];
+  const extractedCardHeight = referenceExtractedCardHeight;
   const completionTop = verticalValue(114, 92);
   const stepIndicatorTop = verticalValue(75, 65);
   const uploadFileTop = Math.max(
@@ -494,7 +507,7 @@ export default function OCRResultScreen() {
   );
   const nextButtonTop = Math.max(
     verticalValue(830, 780),
-    extractedCardTop + 450 + 15,
+    extractedCardTop + extractedCardHeight + 15,
   );
   const contentBottom = Math.max(
     measuredContentBottom,
@@ -510,7 +523,6 @@ export default function OCRResultScreen() {
     enabled: needsScroll,
     showInitially: true,
   });
-  const currentResult = results[currentIndex];
   const metricDefinitions =
     currentResult.type === 'health_checkup' ? healthMetricDefinitions : inbodyMetricDefinitions;
   const uploadedFile: SelectedHealthFile = {
@@ -687,6 +699,37 @@ export default function OCRResultScreen() {
     // TODO: 선택한 파일로 OCR 재실행
   };
 
+  const handleBack = () => {
+    if (currentIndex === 0) {
+      Keyboard.dismiss();
+      router.back();
+      return;
+    }
+
+    const committedValues = applyEditingDraft(metricValues);
+    setMetricValues(committedValues);
+    setResults((current) =>
+      current.map((result, index) =>
+        index === currentIndex ? updateResultData(result, committedValues) : result,
+      ),
+    );
+
+    const previousIndex = currentIndex - 1;
+    const previousResult = results[previousIndex];
+    editingMetricKeyRef.current = null;
+    metricRowRefs.current = {};
+    setEditingMetricKey(null);
+    setDraftValue('');
+    setSystolicDraft('');
+    setDiastolicDraft('');
+    setCurrentIndex(previousIndex);
+    setMetricValues({ ...previousResult.data });
+    metricListScrollRef.current?.scrollTo({ animated: false, y: 0 });
+    keyboardCanvasOffsetRef.current = 0;
+    setKeyboardCanvasOffset(0);
+    Keyboard.dismiss();
+  };
+
   const handleNext = () => {
     const committedValues = applyEditingDraft(metricValues);
     setMetricValues(committedValues);
@@ -712,7 +755,7 @@ export default function OCRResultScreen() {
     setDiastolicDraft('');
     setCurrentIndex(nextIndex);
     setMetricValues({ ...nextResult.data });
-    inbodyScrollRef.current?.scrollTo({ animated: false, y: 0 });
+    metricListScrollRef.current?.scrollTo({ animated: false, y: 0 });
     keyboardCanvasOffsetRef.current = 0;
     setKeyboardCanvasOffset(0);
     Keyboard.dismiss();
@@ -784,7 +827,7 @@ export default function OCRResultScreen() {
               },
             ]}
           >
-            <BackButton onPress={() => router.back()} size={44} style={styles.backButton} />
+            <BackButton onPress={handleBack} size={44} style={styles.backButton} />
             <Text style={styles.screenTitle}>OCR 결과 확인</Text>
             <View style={[styles.stepPosition, { top: stepIndicatorTop }]}>
               <ResultStepIndicator current={currentIndex + 1} total={results.length} />
@@ -800,8 +843,20 @@ export default function OCRResultScreen() {
                 />
               </View>
               <View style={styles.completionTexts}>
-                <Text style={styles.completionTitle}>데이터 추출이 완료되었습니다!</Text>
-                <Text style={styles.completionDescription}>
+                <Text
+                  style={[
+                    styles.completionTitle,
+                    currentResult.type === 'health_checkup' && styles.healthCompletionTitle,
+                  ]}
+                >
+                  데이터 추출이 완료되었습니다!
+                </Text>
+                <Text
+                  style={[
+                    styles.completionDescription,
+                    currentResult.type === 'health_checkup' && styles.healthCompletionDescription,
+                  ]}
+                >
                   아래 내용을 확인하고,{`\n`}수정이 필요한 항목이 있다면 수정해주세요.
                 </Text>
               </View>
@@ -845,42 +900,42 @@ export default function OCRResultScreen() {
               </View>
             </AppCard>
 
-            <AppCard bordered padding="none" style={[styles.extractedCard, { top: extractedCardTop }]}>
+            <AppCard
+              bordered
+              padding="none"
+              style={[styles.extractedCard, { height: extractedCardHeight, top: extractedCardTop }]}
+            >
               <View style={styles.extractedContent}>
-                <Text style={styles.cardTitle}>추출된 데이터</Text>
-                {currentResult.type === 'inbody' ? (
-                  <View style={styles.inbodyMetricListContainer}>
-                    <ScrollView
-                      key={currentResult.id}
-                      ref={inbodyScrollRef}
-                      bounces={false}
-                      contentContainerStyle={styles.metricListContent}
-                      keyboardShouldPersistTaps="always"
-                      nestedScrollEnabled
-                      onContentSizeChange={innerScrollIndicator.onContentSizeChange}
-                      onLayout={innerScrollIndicator.onLayout}
-                      onMomentumScrollBegin={innerScrollIndicator.onMomentumScrollBegin}
-                      onMomentumScrollEnd={innerScrollIndicator.onMomentumScrollEnd}
-                      onScroll={innerScrollIndicator.onScroll}
-                      onScrollBeginDrag={innerScrollIndicator.onScrollBeginDrag}
-                      onScrollEndDrag={innerScrollIndicator.onScrollEndDrag}
-                      onTouchCancel={() => setIsInnerScrollActive(false)}
-                      onTouchEnd={() => setIsInnerScrollActive(false)}
-                      onTouchStart={() => setIsInnerScrollActive(true)}
-                      scrollEventThrottle={16}
-                      showsVerticalScrollIndicator={false}
-                      style={[styles.inbodyMetricList, webInnerScrollStyle]}
-                    >
-                      {metricRows}
-                    </ScrollView>
-                    <CustomScrollIndicator
-                      {...innerScrollIndicator.indicatorProps}
-                      rightInset={-5}
-                    />
-                  </View>
-                ) : (
-                  <View style={styles.metricListContent}>{metricRows}</View>
-                )}
+                <Text style={[styles.cardTitle, styles.extractedCardTitle]}>추출된 데이터</Text>
+                <View style={styles.metricListViewport}>
+                  <ScrollView
+                    key={currentResult.id}
+                    ref={metricListScrollRef}
+                    bounces={false}
+                    contentContainerStyle={styles.metricListContent}
+                    keyboardShouldPersistTaps="always"
+                    nestedScrollEnabled
+                    onContentSizeChange={innerScrollIndicator.onContentSizeChange}
+                    onLayout={innerScrollIndicator.onLayout}
+                    onMomentumScrollBegin={innerScrollIndicator.onMomentumScrollBegin}
+                    onMomentumScrollEnd={innerScrollIndicator.onMomentumScrollEnd}
+                    onScroll={innerScrollIndicator.onScroll}
+                    onScrollBeginDrag={innerScrollIndicator.onScrollBeginDrag}
+                    onScrollEndDrag={innerScrollIndicator.onScrollEndDrag}
+                    onTouchCancel={() => setIsInnerScrollActive(false)}
+                    onTouchEnd={() => setIsInnerScrollActive(false)}
+                    onTouchStart={() => setIsInnerScrollActive(true)}
+                    scrollEventThrottle={16}
+                    showsVerticalScrollIndicator={false}
+                    style={[styles.metricList, webInnerScrollStyle]}
+                  >
+                    {metricRows}
+                  </ScrollView>
+                  <CustomScrollIndicator
+                    {...innerScrollIndicator.indicatorProps}
+                    rightInset={-5}
+                  />
+                </View>
                 <View style={styles.privacyBox}>
                   <ShieldCheckIcon
                     color={colors.primary}
@@ -889,8 +944,8 @@ export default function OCRResultScreen() {
                     width={24}
                   />
                   <Text style={styles.privacyText}>
-                    추출된 데이터는 사용자 동의 없이 저장되거나 공유되지 않으며,{`\n`}
-                    <Text style={styles.privacyEmphasis}>분석 및 추천 서비스 제공</Text>에만
+                    추출된 데이터는 사용자 동의 없이 저장되거나 공유되지 않으며,
+                    <Text style={styles.privacyEmphasis}> 분석 및 추천 서비스 제공</Text>에만
                     사용됩니다.
                   </Text>
                 </View>
@@ -1073,16 +1128,22 @@ const styles = StyleSheet.create({
   completionTitle: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 17,
+    fontSize: 18,
     includeFontPadding: false,
     lineHeight: 22,
   },
   completionDescription: {
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 12,
+    fontSize: 13,
     includeFontPadding: false,
     lineHeight: 17,
+  },
+  healthCompletionTitle: {
+    fontSize: 20,
+  },
+  healthCompletionDescription: {
+    fontSize: 14,
   },
   uploadFileCard: {
     borderRadius: radius.md,
@@ -1098,7 +1159,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 13,
+    fontSize: 16,
     includeFontPadding: false,
     lineHeight: 17,
   },
@@ -1129,14 +1190,14 @@ const styles = StyleSheet.create({
   fileName: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 12,
+    fontSize: 14,
     includeFontPadding: false,
     lineHeight: 17,
   },
   uploadTime: {
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 10,
+    fontSize: 12.5,
     includeFontPadding: false,
     lineHeight: 17,
   },
@@ -1152,7 +1213,7 @@ const styles = StyleSheet.create({
   reuploadText: {
     color: colors.primary,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 11,
+    fontSize: 13,
     includeFontPadding: false,
     lineHeight: 17,
   },
@@ -1175,31 +1236,31 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingRight: 2,
   },
-  inbodyMetricList: {
+  metricList: {
     flex: 1,
     width: '100%',
   },
-  inbodyMetricListContainer: {
-    height: 328,
+  metricListViewport: {
+    height: 330,
     position: 'relative',
     width: 341,
   },
   metricRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 11,
+    gap: 7,
   },
   metricIconCircle: {
     alignItems: 'center',
     backgroundColor: colors.primaryLight,
-    borderRadius: 15,
-    height: 30,
+    borderRadius: radius.round,
+    height: 32,
     justifyContent: 'center',
-    width: 30,
+    width: 32,
   },
   metricMain: {
     flex: 1,
-    gap: 7,
+    gap: 5,
   },
   metricContent: {
     alignItems: 'center',
@@ -1209,7 +1270,7 @@ const styles = StyleSheet.create({
   metricLabel: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 12,
+    fontSize: 15,
     includeFontPadding: false,
     lineHeight: 17,
     width: 105,
@@ -1223,7 +1284,7 @@ const styles = StyleSheet.create({
   metricValueText: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 12,
+    fontSize: 15,
     includeFontPadding: false,
     lineHeight: 17,
   },
@@ -1234,8 +1295,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
 
     color: colors.textBody,
-    fontFamily: fontFamilies.pretendardRegular,
-    fontSize: 12,
+    fontFamily: fontFamilies.pretendardLight,
+    fontSize: 14,
 
     height: 28,
     includeFontPadding: false,
@@ -1259,27 +1320,33 @@ const styles = StyleSheet.create({
   bloodPressureSeparator: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 12,
+    fontSize: 14,
     lineHeight: 17,
   },
   metricUnit: {
     color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 15,
+    lineHeight: 17,
   },
   modifyButton: {
     alignItems: 'center',
     borderColor: colors.primary,
     borderRadius: radius.sm,
     borderWidth: 0.5,
-    height: 20,
+    height: 24,
     justifyContent: 'center',
-    width: 40,
+    width: 50,
   },
   modifyButtonText: {
     color: colors.primary,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 11,
+    fontSize: 14,
     includeFontPadding: false,
     lineHeight: 17,
+  },
+  extractedCardTitle: {
+    lineHeight: 18,
   },
   confirmButton: {
     borderColor: '#1371EB',
@@ -1297,19 +1364,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.lg,
     flexDirection: 'row',
-    gap: 20,
+    gap: 3,
     marginTop: 'auto',
-    minHeight: 50,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
+    height: 50,
+    paddingHorizontal: 8,
   },
   privacyText: {
     color: colors.textSecondary,
     flex: 1,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 9,
+    fontSize: 13,
     includeFontPadding: false,
-    lineHeight: 13,
+    lineHeight: 16,
   },
   privacyEmphasis: {
     color: colors.primaryDark,
@@ -1328,7 +1394,7 @@ const styles = StyleSheet.create({
   nextButtonText: {
     color: colors.surface,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 16,
+    fontSize: 20,
     includeFontPadding: false,
     lineHeight: 22,
   },

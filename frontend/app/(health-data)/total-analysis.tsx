@@ -419,25 +419,26 @@ export default function TotalAnalysisScreen() {
     [heightProgress],
   );
   const screenTitleTop = verticalValue(38, 28);
-  const explainTop = verticalValue(64, 50);
+  const explainTop = verticalValue(64, 54);
   const explainHeight = verticalValue(120, 108);
   const explainImageSize = verticalValue(128, 104);
   const explainImageRadius = verticalValue(47, 40);
   const explainImageTop = (explainHeight - explainImageSize) / 2;
   const explainCopyWidth = verticalValue(270, 282);
   const explainCopyGap = verticalValue(8, 7);
-  const contentTop = verticalValue(192, 164);
-  const sectionGap = verticalValue(10, 8);
+  const contentTop = verticalValue(192, 168);
+  const sectionGap = verticalValue(10, 7);
   const summaryPadding = verticalValue(14, 12);
-  const summaryGap = verticalValue(10, 9);
+  const summaryGap = verticalValue(10, 8);
   const summaryCopyGap = verticalValue(7, 6);
   const strategyPadding = verticalValue(15, 13);
-  const strategyGap = verticalValue(10, 8);
-  const strategyHeadingGap = verticalValue(7, 6);
-  const keyMetricsGap = verticalValue(10, 9);
+  const strategyGap = verticalValue(10, 7);
+  const strategyHeadingGap = verticalValue(7, 5);
+  const keyMetricsGap = verticalValue(10, 8);
   const keyMetricCardHeight = verticalValue(100, 94);
   const accordionHeaderHeight = verticalValue(50, 46);
-  const theoreticalContentHeight = verticalValue(637, 658);
+  const accordionGap = verticalValue(5, 4);
+  const theoreticalContentHeight = verticalValue(637, 646);
   const contentBottom = contentTop + (measuredContentHeight || theoreticalContentHeight);
   const bottomPadding = Math.max(12, insets.bottom + 8);
   const renderedHeight = safeTop + contentBottom * widthScale;
@@ -663,7 +664,13 @@ export default function TotalAnalysisScreen() {
                 </View>
               </Animated.View>
 
-              <Animated.View style={[styles.evidence, sectionEntranceStyle(sectionAnimations[3])]}>
+              <Animated.View
+                style={[
+                  styles.evidence,
+                  { gap: accordionGap },
+                  sectionEntranceStyle(sectionAnimations[3]),
+                ]}
+              >
                 <ReasonAccordion
                   headerHeight={accordionHeaderHeight}
                   expanded={reasonExpanded}

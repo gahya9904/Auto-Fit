@@ -86,14 +86,14 @@ const styles = StyleSheet.create({
   title: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 15,
+    fontSize: 18,
     includeFontPadding: false,
     lineHeight: 20,
   },
   description: {
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 11,
+    fontSize: 14,
     includeFontPadding: false,
     lineHeight: 15,
     textAlign: 'center',
@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   buttonLabel: {
     color: colors.surface,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 12,
+    fontSize: 16,
     includeFontPadding: false,
     lineHeight: 16,
   },

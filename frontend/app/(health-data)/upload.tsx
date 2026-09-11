@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
   guideTitle: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 14,
+    fontSize: 17,
     includeFontPadding: false,
     lineHeight: 19,
   },
@@ -460,14 +460,14 @@ const styles = StyleSheet.create({
   guideItemTitle: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 12,
+    fontSize: 15,
     includeFontPadding: false,
     lineHeight: 16,
   },
   guideDescription: {
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 11,
+    fontSize: 14,
     includeFontPadding: false,
     lineHeight: 15,
   },
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
   selectedFileTitle: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 13,
+    fontSize: 15,
     includeFontPadding: false,
     lineHeight: 17,
   },
@@ -521,9 +521,9 @@ const styles = StyleSheet.create({
   emptyFileText: {
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 9,
+    fontSize: 13,
     includeFontPadding: false,
-    lineHeight: 14,
+    lineHeight: 16,
   },
   selectedNameGroup: {
     flex: 1,
@@ -568,7 +568,7 @@ const styles = StyleSheet.create({
   nextButtonLabel: {
     color: colors.surface,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 16,
+    fontSize: 20,
     includeFontPadding: false,
     lineHeight: 22,
   },
