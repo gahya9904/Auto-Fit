@@ -1,7 +1,6 @@
 import type { ComponentType } from 'react';
 import type { SvgProps } from 'react-native-svg';
 
-import BloodPressureIcon from '@/assets/icons/data/BloodPressure.svg';
 import BmiIcon from '@/assets/icons/data/BMI.svg';
 import BmrIcon from '@/assets/icons/data/BMR.svg';
 import BodyFatIcon from '@/assets/icons/data/BodyFat_Percentage.svg';
@@ -146,26 +145,6 @@ const bloodSugarMetrics: AnalysisMetric[] = [
     description: '심혈관·대사 건강 판단에 참고했어요.',
     icon: CholesterolIcon,
   },
-  {
-    id: 'fasting-glucose-extra',
-    name: '공복혈당',
-    value: '108',
-    unit: 'mg/dL',
-    status: '주의',
-    tone: 'warning',
-    description: '식사 구성과 활동량 조정에 반영했어요.',
-    icon: DiabetesIcon,
-  },
-  {
-    id: 'blood-pressure',
-    name: '혈압',
-    value: '120 / 80',
-    unit: 'mmHg',
-    status: '정상',
-    tone: 'normal',
-    description: '운동 강도와 전반적인 건강 상태 판단에 참고했어요.',
-    icon: BloodPressureIcon,
-  },
 ];
 
 export const analysisReasons: AnalysisReason[] = [
@@ -236,9 +215,9 @@ export const metricCriteria: MetricCriterion[] = [
     summary: '사용자 신체 조건을 고려한 체성분 판정 기준 적용',
     appliedRule: '성별·연령과 신체 조건을 반영한 골격근량 판정 기준을 적용했어요.',
     ranges: [
-      { id: 'low', label: '낮음', value: '23.0kg 미만', tone: 'danger', isCurrent: true },
-      { id: 'warning', label: '주의', value: '23.0kg ~ 25.9kg', tone: 'warning' },
-      { id: 'normal', label: '정상', value: '26.0kg 이상', tone: 'normal' },
+      { id: 'low', label: '낮음', value: '23.0 kg 미만', tone: 'danger', isCurrent: true },
+      { id: 'warning', label: '주의', value: '23.0 kg ~ 25.9 kg', tone: 'warning' },
+      { id: 'normal', label: '정상', value: '26.0 kg 이상', tone: 'normal' },
     ],
     referenceId: 'body-composition',
   },
@@ -253,9 +232,15 @@ export const metricCriteria: MetricCriterion[] = [
     summary: '건강검진 공복혈당 판정 기준 적용',
     appliedRule: '건강검진 공복혈당 판정 기준을 적용했어요.',
     ranges: [
-      { id: 'normal', label: '정상', value: '70 ~ 99mg/dL', tone: 'normal' },
-      { id: 'warning', label: '주의', value: '100 ~ 125mg/dL', tone: 'warning', isCurrent: true },
-      { id: 'high', label: '높음', value: '126mg/dL 이상', tone: 'danger' },
+      { id: 'normal', label: '정상', value: '70 ~ 99 mg/dL', tone: 'normal' },
+      {
+        id: 'warning',
+        label: '주의',
+        value: '100 ~ 125 mg/dL',
+        tone: 'warning',
+        isCurrent: true,
+      },
+      { id: 'high', label: '높음', value: '126 mg/dL 이상', tone: 'danger' },
     ],
     referenceId: 'diabetes',
   },

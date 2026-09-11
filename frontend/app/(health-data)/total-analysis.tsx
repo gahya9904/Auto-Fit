@@ -130,11 +130,11 @@ function MetricStatus({ metric }: { metric: AnalysisMetric }) {
   );
 }
 
-function KeyMetricCard({ metric }: { metric: AnalysisMetric }) {
+function KeyMetricCard({ metric, height }: { metric: AnalysisMetric; height: number }) {
   const Icon = metric.icon;
   const palette = tonePalette[metric.tone ?? 'normal'];
   return (
-    <View style={styles.keyMetricCard}>
+    <View style={[styles.keyMetricCard, { height }]}>
       <View style={styles.keyMetricTitleRow}>
         <IconCircle Icon={Icon} backgroundColor={palette.background} color={palette.color} />
         <Text style={styles.keyMetricName}>{metric.name}</Text>
@@ -151,11 +151,13 @@ function AccordionHeader({
   icon: Icon,
   title,
   expanded,
+  height,
   onPress,
 }: {
   icon: AnalysisIcon;
   title: string;
   expanded: boolean;
+  height: number;
   onPress: () => void;
 }) {
   return (
@@ -163,7 +165,7 @@ function AccordionHeader({
       accessibilityRole="button"
       accessibilityState={{ expanded }}
       onPress={onPress}
-      style={({ pressed }) => [styles.accordionHeader, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.accordionHeader, { height }, pressed && styles.pressed]}
     >
       <View style={styles.accordionHeaderLeft}>
         <IconCircle
@@ -183,10 +185,12 @@ function AccordionHeader({
 
 function ReasonAccordion({
   expanded,
+  headerHeight,
   onToggle,
   onOpenMetrics,
 }: {
   expanded: boolean;
+  headerHeight: number;
   onToggle: () => void;
   onOpenMetrics: (reasonId: string) => void;
 }) {
@@ -194,6 +198,7 @@ function ReasonAccordion({
     <View style={styles.accordionCard}>
       <AccordionHeader
         expanded={expanded}
+        height={headerHeight}
         icon={QuestionIcon}
         onPress={onToggle}
         title="추천 이유 자세히 보기"
@@ -252,7 +257,7 @@ function ReasonAccordion({
             />
             <View style={styles.finalRecommendationCopy}>
               <Text style={styles.finalRecommendationLabel}>최종 추천 방향</Text>
-              <Text style={styles.finalRecommendationText}>
+              <Text numberOfLines={1} style={styles.finalRecommendationText}>
                 단기간 체중 감량{' '}
                 <Text style={styles.primaryDark}>→ 근육 유지 기반 체지방 감량</Text>
               </Text>
@@ -266,11 +271,13 @@ function ReasonAccordion({
 
 function SourceAccordion({
   expanded,
+  headerHeight,
   onToggle,
   onOpenCriterion,
   onOpenReference,
 }: {
   expanded: boolean;
+  headerHeight: number;
   onToggle: () => void;
   onOpenCriterion: (criterionId: string) => void;
   onOpenReference: (referenceId: string) => void;
@@ -279,6 +286,7 @@ function SourceAccordion({
     <View style={styles.accordionCard}>
       <AccordionHeader
         expanded={expanded}
+        height={headerHeight}
         icon={ChartIcon}
         onPress={onToggle}
         title="분석 기준 및 출처 보기"
@@ -410,14 +418,30 @@ export default function TotalAnalysisScreen() {
     (expanded: number, compact: number) => compact + (expanded - compact) * heightProgress,
     [heightProgress],
   );
-  const explainTop = verticalValue(64, 56);
-  const contentTop = verticalValue(192, 174);
+  const screenTitleTop = verticalValue(38, 28);
+  const explainTop = verticalValue(64, 50);
+  const explainHeight = verticalValue(120, 108);
+  const explainImageSize = verticalValue(128, 104);
+  const explainImageRadius = verticalValue(47, 40);
+  const explainImageTop = (explainHeight - explainImageSize) / 2;
+  const explainCopyWidth = verticalValue(270, 282);
+  const explainCopyGap = verticalValue(8, 7);
+  const contentTop = verticalValue(192, 164);
   const sectionGap = verticalValue(10, 8);
-  const theoreticalContentHeight = 637;
+  const summaryPadding = verticalValue(14, 12);
+  const summaryGap = verticalValue(10, 9);
+  const summaryCopyGap = verticalValue(7, 6);
+  const strategyPadding = verticalValue(15, 13);
+  const strategyGap = verticalValue(10, 8);
+  const strategyHeadingGap = verticalValue(7, 6);
+  const keyMetricsGap = verticalValue(10, 9);
+  const keyMetricCardHeight = verticalValue(100, 94);
+  const accordionHeaderHeight = verticalValue(50, 46);
+  const theoreticalContentHeight = verticalValue(637, 658);
   const contentBottom = contentTop + (measuredContentHeight || theoreticalContentHeight);
   const bottomPadding = Math.max(12, insets.bottom + 8);
-  const totalContentHeight = safeTop + contentBottom * widthScale + bottomPadding;
-  const needsScroll = totalContentHeight > windowHeight;
+  const renderedHeight = safeTop + contentBottom * widthScale;
+  const needsScroll = renderedHeight > windowHeight + 3;
   const indicator = useCustomScrollIndicator({ enabled: needsScroll, showInitially: true });
 
   useFocusEffect(
@@ -512,26 +536,46 @@ export default function TotalAnalysisScreen() {
               },
             ]}
           >
-            <Text style={styles.screenTitle}>종합 건강 분석</Text>
-            <View style={[styles.explain, { top: explainTop }]}>
-              <View style={styles.explainCopy}>
+            <Text style={[styles.screenTitle, { top: screenTitleTop }]}>종합 건강 분석</Text>
+            <View style={[styles.explain, { height: explainHeight, top: explainTop }]}>
+              <View style={[styles.explainCopy, { gap: explainCopyGap, width: explainCopyWidth }]}>
                 <Text style={styles.explainTitle}>
                   OO님, 목표를 반영해 방법을{`\n`}
                   <Text style={styles.primary}>더 건강하게 </Text>조정했어요!
                 </Text>
-                <Text style={styles.explainDescription}>
-                  선택한 목표와 최근 건강 데이터를 함께 분석해{`\n`}가장 현실적이고 건강한 전략을
-                  제안해드려요
-                </Text>
+                <View style={styles.explainDescription}>
+                  <Text numberOfLines={1} style={styles.explainDescriptionLine}>
+                    선택한 목표와 최근 건강 데이터를 함께 분석해
+                  </Text>
+                  <Text numberOfLines={1} style={styles.explainDescriptionLine}>
+                    가장 현실적이고 건강한 전략을 제안해드려요
+                  </Text>
+                </View>
               </View>
-              <Image source={illustration} resizeMode="contain" style={styles.explainImage} />
+              <Image
+                source={illustration}
+                resizeMode="contain"
+                style={[
+                  styles.explainImage,
+                  {
+                    borderRadius: explainImageRadius,
+                    height: explainImageSize,
+                    top: explainImageTop,
+                    width: explainImageSize,
+                  },
+                ]}
+              />
             </View>
             <View
               onLayout={(event) => setMeasuredContentHeight(event.nativeEvent.layout.height)}
               style={[styles.content, { gap: sectionGap, top: contentTop }]}
             >
               <Animated.View
-                style={[styles.summaryCard, sectionEntranceStyle(sectionAnimations[0])]}
+                style={[
+                  styles.summaryCard,
+                  { gap: summaryGap, padding: summaryPadding },
+                  sectionEntranceStyle(sectionAnimations[0]),
+                ]}
               >
                 <View style={styles.summaryTop}>
                   <IconCircle
@@ -541,7 +585,7 @@ export default function TotalAnalysisScreen() {
                     iconSize={30}
                     size={50}
                   />
-                  <View style={styles.summaryCopy}>
+                  <View style={[styles.summaryCopy, { gap: summaryCopyGap }]}>
                     <View style={styles.summaryBadges}>
                       <View style={styles.summaryBadge}>
                         <Text style={styles.summaryBadgeText}>분석 요약</Text>
@@ -566,7 +610,11 @@ export default function TotalAnalysisScreen() {
               </Animated.View>
 
               <Animated.View
-                style={[styles.strategyCard, sectionEntranceStyle(sectionAnimations[1])]}
+                style={[
+                  styles.strategyCard,
+                  { gap: strategyGap, padding: strategyPadding },
+                  sectionEntranceStyle(sectionAnimations[1]),
+                ]}
               >
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                   <Image
@@ -581,7 +629,7 @@ export default function TotalAnalysisScreen() {
                   </View>
                   <Text style={styles.strategyLabel}>Auto-Fit 맞춤 제안</Text>
                 </View>
-                <View style={styles.strategyHeading}>
+                <View style={[styles.strategyHeading, { gap: strategyHeadingGap }]}>
                   <Text style={styles.strategyTitle}>근육을 지키는 결혼식 맞춤 감량 전략</Text>
                   <Text style={styles.strategyDescription}>
                     체중 감량 목표는 유지하면서,{`\n`}현재 근육량과 건강 지표를 고려해 감량 방식만
@@ -601,23 +649,29 @@ export default function TotalAnalysisScreen() {
               </Animated.View>
 
               <Animated.View
-                style={[styles.keyMetricsSection, sectionEntranceStyle(sectionAnimations[2])]}
+                style={[
+                  styles.keyMetricsSection,
+                  { gap: keyMetricsGap },
+                  sectionEntranceStyle(sectionAnimations[2]),
+                ]}
               >
                 <Text style={styles.keyMetricsTitle}>핵심 분석 지표</Text>
                 <View style={styles.keyMetricRow}>
                   {keyMetrics.map((metric) => (
-                    <KeyMetricCard key={metric.id} metric={metric} />
+                    <KeyMetricCard key={metric.id} height={keyMetricCardHeight} metric={metric} />
                   ))}
                 </View>
               </Animated.View>
 
               <Animated.View style={[styles.evidence, sectionEntranceStyle(sectionAnimations[3])]}>
                 <ReasonAccordion
+                  headerHeight={accordionHeaderHeight}
                   expanded={reasonExpanded}
                   onOpenMetrics={openAdditionalMetrics}
                   onToggle={() => toggleAccordion('reason')}
                 />
                 <SourceAccordion
+                  headerHeight={accordionHeaderHeight}
                   expanded={sourceExpanded}
                   onOpenCriterion={openCriterion}
                   onOpenReference={openReference}
@@ -706,12 +760,15 @@ const styles = StyleSheet.create({
     lineHeight: 27,
   },
   explainDescription: {
+    width: 282,
+  },
+  explainDescriptionLine: {
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
     fontSize: 14,
     lineHeight: 20,
   },
-  explainImage: { width: 120, height: 120, borderRadius: 44 },
+  explainImage: { position: 'absolute', right: 0, width: 120, height: 120, borderRadius: 44 },
   primary: { color: colors.primary },
   primaryDark: { color: colors.primaryDark },
   content: { position: 'absolute', left: 18, width: 373, alignItems: 'stretch' },
@@ -919,7 +976,7 @@ const styles = StyleSheet.create({
   accordionHeaderTitle: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 18,
+    fontSize: 16,
   },
   caretUp: { transform: [{ rotate: '180deg' }] },
   accordionBody: { paddingHorizontal: 10, paddingBottom: 10, gap: 10 },
@@ -937,7 +994,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   reasonList: { gap: 12 },
-  reasonItem: { padding: 10, gap: 8, borderRadius: 12 },
+  reasonItem: { paddingHorizontal: 8, paddingVertical: 10, gap: 8, borderRadius: 12 },
   reasonTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   reasonTitle: {
     flex: 1,
@@ -949,6 +1006,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
     fontSize: 15,
+    letterSpacing: -0.1,
     lineHeight: 20,
   },
   additionalRow: {
@@ -983,12 +1041,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   finalRecommendation: {
-    padding: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     backgroundColor: colors.primaryLight,
     borderRadius: 15,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
   },
   finalRecommendationCopy: { flex: 1, gap: 6 },
   finalRecommendationLabel: {
@@ -999,7 +1058,7 @@ const styles = StyleSheet.create({
   finalRecommendationText: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardBold,
-    fontSize: 16,
+    fontSize: 14,
   },
   sourceBody: { paddingHorizontal: 10, paddingBottom: 10, gap: 12 },
   sourceSection: { gap: 8 },
@@ -1012,7 +1071,8 @@ const styles = StyleSheet.create({
   },
   criteriaList: { gap: 10 },
   criterionCard: {
-    padding: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
     gap: 6,
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -1032,6 +1092,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
     fontSize: 14,
+    letterSpacing: -0.1,
     lineHeight: 20,
   },
   criterionLink: {

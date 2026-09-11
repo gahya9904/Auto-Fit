@@ -1,4 +1,4 @@
-import { useEffect, useState, type PropsWithChildren, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type PropsWithChildren, type ReactNode } from 'react';
 import {
   Animated,
   Easing,
@@ -24,7 +24,7 @@ export interface AppBottomSheetProps extends PropsWithChildren {
   onClose: () => void;
   title?: string;
   showHandle?: boolean;
-  scrollable?: boolean;
+  scrollable?: boolean | 'when-overflow';
   footer?: ReactNode;
   contentStyle?: StyleProp<ViewStyle>;
   handleStyle?: StyleProp<ViewStyle>;
@@ -57,6 +57,17 @@ export function AppBottomSheet({
   const [isMounted, setIsMounted] = useState(visible);
   const [dimOpacity] = useState(() => new Animated.Value(0));
   const [sheetTranslateY] = useState(() => new Animated.Value(420));
+  const [sheetHeight, setSheetHeight] = useState(0);
+  const [contentTop, setContentTop] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+  const [footerHeight, setFooterHeight] = useState(0);
+
+  const updateMeasurement = useCallback(
+    (setter: (value: number) => void, previous: number, next: number) => {
+      if (Math.abs(previous - next) > 0.5) setter(next);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!separateAnimations) return;
@@ -144,16 +155,60 @@ export function AppBottomSheet({
     };
   }, [lockBackgroundScroll, modalVisible]);
 
-  const content = scrollable ? (
-    <ScrollView
-      contentContainerStyle={[styles.content, contentStyle]}
-      showsVerticalScrollIndicator={false}
-    >
-      {children}
-    </ScrollView>
-  ) : (
-    <View style={[styles.content, contentStyle]}>{children}</View>
+  const sheetBottomPadding = Math.max(insets.bottom, spacing.lg);
+  const availableContentHeight = Math.max(
+    0,
+    sheetHeight - contentTop - footerHeight - sheetBottomPadding,
   );
+  const scrollsOnlyWhenOverflowing = scrollable === 'when-overflow';
+  const contentOverflows =
+    scrollsOnlyWhenOverflowing &&
+    availableContentHeight > 0 &&
+    contentHeight > availableContentHeight + 0.5;
+
+  const handleStaticContentLayout = useCallback(
+    (event: { nativeEvent: { layout: { height: number; y: number } } }) => {
+      const { height, y } = event.nativeEvent.layout;
+      updateMeasurement(setContentTop, contentTop, y);
+      updateMeasurement(setContentHeight, contentHeight, height);
+    },
+    [contentHeight, contentTop, updateMeasurement],
+  );
+
+  const handleScrollLayout = useCallback(
+    (event: { nativeEvent: { layout: { y: number } } }) => {
+      updateMeasurement(setContentTop, contentTop, event.nativeEvent.layout.y);
+    },
+    [contentTop, updateMeasurement],
+  );
+
+  const handleContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      updateMeasurement(setContentHeight, contentHeight, height);
+    },
+    [contentHeight, updateMeasurement],
+  );
+
+  const content =
+    scrollable === true || contentOverflows ? (
+      <ScrollView
+        contentContainerStyle={[styles.content, contentStyle]}
+        onContentSizeChange={scrollsOnlyWhenOverflowing ? handleContentSizeChange : undefined}
+        onLayout={scrollsOnlyWhenOverflowing ? handleScrollLayout : undefined}
+        scrollEnabled={scrollable === true || contentOverflows}
+        showsVerticalScrollIndicator={false}
+        style={scrollsOnlyWhenOverflowing ? styles.overflowScroll : undefined}
+      >
+        {children}
+      </ScrollView>
+    ) : (
+      <View
+        onLayout={scrollsOnlyWhenOverflowing ? handleStaticContentLayout : undefined}
+        style={[styles.content, contentStyle]}
+      >
+        {children}
+      </View>
+    );
   const sheetContent = (
     <>
       {showHandle ? <View style={[styles.handle, handleStyle]} /> : null}
@@ -170,13 +225,25 @@ export function AppBottomSheet({
         </View>
       ) : null}
       {content}
-      {footer ? <View style={styles.footer}>{footer}</View> : null}
+      {footer ? (
+        <View
+          onLayout={
+            scrollsOnlyWhenOverflowing
+              ? (event) =>
+                  updateMeasurement(setFooterHeight, footerHeight, event.nativeEvent.layout.height)
+              : undefined
+          }
+          style={styles.footer}
+        >
+          {footer}
+        </View>
+      ) : null}
     </>
   );
   const sheetStyles = [
     styles.sheet,
     shadows.bottomSheet,
-    { paddingBottom: Math.max(insets.bottom, spacing.lg) },
+    { paddingBottom: sheetBottomPadding },
     sheetStyle,
   ];
 
@@ -186,13 +253,28 @@ export function AppBottomSheet({
   const animatedSheet = (
     <Animated.View
       accessibilityViewIsModal
+      onLayout={
+        scrollsOnlyWhenOverflowing
+          ? (event) =>
+              updateMeasurement(setSheetHeight, sheetHeight, event.nativeEvent.layout.height)
+          : undefined
+      }
       style={[sheetStyles, { transform: [{ translateY: animatedTranslateY }] }]}
     >
       {sheetContent}
     </Animated.View>
   );
   const staticSheet = (
-    <View accessibilityViewIsModal style={sheetStyles}>
+    <View
+      accessibilityViewIsModal
+      onLayout={
+        scrollsOnlyWhenOverflowing
+          ? (event) =>
+              updateMeasurement(setSheetHeight, sheetHeight, event.nativeEvent.layout.height)
+          : undefined
+      }
+      style={sheetStyles}
+    >
       {sheetContent}
     </View>
   );
@@ -270,6 +352,7 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.title, color: colors.textPrimary, flex: 1 },
   content: { paddingHorizontal: spacing.xl, paddingVertical: spacing.lg },
+  overflowScroll: { flexGrow: 0, flexShrink: 1 },
   footer: {
     borderTopColor: colors.border,
     borderTopWidth: StyleSheet.hairlineWidth,

@@ -1,4 +1,13 @@
-import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ChevronRightIcon from '@/assets/icons/common/chevrons/Right.svg';
 import CloseIcon from '@/assets/icons/common/X.svg';
@@ -8,6 +17,7 @@ import DocumentIcon from '@/assets/icons/system/Document.svg';
 import InfoIcon from '@/assets/icons/system/Question.svg';
 import LightbulbIcon from '@/assets/icons/system/Lightbulb.svg';
 import ListIcon from '@/assets/icons/system/ListBullets.svg';
+import WarningCircleIcon from '@/assets/icons/system/WarningCircle.svg';
 import { AppBottomSheet } from '@/src/components/common';
 import { colors, fontFamilies } from '@/src/theme';
 
@@ -46,21 +56,36 @@ function SheetHeading({
   description: string;
   onClose: () => void;
 }) {
+  const { width: viewportWidth } = useWindowDimensions();
+  const headingContentWidth = Math.max(0, viewportWidth - 40);
+  const descriptionScale = Math.min(1, headingContentWidth / 360);
+  const descriptionFontSize = Math.max(14, 16 * descriptionScale);
+  const descriptionLineHeight = 22 * (descriptionFontSize / 16);
+
   return (
     <View style={styles.heading}>
-      <View style={styles.headingCopy}>
+      <View style={styles.headingTitleRow}>
         <Text style={styles.headingTitle}>{title}</Text>
-        <Text style={styles.headingDescription}>{description}</Text>
+        <Pressable
+          accessibilityLabel="닫기"
+          accessibilityRole="button"
+          hitSlop={10}
+          onPress={onClose}
+          style={({ pressed }) => [styles.close, pressed && styles.pressed]}
+        >
+          <CloseIcon color={colors.primary} height={17} width={17} />
+        </Pressable>
       </View>
-      <Pressable
-        accessibilityLabel="닫기"
-        accessibilityRole="button"
-        hitSlop={10}
-        onPress={onClose}
-        style={({ pressed }) => [styles.close, pressed && styles.pressed]}
+      <Text
+        maxFontSizeMultiplier={1}
+        numberOfLines={1}
+        style={[
+          styles.headingDescription,
+          { fontSize: descriptionFontSize, lineHeight: descriptionLineHeight },
+        ]}
       >
-        <CloseIcon color={colors.textSecondary} height={20} width={20} />
-      </Pressable>
+        {description}
+      </Text>
     </View>
   );
 }
@@ -109,7 +134,9 @@ function MetricCard({ metric }: { metric: AnalysisMetric }) {
         </View>
         <StatusBadge label={metric.status} tone={metric.tone} />
       </View>
-      <Text style={styles.metricDescription}>{metric.description}</Text>
+      <Text maxFontSizeMultiplier={1} numberOfLines={1} style={styles.metricDescription}>
+        {metric.description}
+      </Text>
     </View>
   );
 }
@@ -165,10 +192,16 @@ function CriterionContent({
         <View style={styles.currentInner}>
           <View style={styles.currentColumn}>
             <Text style={styles.currentLabel}>현재 수치</Text>
-            <Text style={styles.currentValue}>
-              {criterion.value}
-              {criterion.unit ?? ''}
-            </Text>
+            <View style={styles.currentValueRow}>
+              <Text numberOfLines={1} style={styles.currentValue}>
+                {criterion.value}
+              </Text>
+              {criterion.unit ? (
+                <Text numberOfLines={1} style={styles.currentUnit}>
+                  {criterion.unit}
+                </Text>
+              ) : null}
+            </View>
           </View>
           <View style={styles.currentDivider} />
           <View style={styles.currentColumn}>
@@ -177,8 +210,8 @@ function CriterionContent({
           </View>
         </View>
         <View style={styles.currentInfo}>
-          <InfoIcon color={colors.primaryDark} height={16} width={16} />
-          <Text style={styles.currentInfoText}>
+          <WarningCircleIcon color={colors.primaryDark} height={16} width={16} />
+          <Text numberOfLines={1} style={styles.currentInfoText}>
             {criterion.metricName} 판정 결과는 사용자 조건에 따라 달라질 수 있어요.
           </Text>
         </View>
@@ -206,7 +239,10 @@ function CriterionContent({
                   <View style={[styles.rangeDot, { backgroundColor: rangePalette.color }]} />
                   <Text style={styles.rangeLabelText}>{range.label}</Text>
                 </View>
-                <Text style={[styles.rangeValue, range.isCurrent && { color: rangePalette.color }]}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.rangeValue, range.isCurrent && { color: rangePalette.color }]}
+                >
                   {range.value}
                 </Text>
                 {range.isCurrent ? (
@@ -327,23 +363,23 @@ function ReferenceContent({
         </View>
         <ChevronRightIcon color={colors.primaryDark} height={18} width={18} />
       </Pressable>
-      <View style={styles.notice}>
-        <InfoIcon color={colors.primaryDark} height={16} width={16} />
-        <Text style={styles.noticeText}>실제 서비스에서는 최신 공식 자료를 기준으로 제공해요.</Text>
-      </View>
     </View>
   );
 }
 
 export function TotalAnalysisBottomSheet({ sheet, onClose, onOpenReference }: Props) {
+  const { height: viewportHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const maxSheetHeight = Math.max(0, viewportHeight - Math.max(insets.top, 12));
+
   return (
     <AppBottomSheet
       contentStyle={styles.bottomSheetContent}
       lockBackgroundScroll
       onClose={onClose}
-      scrollable
+      scrollable="when-overflow"
       separateAnimations
-      sheetStyle={styles.bottomSheet}
+      sheetStyle={[styles.bottomSheet, { maxHeight: maxSheetHeight }]}
       visible={sheet !== null}
     >
       {sheet?.type === 'additional' ? (
@@ -369,14 +405,15 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    maxHeight: '92%',
+    overflow: 'hidden',
   },
   bottomSheetContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
   sheetContent: { gap: 16 },
   sheetContentWideGap: { gap: 24 },
-  heading: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  headingCopy: { flex: 1, gap: 5 },
+  heading: { gap: 5 },
+  headingTitleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 5 },
   headingTitle: {
+    flex: 1,
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardSemiBold,
     fontSize: 22,
@@ -385,14 +422,23 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
     fontSize: 16,
+    letterSpacing: -0.1,
     lineHeight: 22,
   },
   close: {
     width: 30,
     height: 30,
-    borderRadius: 15,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2.5,
+    elevation: 2,
   },
   metricList: { gap: 12 },
   metricCard: {
@@ -415,7 +461,10 @@ const styles = StyleSheet.create({
   metricName: { fontSize: 16, color: colors.textBody, fontFamily: fontFamilies.pretendardSemiBold },
   metricValue: { fontSize: 22, color: colors.textBody, fontFamily: fontFamilies.pretendardBold },
   metricDescription: {
-    fontSize: 14,
+    alignSelf: 'stretch',
+    marginHorizontal: -6,
+    fontSize: 13,
+    letterSpacing: -0.1,
     lineHeight: 20,
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
@@ -440,7 +489,7 @@ const styles = StyleSheet.create({
   sheetFootnote: {
     textAlign: 'center',
     color: colors.textSecondary,
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: fontFamilies.pretendardMedium,
   },
   currentCard: {
@@ -465,20 +514,38 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontFamily: fontFamilies.pretendardBold,
   },
+  currentValueRow: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  currentUnit: {
+    flexShrink: 0,
+    color: colors.primaryDark,
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 13,
+  },
   currentDivider: { width: 1, height: 56, backgroundColor: '#D2EEE9' },
   currentInfo: {
+    alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
     borderRadius: 8,
     backgroundColor: colors.primaryLight,
-    paddingHorizontal: 10,
+    marginHorizontal: -3,
+    paddingHorizontal: 6,
     paddingVertical: 8,
   },
   currentInfoText: {
     flexShrink: 1,
     color: colors.textBody,
-    fontSize: 13,
+    fontSize: 12,
+    letterSpacing: -0.15,
+    lineHeight: 17,
     fontFamily: fontFamilies.pretendardMedium,
   },
   criteriaSection: { gap: 12 },
@@ -516,22 +583,25 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     overflow: 'hidden',
     flexDirection: 'row',
+    flexWrap: 'nowrap',
     alignItems: 'center',
   },
   rangeLabel: {
-    width: 150,
+    flexBasis: '38%',
+    maxWidth: 150,
     height: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15,
-    paddingLeft: 15,
+    gap: 10,
+    paddingLeft: 12,
   },
   rangeDot: { width: 12, height: 12, borderRadius: 6 },
   rangeLabelText: { fontSize: 16, color: colors.textBody, fontFamily: fontFamilies.pretendardBold },
   rangeValue: {
     flex: 1,
-    paddingLeft: 15,
-    fontSize: 17,
+    flexShrink: 1,
+    paddingLeft: 10,
+    fontSize: 15,
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
   },
@@ -576,8 +646,9 @@ const styles = StyleSheet.create({
     fontFamily: fontFamilies.pretendardSemiBold,
   },
   detailDivider: { height: 1, backgroundColor: colors.border },
-  appliedChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 5 },
+  appliedChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 5, width: '100%' },
   appliedChip: {
+    width: '49%',
     borderRadius: 20,
     backgroundColor: colors.primaryLight,
     paddingHorizontal: 12,
@@ -587,20 +658,6 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontSize: 13,
     fontFamily: fontFamilies.pretendardSemiBold,
-  },
-  notice: {
-    borderRadius: 10,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.primaryLight,
-  },
-  noticeText: {
-    flex: 1,
-    color: colors.textSecondary,
-    fontSize: 13,
-    fontFamily: fontFamilies.pretendardMedium,
   },
   pressed: { opacity: 0.72 },
 });
