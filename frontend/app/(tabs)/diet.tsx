@@ -38,6 +38,7 @@ import {
   type DietSheet,
   type FridgeIngredient,
 } from '@/src/components/diet/FridgeManagerSheets';
+import { MealRecordSheets, type MealRecordDraft } from '@/src/components/diet/MealRecordSheets';
 import {
   BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
   getBottomNavigationVisualHeight,
@@ -292,7 +293,7 @@ const Goal = memo(function Goal({
   );
 });
 
-function StatusBadge({ status }: { status: MealStatus }) {
+function StatusBadge({ status, pressed = false }: { status: MealStatus; pressed?: boolean }) {
   if (status === 'eaten') {
     return (
       <View style={[styles.statusBadge, styles.eatenBadge]}>
@@ -303,7 +304,9 @@ function StatusBadge({ status }: { status: MealStatus }) {
   }
   if (status === 'modified') {
     return (
-      <View style={[styles.statusBadge, styles.modifiedBadge]}>
+      <View
+        style={[styles.statusBadge, styles.modifiedBadge, pressed && styles.modifiedBadgePressed]}
+      >
         <Pencil color="#0066FF" height={13} width={13} />
         <Text style={[styles.statusBadgeText, styles.modifiedBadgeText]}>수정하기</Text>
       </View>
@@ -386,16 +389,20 @@ const MealCard = memo(function MealCard({
   meal,
   expanded,
   status,
+  recordedMeal,
   onToggle,
   onStatusChange,
+  onRecordOtherMeal,
   onCollapse,
   onTransitionChange,
 }: {
   meal: Meal;
   expanded: boolean;
   status: MealStatus;
+  recordedMeal?: MealRecordDraft;
   onToggle: (mealId: MealType) => void;
   onStatusChange: (mealId: MealType, status: MealStatus) => void;
+  onRecordOtherMeal: (mealId: MealType) => void;
   onCollapse: (mealId: MealType) => void;
   onTransitionChange: (mealId: MealType, active: boolean) => void;
 }) {
@@ -407,6 +414,17 @@ const MealCard = memo(function MealCard({
   const displayedStatus = status;
   const dimmed = displayedStatus === 'skipped';
   const accentColor = getMealAccentColor(meal, displayedStatus);
+  const showsRecordedMeal = displayedStatus === 'modified' && recordedMeal !== undefined;
+  const displayedFoods = showsRecordedMeal
+    ? recordedMeal.foods.map((food) => food.name).join(', ')
+    : meal.foods;
+  const displayedKcal = showsRecordedMeal ? recordedMeal.kcal : meal.kcal;
+  const displayedTags = showsRecordedMeal ? recordedMeal.tags : meal.tags;
+  const displayedNote = showsRecordedMeal ? recordedMeal.note : meal.note;
+  const displayedUsedIngredients = showsRecordedMeal
+    ? recordedMeal.usedIngredients
+    : meal.usedIngredients;
+  const displayedIntake = showsRecordedMeal ? recordedMeal.intake : meal.intake;
   const borderStyle =
     displayedStatus === 'eaten'
       ? styles.mealCardEaten
@@ -481,7 +499,7 @@ const MealCard = memo(function MealCard({
 
   const renderDetailContent = () => (
     <>
-      <Text style={styles.mealNote}>{meal.note}</Text>
+      <Text style={styles.mealNote}>{displayedNote}</Text>
       <View style={styles.mealDivider} />
 
       <View style={styles.fridgeDetailCard}>
@@ -492,12 +510,16 @@ const MealCard = memo(function MealCard({
           </View>
 
           <View style={styles.detailBadge}>
-            <Text style={styles.detailBadgeText}>{meal.usedIngredients.length}개 활용</Text>
+            <Text style={styles.detailBadgeText}>{displayedUsedIngredients.length}개 활용</Text>
           </View>
         </View>
 
         <View style={styles.fridgeIngredientRow}>
-          <Text style={styles.fridgeIngredient}>{meal.usedIngredients.join(' · ')}</Text>
+          <Text style={styles.fridgeIngredient}>
+            {displayedUsedIngredients.length > 0
+              ? displayedUsedIngredients.join(' · ')
+              : '분석된 재료가 없어요'}
+          </Text>
         </View>
       </View>
 
@@ -514,7 +536,7 @@ const MealCard = memo(function MealCard({
         </View>
 
         <View style={styles.intakeItems}>
-          {meal.intake.map(([name, amount]) => (
+          {displayedIntake.map(([name, amount]) => (
             <View key={name} style={styles.intakeItem}>
               <Text style={styles.intakeName}>{name}</Text>
               <Text numberOfLines={1} style={styles.intakeAmount}>
@@ -538,9 +560,11 @@ const MealCard = memo(function MealCard({
         </Pressable>
 
         <Pressable
+          disabled={displayedStatus === 'modified'}
           onPress={(event) => {
             event.stopPropagation();
-            chooseStatus('modified');
+            if (displayedStatus === 'modified') return;
+            onRecordOtherMeal(meal.id);
           }}
           style={({ pressed }) => actionStyle('modified', displayedStatus, pressed)}
         >
@@ -582,23 +606,33 @@ const MealCard = memo(function MealCard({
                 <Text style={[styles.mealTitle, { color: accentColor }]}>{meal.title}</Text>
               </View>
               <View style={styles.mealMetadataDivider} />
-              <Text style={styles.mealKcal}>{meal.kcal} kcal</Text>
+              <Text style={styles.mealKcal}>{displayedKcal} kcal</Text>
             </View>
             <Pressable
+              accessibilityRole={displayedStatus === 'modified' ? 'button' : undefined}
+              disabled={displayedStatus !== 'modified'}
               hitSlop={6}
-              onPress={(event) => event.stopPropagation()}
+              onPress={(event) => {
+                event.stopPropagation();
+                if (displayedStatus === 'modified') onRecordOtherMeal(meal.id);
+              }}
               style={styles.statusPressable}
             >
-              <StatusBadge status={displayedStatus} />
+              {({ pressed }) => (
+                <StatusBadge
+                  pressed={displayedStatus === 'modified' && pressed}
+                  status={displayedStatus}
+                />
+              )}
             </Pressable>
           </View>
           <View style={styles.mealBottomRow}>
             <View style={[styles.mealCopy, dimmed && styles.skippedContent]}>
               <Text numberOfLines={2} style={styles.foodsText}>
-                {meal.foods}
+                {displayedFoods}
               </Text>
               <View style={styles.tags}>
-                {meal.tags.map((tag) => {
+                {displayedTags.map((tag) => {
                   const palette = DIET_TAG_STYLES[tag] ?? defaultTagStyle;
                   return (
                     <View
@@ -630,22 +664,23 @@ const MealCard = memo(function MealCard({
         </View>
       </View>
 
-      {detailHeight === 0 ? (
-        <View
-          collapsable={false}
-          pointerEvents="none"
-          onLayout={(event) => {
-            const nextHeight = event.nativeEvent.layout.height;
+      <View
+        accessibilityElementsHidden
+        collapsable={false}
+        importantForAccessibility="no-hide-descendants"
+        pointerEvents="none"
+        onLayout={(event) => {
+          const nextHeight = event.nativeEvent.layout.height;
+          if (nextHeight <= 0) return;
 
-            if (nextHeight > 0) {
-              setDetailHeight(nextHeight);
-            }
-          }}
-          style={styles.expandedMeasure}
-        >
-          <View style={styles.expandedContent}>{renderDetailContent()}</View>
-        </View>
-      ) : null}
+          setDetailHeight((currentHeight) =>
+            Math.abs(currentHeight - nextHeight) < 0.5 ? currentHeight : nextHeight,
+          );
+        }}
+        style={styles.expandedMeasure}
+      >
+        <View style={styles.expandedContent}>{renderDetailContent()}</View>
+      </View>
 
       <Animated.View
         pointerEvents={expanded ? 'auto' : 'none'}
@@ -683,6 +718,10 @@ export default function DietScreen() {
   const [statusesByDate, setStatusesByDate] = useState<Record<string, MealStatuses>>({});
   const [canvasHeight, setCanvasHeight] = useState(0);
   const [activeSheet, setActiveSheet] = useState<DietSheet>(null);
+  const [recordingMealId, setRecordingMealId] = useState<MealType | null>(null);
+  const [mealRecordsByDate, setMealRecordsByDate] = useState<
+    Record<string, Partial<Record<MealType, MealRecordDraft>>>
+  >({});
   const [fridgeIngredients, setFridgeIngredients] =
     useState<FridgeIngredient[]>(initialFridgeIngredients);
   const activeMealTransitions = useRef(new Set<MealType>());
@@ -776,6 +815,27 @@ export default function DietScreen() {
       return next;
     });
   }, []);
+
+  const openMealRecord = useCallback((mealId: MealType) => {
+    setRecordingMealId(mealId);
+  }, []);
+
+  const completeMealRecord = useCallback(
+    (draft: MealRecordDraft) => {
+      const mealId = draft.mealId as MealType;
+      setMealRecordsByDate((current) => ({
+        ...current,
+        [selectedDateKey]: {
+          ...(current[selectedDateKey] ?? {}),
+          [mealId]: draft,
+        },
+      }));
+      changeMealStatus(mealId, 'modified');
+      collapseMeal(mealId);
+      setRecordingMealId(null);
+    },
+    [changeMealStatus, collapseMeal, selectedDateKey],
+  );
 
   const chooseDate = (key: string) => {
     setSelectedDateKey(key);
@@ -939,7 +999,9 @@ export default function DietScreen() {
                     expanded={expandedMeals.has(meal.id)}
                     key={meal.id}
                     meal={meal}
+                    recordedMeal={mealRecordsByDate[selectedDateKey]?.[meal.id]}
                     onCollapse={collapseMeal}
+                    onRecordOtherMeal={openMealRecord}
                     onStatusChange={changeMealStatus}
                     onToggle={toggleMeal}
                     onTransitionChange={handleMealTransitionChange}
@@ -957,6 +1019,15 @@ export default function DietScreen() {
         ingredients={fridgeIngredients}
         onActiveSheetChange={setActiveSheet}
         onIngredientsChange={setFridgeIngredients}
+      />
+      <MealRecordSheets
+        initialDraft={
+          recordingMealId ? mealRecordsByDate[selectedDateKey]?.[recordingMealId] : undefined
+        }
+        mealId={recordingMealId}
+        onClose={() => setRecordingMealId(null)}
+        onComplete={completeMealRecord}
+        visible={recordingMealId !== null}
       />
     </View>
   );
@@ -1236,6 +1307,7 @@ const styles = StyleSheet.create({
   eatenBadge: { backgroundColor: '#E8F8F4' },
   eatenBadgeText: { color: '#2FAF96' },
   modifiedBadge: { backgroundColor: '#E2EEFF' },
+  modifiedBadgePressed: { backgroundColor: '#C9DDFF' },
   modifiedBadgeText: { color: '#0066FF' },
   skippedBadge: { backgroundColor: '#EAEAEA' },
   skippedBadgeText: { color: '#767676' },

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  Dimensions,
   Easing,
   Keyboard,
   type KeyboardEvent,
@@ -197,10 +196,10 @@ export function FridgeManagerSheets({
     }
     return rows;
   }, [ingredients]);
-  const stableScreenHeight = Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
+  const minimumTopGap = Math.max(28, insets.top + 8);
   const sheetHeight = Math.min(
     renderedSheet === 'addIngredient' ? 400 : 630,
-    stableScreenHeight - Math.max(insets.top, 12) - 8,
+    windowHeight - minimumTopGap,
   );
   const bottomInset = Math.max(insets.bottom, 20);
 
@@ -323,6 +322,7 @@ export function FridgeManagerSheets({
         animationDistance={630}
         contentStyle={styles.bottomSheetContent}
         lockBackgroundScroll
+        minimumTopGap={28}
         onClose={closeSheet}
         overlayStyle={styles.sheetOverlay}
         separateAnimations

@@ -6,8 +6,10 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  type ScrollViewProps,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   type StyleProp,
   type ViewStyle,
@@ -34,6 +36,8 @@ export interface AppBottomSheetProps extends PropsWithChildren {
   animationDistance?: number;
   sheetOffset?: Animated.Value;
   lockBackgroundScroll?: boolean;
+  keyboardShouldPersistTaps?: ScrollViewProps['keyboardShouldPersistTaps'];
+  minimumTopGap?: number;
 }
 
 export function AppBottomSheet({
@@ -52,8 +56,11 @@ export function AppBottomSheet({
   animationDistance = 420,
   sheetOffset,
   lockBackgroundScroll = false,
+  keyboardShouldPersistTaps,
+  minimumTopGap,
 }: AppBottomSheetProps) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const [isMounted, setIsMounted] = useState(visible);
   const [dimOpacity] = useState(() => new Animated.Value(0));
   const [sheetTranslateY] = useState(() => new Animated.Value(420));
@@ -193,6 +200,7 @@ export function AppBottomSheet({
     scrollable === true || contentOverflows ? (
       <ScrollView
         contentContainerStyle={[styles.content, contentStyle]}
+        keyboardShouldPersistTaps={keyboardShouldPersistTaps}
         onContentSizeChange={scrollsOnlyWhenOverflowing ? handleContentSizeChange : undefined}
         onLayout={scrollsOnlyWhenOverflowing ? handleScrollLayout : undefined}
         scrollEnabled={scrollable === true || contentOverflows}
@@ -243,6 +251,9 @@ export function AppBottomSheet({
   const sheetStyles = [
     styles.sheet,
     shadows.bottomSheet,
+    minimumTopGap !== undefined && {
+      maxHeight: Math.max(0, windowHeight - Math.max(minimumTopGap, insets.top + spacing.sm)),
+    },
     { paddingBottom: sheetBottomPadding },
     sheetStyle,
   ];
