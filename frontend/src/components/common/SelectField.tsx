@@ -1,5 +1,13 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
+} from 'react-native';
 
 import DownIcon from '@/assets/icons/common/chevrons/Down.svg';
 import { colors, radius, spacing, typography } from '@/src/theme';
@@ -16,6 +24,7 @@ export interface SelectFieldProps {
   helperText?: string;
   style?: StyleProp<ViewStyle>;
   fieldStyle?: StyleProp<ViewStyle>;
+  valueStyle?: StyleProp<TextStyle>;
   placeholderTextColor?: string;
   accessibilityLabel?: string;
 }
@@ -32,6 +41,7 @@ export function SelectField({
   helperText,
   style,
   fieldStyle,
+  valueStyle,
   placeholderTextColor = colors.textDisabled,
   accessibilityLabel,
 }: SelectFieldProps) {
@@ -61,6 +71,7 @@ export function SelectField({
             !value && styles.placeholder,
             !value && { color: placeholderTextColor },
             disabled && styles.disabledText,
+            valueStyle,
           ]}
         >
           {value ?? placeholder}

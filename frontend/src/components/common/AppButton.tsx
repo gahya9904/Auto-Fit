@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Text,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
 
@@ -21,6 +22,7 @@ export interface AppButtonProps {
   icon?: ReactNode;
   fullWidth?: boolean;
   style?: StyleProp<ViewStyle>;
+  labelStyle?: StyleProp<TextStyle>;
   accessibilityLabel?: string;
 }
 
@@ -33,6 +35,7 @@ export function AppButton({
   icon,
   fullWidth = true,
   style,
+  labelStyle,
   accessibilityLabel,
 }: AppButtonProps) {
   const isUnavailable = disabled || loading;
@@ -64,6 +67,7 @@ export function AppButton({
               styles.label,
               isSecondary && styles.secondaryLabel,
               disabled && styles.disabledLabel,
+              labelStyle,
             ]}
           >
             {title}

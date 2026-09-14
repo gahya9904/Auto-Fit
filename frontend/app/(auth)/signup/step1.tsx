@@ -1,6 +1,16 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Dimensions, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import {
+  Dimensions,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import DownIcon from '@/assets/icons/common/chevrons/Down.svg';
 import CalendarIcon from '@/assets/icons/input/Calendar.svg';
@@ -17,10 +27,13 @@ import { AppTextField, IconButton, SelectField } from '@/src/components/common';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
 type Gender = 'male' | 'female';
+type Step1InputKey = 'email' | 'password' | 'confirm-password' | 'name';
 
 const minimumScreenHeight = 740;
 const maximumScreenHeight = 917;
+const signUpBrandVisualHeight = 144;
 const defaultBirthday = new Date();
+const keyboardSafeGap = 20;
 
 function formatBirthday(date: Date) {
   const year = date.getFullYear();
@@ -33,9 +46,11 @@ function formatBirthday(date: Date) {
 export default function SignUpStep1Screen() {
   const router = useRouter();
   const { height: windowHeight } = useWindowDimensions();
+  const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const confirmPasswordRef = useRef<TextInput>(null);
   const nameRef = useRef<TextInput>(null);
+  const focusedInputRef = useRef<TextInput | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -46,14 +61,59 @@ export default function SignUpStep1Screen() {
   const [agreed, setAgreed] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
+  const [focusedInputKey, setFocusedInputKey] = useState<Step1InputKey | null>(null);
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  const [keyboardContentOffset, setKeyboardContentOffset] = useState(0);
   const screenHeight = Dimensions.get('screen').height;
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
   const heightProgress = Math.max(
     0,
-    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+    Math.min(
+      1,
+      (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight),
+    ),
   );
   const verticalValue = (expanded: number, compact: number) =>
     compact + (expanded - compact) * heightProgress;
+  const signUpBrandBottom = verticalValue(96, 74) + signUpBrandVisualHeight;
+  const formTop = Math.max(verticalValue(287, 230), signUpBrandBottom + 12);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+
+    const keyboardDidShow = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardTop(event.endCoordinates.screenY);
+    });
+    const keyboardDidHide = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardTop(null);
+      setKeyboardContentOffset(0);
+    });
+
+    return () => {
+      keyboardDidShow.remove();
+      keyboardDidHide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || focusedInputKey === null || keyboardTop === null) {
+      return undefined;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      focusedInputRef.current?.measureInWindow((_x, y, _width, height) => {
+        const hiddenAmount = y + height - (keyboardTop - keyboardSafeGap);
+        setKeyboardContentOffset(Math.max(0, hiddenAmount));
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [focusedInputKey, keyboardTop]);
+
+  const handleInputFocus = (key: Step1InputKey, input: TextInput | null) => {
+    focusedInputRef.current = input;
+    setFocusedInputKey(key);
+  };
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -69,9 +129,17 @@ export default function SignUpStep1Screen() {
   };
 
   return (
-    <SignUpScreenLayout ctaLabel="다음" currentStep={1} onBack={goBack} onContinue={goNext}>
-      <SignUpSection innerStyle={styles.form} top={verticalValue(287, 192)}>
+    <SignUpScreenLayout
+      alignStepCta
+      ctaLabel="다음"
+      contentOffsetY={keyboardContentOffset}
+      currentStep={1}
+      onBack={goBack}
+      onContinue={goNext}
+    >
+      <SignUpSection innerStyle={styles.form} top={formTop}>
         <AppTextField
+          ref={emailRef}
           accessibilityLabel="이메일"
           autoCapitalize="none"
           autoComplete="email"
@@ -81,9 +149,11 @@ export default function SignUpStep1Screen() {
             <FieldIcon icon={<EmailIcon color={colors.textNavigator} height={18} width={18} />} />
           }
           onChangeText={setEmail}
+          onFocus={() => handleInputFocus('email', emailRef.current)}
           onSubmitEditing={() => passwordRef.current?.focus()}
           placeholder="이메일을 입력해주세요"
           returnKeyType="next"
+          style={styles.textFieldInput}
           textContentType="emailAddress"
           value={email}
         />
@@ -98,6 +168,7 @@ export default function SignUpStep1Screen() {
             />
           }
           onChangeText={setPassword}
+          onFocus={() => handleInputFocus('password', passwordRef.current)}
           onSubmitEditing={() => confirmPasswordRef.current?.focus()}
           placeholder="비밀번호를 입력해주세요"
           returnKeyType="next"
@@ -108,6 +179,7 @@ export default function SignUpStep1Screen() {
             />
           }
           secureTextEntry={!passwordVisible}
+          style={styles.textFieldInput}
           textContentType="newPassword"
           value={password}
         />
@@ -122,6 +194,7 @@ export default function SignUpStep1Screen() {
             />
           }
           onChangeText={setConfirmPassword}
+          onFocus={() => handleInputFocus('confirm-password', confirmPasswordRef.current)}
           onSubmitEditing={() => nameRef.current?.focus()}
           placeholder="비밀번호를 다시 입력해주세요"
           returnKeyType="next"
@@ -132,21 +205,9 @@ export default function SignUpStep1Screen() {
             />
           }
           secureTextEntry={!confirmPasswordVisible}
+          style={styles.textFieldInput}
           textContentType="newPassword"
           value={confirmPassword}
-        />
-        <AppTextField
-          ref={nameRef}
-          accessibilityLabel="이름"
-          autoComplete="name"
-          leftElement={
-            <FieldIcon icon={<UserIcon color={colors.textNavigator} height={17} width={17} />} />
-          }
-          onChangeText={setName}
-          placeholder="이름을 입력해주세요"
-          returnKeyType="done"
-          textContentType="name"
-          value={name}
         />
         <SelectField
           accessibilityLabel="생년월일 선택"
@@ -159,7 +220,23 @@ export default function SignUpStep1Screen() {
           onPress={openBirthdayPicker}
           placeholder="생년월일을 선택해주세요"
           placeholderTextColor={colors.textNavigator}
+          valueStyle={styles.selectFieldText}
           value={birthday ? formatBirthday(birthday) : undefined}
+        />
+        <AppTextField
+          ref={nameRef}
+          accessibilityLabel="이름"
+          autoComplete="name"
+          leftElement={
+            <FieldIcon icon={<UserIcon color={colors.textNavigator} height={17} width={17} />} />
+          }
+          onChangeText={setName}
+          onFocus={() => handleInputFocus('name', nameRef.current)}
+          placeholder="이름을 입력해주세요"
+          returnKeyType="done"
+          style={styles.textFieldInput}
+          textContentType="name"
+          value={name}
         />
         <View style={styles.genderField}>
           <Text style={styles.genderLabel}>성별</Text>
@@ -273,6 +350,10 @@ const styles = StyleSheet.create({
   form: {
     gap: 10,
   },
+  textFieldInput: {
+    fontSize: 15,
+    lineHeight: 19,
+  },
   fieldIcon: {
     alignItems: 'center',
     height: 20,
@@ -285,6 +366,10 @@ const styles = StyleSheet.create({
   selectField: {
     gap: 10,
     paddingHorizontal: 10,
+  },
+  selectFieldText: {
+    fontSize: 15,
+    lineHeight: 19,
   },
   genderField: {
     alignItems: 'center',
@@ -300,6 +385,8 @@ const styles = StyleSheet.create({
   genderLabel: {
     ...typography.body,
     color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 19,
     marginLeft: spacing.sm,
   },
   genderActions: {
@@ -326,9 +413,11 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   genderButtonText: {
-    ...typography.bodySmall,
+    ...typography.body,
     color: colors.textNavigator,
     fontFamily: typography.label.fontFamily,
+    fontSize: 15,
+    lineHeight: 19,
   },
   genderButtonTextSelected: {
     color: colors.primary,
@@ -364,8 +453,10 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   termsText: {
-    ...typography.bodySmall,
+    ...typography.body,
     color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 19,
   },
   pressed: {
     opacity: 0.75,

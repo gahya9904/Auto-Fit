@@ -4,13 +4,13 @@ import CheckIcon from '@/assets/icons/system/Check.svg';
 import { colors, radius, typography } from '@/src/theme';
 
 export interface SignUpStepIndicatorProps {
-  currentStep: 1 | 2 | 3;
+  currentStep: 1 | 2 | 3 | 4;
 }
 
 export function SignUpStepIndicator({ currentStep }: SignUpStepIndicatorProps) {
   return (
-    <View accessibilityLabel={`회원가입 ${currentStep}단계 중 3단계`} style={styles.container}>
-      {[1, 2, 3].map((step, index) => {
+    <View accessibilityLabel={`회원가입 ${currentStep}단계 중 4단계`} style={styles.container}>
+      {[1, 2, 3, 4].map((step, index) => {
         const completed = step < currentStep;
         const active = step === currentStep;
 

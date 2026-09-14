@@ -63,10 +63,10 @@ const otherCardShadow: ViewStyle =
         shadowRadius: 1.5,
       };
 
-const descriptionTop = 350;
-const allergenGridTop = 414;
+const descriptionTop = 285;
+const allergenGridTop = 397;
 const allergenGridHeight = 230;
-const otherCardTop = 664;
+const otherCardTop = 644;
 const referenceDescriptionHeight = 44;
 const minimumScreenHeight = 740;
 const maximumScreenHeight = 917;
@@ -87,35 +87,34 @@ export default function SignUpStep3Screen() {
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
   const heightProgress = Math.max(
     0,
-    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+    Math.min(
+      1,
+      (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight),
+    ),
   );
   const verticalValue = (expanded: number, compact: number) =>
     compact + (expanded - compact) * heightProgress;
   const explanationGap = verticalValue(30, 20);
-  const otherCardGap = verticalValue(20, 12);
+  const explanationBottomGap = verticalValue(18, 10);
+  const otherCardGap = verticalValue(17, 12);
 
   const explanationHeight = 20 + explanationGap + descriptionHeight;
-  const explanationBottomGap = 10;
   const signUpBrandBottom = verticalValue(96, 74) + signUpBrandVisualHeight;
 
   const responsiveDescriptionTop = Math.min(
     verticalValue(descriptionTop, 215),
-    verticalValue(allergenGridTop, 295) - explanationHeight - explanationBottomGap,
+    verticalValue(allergenGridTop, 346) - explanationHeight - explanationBottomGap,
   );
-  const protectedDescriptionTop = Math.max(
-    responsiveDescriptionTop,
-    signUpBrandBottom + 12,
-  );
+  const protectedDescriptionTop = Math.max(responsiveDescriptionTop, signUpBrandBottom + 12);
   const responsiveAllergenGridTop = Math.max(
-    verticalValue(allergenGridTop, 295),
+    verticalValue(allergenGridTop, 346),
     protectedDescriptionTop + explanationHeight + explanationBottomGap,
   );
 
   const responsiveOtherCardTop = Math.max(
-    verticalValue(otherCardTop, 535),
+    verticalValue(otherCardTop, 588),
     responsiveAllergenGridTop + allergenGridHeight + otherCardGap,
   );
-
   useEffect(() => {
     if (Platform.OS !== 'android') return undefined;
 
@@ -134,7 +133,8 @@ export default function SignUpStep3Screen() {
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== 'android' || !isOtherAllergyFocused || keyboardTop === null) return undefined;
+    if (Platform.OS !== 'android' || !isOtherAllergyFocused || keyboardTop === null)
+      return undefined;
 
     const frame = requestAnimationFrame(() => {
       otherAllergyInputRef.current?.measureInWindow((_x, y, _width, height) => {
@@ -154,11 +154,12 @@ export default function SignUpStep3Screen() {
 
   return (
     <SignUpScreenLayout
-      ctaLabel="회원가입 완료"
+      alignStepCta
+      ctaLabel="다음"
       contentOffsetY={keyboardContentOffset}
       currentStep={3}
       onBack={() => router.back()}
-      onContinue={() => router.replace('/login')}
+      onContinue={() => router.push('/signup/step4')}
     >
       <SignUpSection
         innerStyle={[styles.explanation, { gap: explanationGap }]}
@@ -171,8 +172,8 @@ export default function SignUpStep3Screen() {
           onLayout={(event) => setDescriptionHeight(event.nativeEvent.layout.height)}
           style={styles.description}
         >
-          알레르기 정보는 더 정확한 식단 추천을 위해 활용돼요.{`\n`}나중에 프로필에서
-          정보를 수정할 수 있어요.
+          알레르기 정보는 더 정확한 식단 추천을 위해 활용돼요.{`\n`}나중에 프로필에서 정보를 수정할
+          수 있어요.
         </Text>
       </SignUpSection>
 
@@ -193,7 +194,7 @@ export default function SignUpStep3Screen() {
 
       <SignUpSection innerStyle={styles.otherCard} top={responsiveOtherCardTop}>
         <View style={styles.otherTitleRow}>
-          <WarningIcon color={colors.primaryDark} height={18} width={18} />
+          <WarningIcon color={colors.primaryDark} height={25} width={25} />
           <Text style={styles.otherTitle}>기타 알레르기가 있으신가요?</Text>
         </View>
         <View style={styles.otherInputIndent}>
@@ -296,19 +297,20 @@ const styles = StyleSheet.create({
   sectionTitle: {
     ...typography.sectionTitle,
     color: colors.textBody,
-    fontSize: 17,
+    fontSize: 18,
     height: 20,
     includeFontPadding: false,
     lineHeight: 20,
   },
   titleAside: {
     color: colors.textBody,
-    fontSize: 13,
+    fontSize: 14,
   },
   description: {
     ...typography.body,
     color: colors.textBody,
     flexShrink: 1,
+    fontSize: 15,
     includeFontPadding: false,
     lineHeight: 22,
     width: '100%',
@@ -360,9 +362,9 @@ const styles = StyleSheet.create({
     ...otherCardShadow,
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.lg,
-    height: 80,
+    height: 100,
     justifyContent: 'space-between',
-    paddingBottom: 13,
+    paddingBottom: 9,
     paddingHorizontal: 10,
     paddingTop: 10,
   },
@@ -375,12 +377,12 @@ const styles = StyleSheet.create({
     ...typography.label,
     color: colors.primaryDark,
     fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 15,
     includeFontPadding: false,
     lineHeight: 22,
   },
   otherInputIndent: {
-    paddingLeft: 25,
-    paddingRight: 10,
+    width: '100%',
   },
   otherInput: {
     backgroundColor: colors.surface,
@@ -389,8 +391,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 9,
-    height: 40,
+    fontSize: 13,
+    height: 50,
     includeFontPadding: false,
     lineHeight: 22,
     paddingHorizontal: 10,

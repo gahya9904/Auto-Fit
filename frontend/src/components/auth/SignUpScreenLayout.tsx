@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppButton, BackButton } from '@/src/components/common';
-import { colors } from '@/src/theme';
+import { colors, fontFamilies } from '@/src/theme';
 
 import { SignUpBrand } from './SignUpBrand';
 import { SignUpStepIndicator } from './SignUpStepIndicator';
@@ -28,12 +28,14 @@ const minimumScreenHeight = 740;
 const maximumScreenHeight = 917;
 
 export interface SignUpScreenLayoutProps {
-  currentStep: 1 | 2 | 3;
+  currentStep: 1 | 2 | 3 | 4;
   ctaLabel: string;
   onBack: () => void;
   onContinue: () => void;
   children: ReactNode;
   contentOffsetY?: number;
+  ctaTop?: number;
+  alignStepCta?: boolean;
 }
 
 export interface SignUpSectionProps {
@@ -58,6 +60,8 @@ export function SignUpScreenLayout({
   onContinue,
   children,
   contentOffsetY = 0,
+  ctaTop,
+  alignStepCta = false,
 }: SignUpScreenLayoutProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
@@ -70,7 +74,10 @@ export function SignUpScreenLayout({
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
   const heightProgress = Math.max(
     0,
-    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+    Math.min(
+      1,
+      (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight),
+    ),
   );
   const verticalValue = (expanded: number, compact: number) =>
     compact + (expanded - compact) * heightProgress;
@@ -99,19 +106,23 @@ export function SignUpScreenLayout({
                 },
               ]}
             >
-                <View style={styles.backButton}>
-                  <BackButton onPress={onBack} size={44} />
-                </View>
-                <View style={[styles.stepIndicator, { top: verticalValue(70, 55) }]}>
-                  <SignUpStepIndicator currentStep={currentStep} />
-                </View>
-                <View style={[styles.brand, { top: verticalValue(96, 74) }]}>
-                  <SignUpBrand />
-                </View>
-                {children}
-                <SignUpSection top={verticalValue(760, 660)}>
-                  <AppButton onPress={onContinue} title={ctaLabel} />
-                </SignUpSection>
+              <View style={styles.backButton}>
+                <BackButton onPress={onBack} size={44} />
+              </View>
+              <View style={[styles.stepIndicator, { top: verticalValue(70, 55) }]}>
+                <SignUpStepIndicator currentStep={currentStep} />
+              </View>
+              <View style={[styles.brand, { top: verticalValue(96, 74) }]}>
+                <SignUpBrand />
+              </View>
+              {children}
+              <SignUpSection top={ctaTop ?? verticalValue(760, alignStepCta ? 696 : 660)}>
+                <AppButton
+                  labelStyle={alignStepCta ? styles.stepCtaLabel : undefined}
+                  onPress={onContinue}
+                  title={ctaLabel}
+                />
+              </SignUpSection>
             </View>
           </View>
         </Pressable>
@@ -186,5 +197,10 @@ const styles = StyleSheet.create({
   sectionInner: {
     maxWidth: 350,
     width: '100%',
+  },
+  stepCtaLabel: {
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 20,
+    lineHeight: 24,
   },
 });

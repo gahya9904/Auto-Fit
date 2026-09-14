@@ -1,6 +1,15 @@
 import { useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Dimensions, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import {
+  Dimensions,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import EmailIcon from '@/assets/icons/input/Email.svg';
 import { SignUpScreenLayout, SignUpSection } from '@/src/components/auth';
@@ -27,19 +36,16 @@ export default function SignUpStep2Screen() {
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
   const heightProgress = Math.max(
     0,
-    Math.min(1, (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight)),
+    Math.min(
+      1,
+      (responsiveHeight - minimumScreenHeight) / (maximumScreenHeight - minimumScreenHeight),
+    ),
   );
   const verticalValue = (expanded: number, compact: number) =>
     compact + (expanded - compact) * heightProgress;
   const signUpBrandBottom = verticalValue(96, 74) + signUpBrandVisualHeight;
-  const confirmTop = Math.max(
-    verticalValue(300, 210),
-    signUpBrandBottom + sectionGap,
-  );
-  const resendTop = Math.max(
-    verticalValue(636, 530),
-    confirmTop + confirmContentHeight + 16,
-  );
+  const confirmTop = Math.max(verticalValue(285, 238), signUpBrandBottom + sectionGap);
+  const resendTop = Math.max(verticalValue(629, 530), confirmTop + confirmContentHeight + 16);
 
   const updateDigit = (index: number, value: string) => {
     const digit = value.replace(/\D/g, '').slice(-1);
@@ -49,6 +55,7 @@ export default function SignUpStep2Screen() {
 
   return (
     <SignUpScreenLayout
+      alignStepCta
       ctaLabel="다음"
       currentStep={2}
       onBack={() => router.back()}
@@ -115,7 +122,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     ...typography.sectionTitle,
     color: colors.textBody,
-    fontSize: 17,
+    fontSize: 18,
     height: 20,
     includeFontPadding: false,
     lineHeight: 20,
@@ -123,6 +130,7 @@ const styles = StyleSheet.create({
   description: {
     ...typography.body,
     color: colors.textBody,
+    fontSize: 15,
     height: 44,
     includeFontPadding: false,
     lineHeight: 22,
@@ -159,11 +167,12 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   changeEmail: {
-    ...typography.bodySmall,
+    ...typography.body,
     color: colors.primaryDark,
     fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 15,
     includeFontPadding: false,
-    lineHeight: 16,
+    lineHeight: 19,
     marginLeft: 10,
   },
   codeRow: {
@@ -195,17 +204,19 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   resendQuestion: {
-    ...typography.bodySmall,
+    ...typography.body,
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 15,
     includeFontPadding: false,
-    lineHeight: 16,
+    lineHeight: 19,
   },
   resendLink: {
-    ...typography.bodySmall,
+    ...typography.body,
     color: colors.primaryDark,
     fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 15,
     includeFontPadding: false,
-    lineHeight: 16,
+    lineHeight: 19,
   },
 });
