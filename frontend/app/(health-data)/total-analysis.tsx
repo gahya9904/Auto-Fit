@@ -177,7 +177,7 @@ function AccordionHeader({
         <Text style={styles.accordionHeaderTitle}>{title}</Text>
       </View>
       <View style={expanded ? styles.caretUp : undefined}>
-        <CaretDownIcon color={colors.textBody} height={22} width={22} />
+        <CaretDownIcon color={colors.textBody} height={20} width={20} />
       </View>
     </Pressable>
   );
@@ -406,7 +406,10 @@ export default function TotalAnalysisScreen() {
   const widthScale = Math.min(1, availableWidth / referenceWidth);
   const canvasLeft = insets.left + (availableWidth - referenceWidth * widthScale) / 2;
   const safeTop = Math.max(0, insets.top + 8 - 38 * widthScale);
-  const responsiveHeight = Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
+  const responsiveHeight =
+    Platform.OS === 'web'
+      ? windowHeight / Math.max(widthScale, 0.01)
+      : Dimensions.get('screen').height;
   const heightProgress = Math.max(
     0,
     Math.min(
@@ -420,30 +423,115 @@ export default function TotalAnalysisScreen() {
   );
   const screenTitleTop = verticalValue(38, 28);
   const explainTop = verticalValue(64, 54);
-  const explainHeight = verticalValue(120, 108);
-  const explainImageSize = verticalValue(128, 104);
-  const explainImageRadius = verticalValue(47, 40);
+  const explainHeight = verticalValue(100, 90);
+  const explainImageSize = verticalValue(100, 90);
+  const explainImageRadius = verticalValue(44, 40);
   const explainImageTop = (explainHeight - explainImageSize) / 2;
-  const explainCopyWidth = verticalValue(270, 282);
-  const explainCopyGap = verticalValue(8, 7);
-  const contentTop = verticalValue(192, 168);
-  const sectionGap = verticalValue(10, 7);
+  const explainCopyWidth = 250;
+
+  const contentTop = verticalValue(187, 154);
+
+  const isCollapsed = !reasonExpanded && !sourceExpanded;
+
+  // 펼쳐진 아코디언 화면에서 사용할 기본 gap.
+  const baseSectionGap = verticalValue(25, 15);
+  // 닫힌 메인 화면의 실제 섹션 간 간격.
+  //const collapsedSectionGap = verticalValue(22, 14);
+  // CTA 아래에 항상 남겨둘 실제 화면 여백.
+  const bottomReservedSpace = Math.max(22, insets.bottom + 8);
+  // collapsed 화면의 기본 gap.
+  const preferredCollapsedSectionGap = verticalValue(24, 14);
+  // collapsed 상태에서 카드/섹션 자체가 차지하는 예상 높이.
+  const collapsedSectionsBaseHeight = verticalValue(590, 560);
+  // content 영역에 실제로 사용할 수 있는 물리적 높이.
+  const topReservedSpace = safeTop + contentTop * widthScale;
+  const availableCollapsedHeight = Math.max(
+    0,
+    windowHeight - topReservedSpace - bottomReservedSpace,
+  );
+
+  // canvas 내부 좌표 기준으로 변환
+  const availableCollapsedCanvasHeight =
+    availableCollapsedHeight / Math.max(widthScale, 0.01);
+
+  const collapsedGapCount = 4;
+
+  // 현재 화면에서 스크롤 없이 들어가기 위해 허용되는 최대 gap.
+
+  const maxFittingCollapsedGap =
+    (availableCollapsedCanvasHeight - collapsedSectionsBaseHeight) /
+    collapsedGapCount;
+
+  /**
+   * 너무 빡빡해지지 않도록 최소 8px은 보장하되,
+   * 화면이 충분하면 Figma 기준 preferred gap을 그대로 사용합니다.
+   */
+  const collapsedSectionGap = Math.max(
+    8,
+    Math.min(
+      preferredCollapsedSectionGap,
+      maxFittingCollapsedGap,
+    ),
+  );
+
+  // 카드 내부 반응형 값
   const summaryPadding = verticalValue(14, 12);
   const summaryGap = verticalValue(10, 8);
   const summaryCopyGap = verticalValue(7, 6);
+
   const strategyPadding = verticalValue(15, 13);
-  const strategyGap = verticalValue(10, 7);
-  const strategyHeadingGap = verticalValue(7, 5);
+  const strategyGap = verticalValue(15, 9);
+  const strategyHeadingGap = verticalValue(10, 7);
+
   const keyMetricsGap = verticalValue(10, 8);
-  const keyMetricCardHeight = verticalValue(100, 94);
+  const keyMetricCardHeight = 102;
+
   const accordionHeaderHeight = verticalValue(50, 46);
-  const accordionGap = verticalValue(5, 4);
-  const theoreticalContentHeight = verticalValue(637, 646);
-  const contentBottom = contentTop + (measuredContentHeight || theoreticalContentHeight);
-  const bottomPadding = Math.max(12, insets.bottom + 8);
-  const renderedHeight = safeTop + contentBottom * widthScale;
+  const accordionGap = verticalValue(10, 6);
+
+  /**
+   * 최초 렌더링 시 아직 onLayout 측정값이 없을 때만 사용하는
+   * fallback 높이입니다.
+   *
+   * 이후 실제 content 높이는 onLayout으로 측정됩니다.
+   */
+  const theoreticalContentHeight = verticalValue(690, 595);
+
+  const contentHeight =
+    measuredContentHeight || theoreticalContentHeight;
+
+  const contentBottom = contentTop + contentHeight;
+
+  /**
+   * 아코디언이 열려 스크롤이 필요한 경우의 하단 여백.
+   */
+  const ctaBottomGap = verticalValue(40, 30);
+
+  const scrollBottomPadding = Math.max(
+    ctaBottomGap * widthScale,
+    insets.bottom + 12,
+  );
+
+  /**
+   * 실제 화면에 렌더링되는 총 높이.
+   *
+   * collapsed 상태에서는 CTA 아래 reserved space까지 포함해
+   * 화면에 들어가는지 판단합니다.
+   *
+   * expanded 상태에서는 기존처럼 긴 콘텐츠가 자연스럽게
+   * ScrollView로 넘어가도록 합니다.
+   */
+  const renderedHeight =
+    safeTop +
+    contentBottom * widthScale +
+    (isCollapsed ? bottomReservedSpace : 0);
+
   const needsScroll = renderedHeight > windowHeight + 3;
-  const indicator = useCustomScrollIndicator({ enabled: needsScroll, showInitially: true });
+
+  const indicator = useCustomScrollIndicator({
+    enabled: needsScroll,
+    showInitially: true,
+  });
 
   useFocusEffect(
     useCallback(() => {
@@ -510,7 +598,11 @@ export default function TotalAnalysisScreen() {
           styles.scrollContent,
           {
             minHeight: needsScroll ? undefined : windowHeight,
-            paddingBottom: needsScroll ? bottomPadding : 0,
+            paddingBottom: needsScroll
+              ? scrollBottomPadding
+              : isCollapsed
+                ? bottomReservedSpace
+                : 0,
             paddingTop: safeTop,
           },
         ]}
@@ -539,19 +631,11 @@ export default function TotalAnalysisScreen() {
           >
             <Text style={[styles.screenTitle, { top: screenTitleTop }]}>종합 건강 분석</Text>
             <View style={[styles.explain, { height: explainHeight, top: explainTop }]}>
-              <View style={[styles.explainCopy, { gap: explainCopyGap, width: explainCopyWidth }]}>
+              <View style={[styles.explainCopy, { width: explainCopyWidth }]}>
                 <Text style={styles.explainTitle}>
-                  OO님, 목표를 반영해 방법을{`\n`}
-                  <Text style={styles.primary}>더 건강하게 </Text>조정했어요!
+                  <Text style={styles.primary}>목표</Text>는 유지하고,{`\n`}
+                  <Text style={styles.primary}>방향</Text>은 더 건강하게
                 </Text>
-                <View style={styles.explainDescription}>
-                  <Text numberOfLines={1} style={styles.explainDescriptionLine}>
-                    선택한 목표와 최근 건강 데이터를 함께 분석해
-                  </Text>
-                  <Text numberOfLines={1} style={styles.explainDescriptionLine}>
-                    가장 현실적이고 건강한 전략을 제안해드려요
-                  </Text>
-                </View>
               </View>
               <Image
                 source={illustration}
@@ -568,8 +652,24 @@ export default function TotalAnalysisScreen() {
               />
             </View>
             <View
-              onLayout={(event) => setMeasuredContentHeight(event.nativeEvent.layout.height)}
-              style={[styles.content, { gap: sectionGap, top: contentTop }]}
+              onLayout={(event) => {
+                const nextHeight = event.nativeEvent.layout.height;
+
+                setMeasuredContentHeight((currentHeight) =>
+                  Math.abs(currentHeight - nextHeight) < 0.5
+                    ? currentHeight
+                    : nextHeight,
+                );
+              }}
+              style={[
+                styles.content,
+                {
+                  gap: isCollapsed
+                    ? collapsedSectionGap
+                    : baseSectionGap,
+                  top: contentTop,
+                },
+              ]}
             >
               <Animated.View
                 style={[
@@ -591,14 +691,8 @@ export default function TotalAnalysisScreen() {
                       <View style={styles.summaryBadge}>
                         <Text style={styles.summaryBadgeText}>분석 요약</Text>
                       </View>
-                      <View style={styles.needBadge}>
-                        <Text style={styles.needBadgeText}>조정 필요</Text>
-                      </View>
                     </View>
-                    <Text style={styles.summaryTitle}>목표와 건강 상태 사이에 간극이 있어요</Text>
-                    <Text style={styles.summaryDescription}>
-                      빠른 감량보다 근육을 지키는 방식이 더 적절해요.
-                    </Text>
+                    <Text style={styles.summaryTitle}>지금은 근육을 지키며 감량해야 해요</Text>
                   </View>
                 </View>
                 <View style={styles.summaryDivider} />
@@ -621,31 +715,27 @@ export default function TotalAnalysisScreen() {
                   <Image
                     resizeMode="stretch"
                     source={strategyBackground}
-                    style={StyleSheet.absoluteFill}
+                    style={styles.strategyBackground}
                   />
                 </View>
-                <View style={styles.strategyLabelRow}>
-                  <View style={styles.starCircle}>
-                    <StarIcon color="#FFFFFF" height={13} width={13} />
-                  </View>
-                  <Text style={styles.strategyLabel}>Auto-Fit 맞춤 제안</Text>
-                </View>
                 <View style={[styles.strategyHeading, { gap: strategyHeadingGap }]}>
+                  <View style={styles.strategyLabelRow}>
+                    <View style={styles.starCircle}>
+                      <StarIcon color="#FFFFFF" height={13} width={13} />
+                    </View>
+                    <Text style={styles.strategyLabel}>Auto-Fit 맞춤 제안</Text>
+                  </View>
                   <Text style={styles.strategyTitle}>근육을 지키는 결혼식 맞춤 감량 전략</Text>
-                  <Text style={styles.strategyDescription}>
-                    체중 감량 목표는 유지하면서,{`\n`}현재 근육량과 건강 지표를 고려해 감량 방식만
-                    조정했어요.
-                  </Text>
                 </View>
                 <View style={styles.strategyChips}>
-                  <StrategyChip Icon={WeightIcon} label="체지방 감량 유지" />
-                  <StrategyChip Icon={MuscleIcon} label="근육 손실 최소화" />
+                  <StrategyChip Icon={WeightIcon} label="체지방 감량" />
+                  <StrategyChip Icon={MuscleIcon} label="근육 유지" />
                   <StrategyChip Icon={BarbellIcon} label="식단·근력 병행" />
                 </View>
                 <View style={styles.strategyDivider} />
                 <Text style={styles.strategyFooter}>
-                  현재 건강 상태를 고려해 감량 속도보다{`\n`}
-                  <Text style={styles.primaryDark}>체성분 개선과 대사 건강</Text>을 우선했어요.
+                  빠른 감량보다 <Text style={styles.primaryDark}>건강한 체성분 개선</Text>을
+                  우선해요.
                 </Text>
               </Animated.View>
 
@@ -754,28 +844,19 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 21,
     width: 370,
-    height: 120,
+    height: 100,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  explainCopy: { width: 250, gap: 8 },
+  explainCopy: { width: 250 },
   explainTitle: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardBold,
     fontSize: 20,
     lineHeight: 27,
   },
-  explainDescription: {
-    width: 282,
-  },
-  explainDescriptionLine: {
-    color: colors.textSecondary,
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  explainImage: { position: 'absolute', right: 0, width: 120, height: 120, borderRadius: 44 },
+  explainImage: { position: 'absolute', right: 0, width: 100, height: 100, borderRadius: 44 },
   primary: { color: colors.primary },
   primaryDark: { color: colors.primaryDark },
   content: { position: 'absolute', left: 18, width: 373, alignItems: 'stretch' },
@@ -794,7 +875,7 @@ const styles = StyleSheet.create({
   },
   summaryTop: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   summaryCopy: { flex: 1, gap: 7 },
-  summaryBadges: { flexDirection: 'row', justifyContent: 'space-between' },
+  summaryBadges: { flexDirection: 'row' },
   summaryBadge: {
     width: 70,
     height: 20,
@@ -808,28 +889,10 @@ const styles = StyleSheet.create({
     fontFamily: fontFamilies.pretendardBold,
     fontSize: 12,
   },
-  needBadge: {
-    width: 70,
-    height: 20,
-    borderRadius: 20,
-    backgroundColor: '#FFF9F4',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  needBadgeText: {
-    color: warning,
-    fontFamily: fontFamilies.pretendardBold,
-    fontSize: 12,
-  },
   summaryTitle: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardBold,
     fontSize: 18,
-  },
-  summaryDescription: {
-    color: colors.textSecondary,
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 14,
   },
   summaryDivider: { height: 1, width: 340, backgroundColor: colors.border },
   goalRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
@@ -865,6 +928,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 5,
   },
+  strategyBackground: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    borderRadius: 15,
+  },
   strategyLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   starCircle: {
     width: 18,
@@ -879,17 +952,11 @@ const styles = StyleSheet.create({
     fontFamily: fontFamilies.pretendardBold,
     fontSize: 12,
   },
-  strategyHeading: { gap: 7 },
+  strategyHeading: { gap: 10 },
   strategyTitle: {
     color: colors.primary,
     fontFamily: fontFamilies.pretendardBold,
     fontSize: 20,
-  },
-  strategyDescription: {
-    color: colors.textSecondary,
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 13,
-    lineHeight: 18,
   },
   strategyChips: { flexDirection: 'row', gap: 4 },
   strategyChip: {
@@ -935,6 +1002,8 @@ const styles = StyleSheet.create({
   keyMetricCard: {
     width: 120,
     height: 100,
+    paddingTop: 15,
+    paddingBottom: 10,
     borderRadius: 15,
     borderWidth: 1,
     borderColor: colors.border,
