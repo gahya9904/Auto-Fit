@@ -489,12 +489,7 @@ export default function TotalAnalysisScreen() {
   const accordionHeaderHeight = verticalValue(50, 46);
   const accordionGap = verticalValue(10, 6);
 
-  /**
-   * 최초 렌더링 시 아직 onLayout 측정값이 없을 때만 사용하는
-   * fallback 높이입니다.
-   *
-   * 이후 실제 content 높이는 onLayout으로 측정됩니다.
-   */
+  // 최초 렌더링 시 아직 onLayout 측정값이 없을 때만 사용하는 fallback 높이
   const theoreticalContentHeight = verticalValue(690, 595);
 
   const contentHeight =
@@ -502,9 +497,7 @@ export default function TotalAnalysisScreen() {
 
   const contentBottom = contentTop + contentHeight;
 
-  /**
-   * 아코디언이 열려 스크롤이 필요한 경우의 하단 여백.
-   */
+  // 아코디언이 열려 스크롤이 필요한 경우의 하단 여백.
   const ctaBottomGap = verticalValue(40, 30);
 
   const scrollBottomPadding = Math.max(

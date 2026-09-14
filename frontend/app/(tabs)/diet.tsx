@@ -47,7 +47,8 @@ import { colors, fontFamilies } from '@/src/theme';
 
 const hero = require('../../assets/images/illustrations/diet/Diet.png');
 const breakfastImage = require('../../assets/images/illustrations/temp/Image_MealPicture_1.png');
-const lunchImage = require('../../assets/images/illustrations/diet/EmptyFood.png');
+const emptyFoodImage = require('../../assets/images/illustrations/diet/EmptyFood.png');
+const lunchImage = breakfastImage;
 const dinnerImage = require('../../assets/images/illustrations/temp/Image_MealPicture_2.png');
 const snackImage = require('../../assets/images/illustrations/temp/Image_MealPicture_3.png');
 
@@ -63,6 +64,7 @@ type MealStatus = 'recommended' | 'eaten' | 'modified' | 'skipped';
 type MealStatuses = Record<MealType, MealStatus>;
 
 type Meal = {
+  variantId: string;
   id: MealType;
   title: string;
   kcal: number;
@@ -94,6 +96,7 @@ const defaultMealStatuses: MealStatuses = {
 
 const meals: Meal[] = [
   {
+    variantId: 'breakfast-default',
     id: 'breakfast',
     title: '아침',
     kcal: 480,
@@ -112,6 +115,7 @@ const meals: Meal[] = [
     ],
   },
   {
+    variantId: 'lunch-default',
     id: 'lunch',
     title: '점심',
     kcal: 480,
@@ -130,6 +134,7 @@ const meals: Meal[] = [
     ],
   },
   {
+    variantId: 'dinner-default',
     id: 'dinner',
     title: '저녁',
     kcal: 520,
@@ -147,6 +152,7 @@ const meals: Meal[] = [
     ],
   },
   {
+    variantId: 'snack-default',
     id: 'snack',
     title: '간식',
     kcal: 480,
@@ -163,6 +169,229 @@ const meals: Meal[] = [
     ],
   },
 ];
+
+const mealRecommendations: Record<MealType, Meal[]> = {
+  breakfast: [
+    meals[0],
+    {
+      ...meals[0],
+      variantId: 'breakfast-oatmeal',
+      image: snackImage,
+      kcal: 430,
+      foods: '오트밀, 그릭요거트, 블루베리, 삶은 달걀',
+      tags: ['고단백', '식이섬유', '혈당 관리'],
+      note: '오트밀과 그릭요거트로 포만감을 높이고 아침 혈당 부담을 낮춘 구성',
+      usedIngredients: ['계란', '블루베리'],
+      intake: [
+        ['오트밀', '1그릇 (약 50g)'],
+        ['그릭요거트', '100g'],
+        ['블루베리', '한 줌 (약 40g)'],
+        ['삶은 달걀', '1개'],
+      ],
+    },
+    {
+      ...meals[0],
+      variantId: 'breakfast-toast',
+      image: breakfastImage,
+      kcal: 460,
+      foods: '통밀토스트, 닭가슴살, 아보카도, 토마토',
+      tags: ['근육 유지', '건강한 지방', '영양 균형'],
+      note: '통밀과 닭가슴살에 건강한 지방을 더해 든든하게 시작하는 아침 식단',
+      usedIngredients: ['닭가슴살', '아보카도', '토마토'],
+      intake: [
+        ['통밀토스트', '2장'],
+        ['닭가슴살', '1조각 (약 100g)'],
+        ['아보카도', '1/2개'],
+        ['토마토', '1개'],
+      ],
+    },
+    {
+      ...meals[0],
+      variantId: 'breakfast-sweet-potato',
+      image: dinnerImage,
+      kcal: 450,
+      foods: '고구마, 닭가슴살 샐러드, 삶은 달걀, 사과',
+      tags: ['근육 유지', '식이섬유', '체지방 관리'],
+      note: '복합 탄수화물과 단백질을 균형 있게 담아 오전 에너지를 유지하는 구성',
+      usedIngredients: ['닭가슴살', '계란', '시금치'],
+      intake: [
+        ['고구마', '1개 (약 150g)'],
+        ['닭가슴살 샐러드', '1접시'],
+        ['삶은 달걀', '1개'],
+        ['사과', '1/2개'],
+      ],
+    },
+  ],
+  lunch: [
+    meals[1],
+    {
+      ...meals[1],
+      variantId: 'lunch-chicken-rice',
+      image: breakfastImage,
+      kcal: 510,
+      foods: '현미밥, 닭가슴살구이, 채소볶음, 된장국',
+      tags: ['고단백', '근육 유지', '영양 균형'],
+      note: '현미밥과 닭가슴살을 중심으로 오후 활동에 필요한 에너지를 채운 구성',
+      usedIngredients: ['현미밥', '닭가슴살', '브로콜리', '양파'],
+      intake: [
+        ['현미밥', '1공기 (약 150g)'],
+        ['닭가슴살구이', '1조각 (약 120g)'],
+        ['채소볶음', '1접시'],
+        ['된장국', '1그릇'],
+      ],
+    },
+    {
+      ...meals[1],
+      variantId: 'lunch-beef-bibimbap',
+      image: dinnerImage,
+      kcal: 540,
+      foods: '소고기 채소 비빔밥, 두부구이, 방울토마토',
+      tags: ['근육 유지', '식이섬유', '나트륨 조절'],
+      note: '살코기와 다양한 채소를 한 그릇에 담아 단백질과 식이섬유를 보충한 식단',
+      usedIngredients: ['두부', '토마토', '시금치'],
+      intake: [
+        ['소고기 채소 비빔밥', '1그릇'],
+        ['두부구이', '4조각'],
+        ['방울토마토', '5개'],
+      ],
+    },
+    {
+      ...meals[1],
+      variantId: 'lunch-tofu-bowl',
+      image: snackImage,
+      kcal: 490,
+      foods: '두부 버섯 덮밥, 브로콜리무침, 달걀국',
+      tags: ['식이섬유', '혈당 관리', '영양 균형'],
+      note: '두부와 버섯으로 포만감을 높이고 부담 없이 먹을 수 있게 구성한 점심 식단',
+      usedIngredients: ['두부', '브로콜리', '계란'],
+      intake: [
+        ['두부 버섯 덮밥', '1그릇'],
+        ['브로콜리무침', '1접시'],
+        ['달걀국', '1그릇'],
+      ],
+    },
+  ],
+  dinner: [
+    meals[2],
+    {
+      ...meals[2],
+      variantId: 'dinner-salmon',
+      image: breakfastImage,
+      kcal: 500,
+      foods: '연어구이, 렌틸콩 샐러드, 구운 채소',
+      tags: ['고단백', '건강한 지방', '체지방 관리'],
+      note: '연어의 단백질과 건강한 지방을 활용해 저녁 포만감을 높인 구성',
+      usedIngredients: ['브로콜리', '토마토', '양파'],
+      intake: [
+        ['연어구이', '1토막 (약 120g)'],
+        ['렌틸콩 샐러드', '1접시'],
+        ['구운 채소', '1접시'],
+      ],
+    },
+    {
+      ...meals[2],
+      variantId: 'dinner-chicken-salad',
+      image: dinnerImage,
+      kcal: 470,
+      foods: '닭가슴살 샐러드, 단호박구이, 두부스테이크',
+      tags: ['근육 유지', '식이섬유', '나트륨 조절'],
+      note: '지방 부담은 낮추고 단백질과 채소 비중을 높인 가벼운 저녁 식단',
+      usedIngredients: ['닭가슴살', '두부', '브로콜리'],
+      intake: [
+        ['닭가슴살 샐러드', '1접시'],
+        ['단호박구이', '4조각'],
+        ['두부스테이크', '1개'],
+      ],
+    },
+    {
+      ...meals[2],
+      variantId: 'dinner-tofu-stew',
+      image: snackImage,
+      kcal: 490,
+      foods: '잡곡밥, 두부 채소전골, 시금치무침',
+      tags: ['혈당 관리', '식이섬유', '영양 균형'],
+      note: '잡곡과 두부를 중심으로 늦은 시간에도 부담이 적도록 구성한 저녁 식단',
+      usedIngredients: ['두부', '시금치', '양파'],
+      intake: [
+        ['잡곡밥', '2/3공기'],
+        ['두부 채소전골', '1그릇'],
+        ['시금치무침', '1접시'],
+      ],
+    },
+  ],
+  snack: [
+    meals[3],
+    {
+      ...meals[3],
+      variantId: 'snack-yogurt',
+      image: snackImage,
+      kcal: 210,
+      foods: '그릭요거트, 딸기, 아몬드',
+      tags: ['고단백', '건강한 지방', '혈당 관리'],
+      note: '단백질과 건강한 지방을 소량 보충해 포만감을 유지하는 간식',
+      usedIngredients: ['그릭요거트'],
+      intake: [
+        ['그릭요거트', '100g'],
+        ['딸기', '5개'],
+        ['아몬드', '8알'],
+      ],
+    },
+    {
+      ...meals[3],
+      variantId: 'snack-egg-tomato',
+      image: breakfastImage,
+      kcal: 190,
+      foods: '삶은 달걀, 방울토마토, 호두',
+      tags: ['근육 유지', '나트륨 조절', '건강한 지방'],
+      note: '간단한 재료로 단백질을 채우고 당 섭취를 낮춘 간식 구성',
+      usedIngredients: ['계란', '토마토'],
+      intake: [
+        ['삶은 달걀', '1개'],
+        ['방울토마토', '6개'],
+        ['호두', '2알'],
+      ],
+    },
+    {
+      ...meals[3],
+      variantId: 'snack-apple-cheese',
+      image: dinnerImage,
+      kcal: 220,
+      foods: '사과, 저지방 치즈, 무가당 두유',
+      tags: ['영양 균형', '식이섬유', '체지방 관리'],
+      note: '과일과 단백질 식품을 함께 구성해 간식의 당 흡수를 완만하게 조절한 구성',
+      usedIngredients: [],
+      intake: [
+        ['사과', '1/2개'],
+        ['저지방 치즈', '1장'],
+        ['무가당 두유', '1팩'],
+      ],
+    },
+  ],
+};
+
+function getRandomMockMeal(mealId: MealType, currentVariantId: string) {
+  const candidates = mealRecommendations[mealId].filter(
+    (recommendation) => recommendation.variantId !== currentVariantId,
+  );
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+type RecommendedMealsByDate = Record<string, Partial<Record<MealType, Meal>>>;
+
+function applyRecommendedMeal(
+  current: RecommendedMealsByDate,
+  dateKey: string,
+  mealId: MealType,
+  recommendation: Meal,
+) {
+  return {
+    ...current,
+    [dateKey]: {
+      ...(current[dateKey] ?? {}),
+      [mealId]: recommendation,
+    },
+  };
+}
 
 const nutritionGoals: NutritionGoal[] = [
   {
@@ -189,8 +418,8 @@ const nutritionGoals: NutritionGoal[] = [
     target: 90,
     unit: 'g',
     Icon: FishSimple,
-    accentColor: '#0066FF',
-    softColor: '#E2EEFF',
+    accentColor: '#2FAF96',
+    softColor: '#E8F8F4',
   },
   {
     label: '지방',
@@ -198,8 +427,8 @@ const nutritionGoals: NutritionGoal[] = [
     target: 50,
     unit: 'g',
     Icon: Fat,
-    accentColor: '#F6D200',
-    softColor: '#FFFAE8',
+    accentColor: '#2FAF96',
+    softColor: '#E8F8F4',
   },
 ];
 
@@ -234,11 +463,15 @@ function toDateKey(date: Date) {
 
 function getDateCopy(date: Date, offset: number) {
   const weekday = weekdays[date.getDay()];
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  if (offset === 0) return { label: `오늘 (${weekday})`, date: `${month}.${day}` };
-  if (offset === 1) return { label: `내일 (${weekday})`, date: `${month}.${day}` };
-  return { label: `${weekday}요일`, date: `${month}.${day}` };
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  if (offset === 0)
+    return { label: `오늘 (${weekday})`, date: `${month}월 ${day}일 ${weekday}요일` };
+  if (offset === -1)
+    return { label: `어제 (${weekday})`, date: `${month}월 ${day}일 ${weekday}요일` };
+  if (offset === 1)
+    return { label: `내일 (${weekday})`, date: `${month}월 ${day}일 ${weekday}요일` };
+  return { label: `${weekday}요일`, date: `${month}월 ${day}일 ${weekday}요일` };
 }
 
 function MealIcon({ id, color }: { id: MealType; color: string }) {
@@ -247,8 +480,7 @@ function MealIcon({ id, color }: { id: MealType; color: string }) {
   return <Sun color={color} height={20} width={20} />;
 }
 
-const Goal = memo(function Goal({
-  label,
+const CalorieGoal = memo(function CalorieGoal({
   current,
   target,
   unit,
@@ -258,36 +490,54 @@ const Goal = memo(function Goal({
 }: NutritionGoal) {
   const ratio = target > 0 ? current / target : 0;
   const barProgress = Math.max(0, Math.min(ratio, 1));
-  const percentage = Math.round(ratio * 100);
 
   return (
-    <View style={styles.goal}>
-      <View style={styles.goalTop}>
-        <View style={[styles.goalIcon, { backgroundColor: softColor }]}>
-          <Icon color={accentColor} fill={accentColor} height={20} width={20} />
+    <View style={styles.calorieGoal}>
+      <View style={styles.calorieGoalTop}>
+        <View style={[styles.nutritionIcon, { backgroundColor: softColor }]}>
+          <Icon color={accentColor} height={20} width={20} />
         </View>
-        <View style={styles.goalCopy}>
-          <View style={styles.goalLabelRow}>
-            <Text style={styles.goalLabel}>{label}</Text>
-            <View style={[styles.percentageBadge, { backgroundColor: softColor }]}>
-              <Text style={[styles.percentageText, { color: accentColor }]}>{percentage}%</Text>
-            </View>
-          </View>
-          <Text style={styles.goalValue}>
-            {current.toLocaleString()}{' '}
-            <Text style={styles.goalTarget}>
-              / {target.toLocaleString()} {unit}
-            </Text>
+        <Text style={styles.calorieValue}>
+          {current.toLocaleString()}{' '}
+          <Text style={styles.calorieTarget}>
+            / {target.toLocaleString()} {unit}
           </Text>
-        </View>
+        </Text>
       </View>
-      <View style={styles.goalTrack}>
+      <View style={styles.calorieTrack}>
         <View
           style={[
-            styles.goalFill,
+            styles.calorieFill,
             { backgroundColor: accentColor, width: `${barProgress * 100}%` },
           ]}
         />
+      </View>
+    </View>
+  );
+});
+
+const MacroGoal = memo(function MacroGoal({
+  label,
+  current,
+  target,
+  unit,
+  Icon,
+  accentColor,
+  softColor,
+}: NutritionGoal) {
+  return (
+    <View style={styles.macroGoal}>
+      <View style={[styles.nutritionIcon, { backgroundColor: softColor }]}>
+        <Icon color={accentColor} fill={accentColor} height={20} width={20} />
+      </View>
+      <View style={styles.macroCopy}>
+        <Text style={styles.macroLabel}>{label}</Text>
+        <Text style={styles.macroValue}>
+          {current.toLocaleString()}{' '}
+          <Text style={styles.macroTarget}>
+            / {target.toLocaleString()} {unit}
+          </Text>
+        </Text>
       </View>
     </View>
   );
@@ -327,22 +577,6 @@ function StatusBadge({ status, pressed = false }: { status: MealStatus; pressed?
     </View>
   );
 }
-
-const DIET_TAG_STYLES: Record<
-  string,
-  { backgroundColor: string; borderColor: string; textColor: string }
-> = {
-  '근육 유지': { backgroundColor: '#EEF4FF', borderColor: '#AFC8FF', textColor: '#4F7FE8' },
-  '혈당 관리': { backgroundColor: '#ECFAF6', borderColor: '#A9E2D4', textColor: '#31A990' },
-  '체지방 관리': { backgroundColor: '#FFF3EA', borderColor: '#FFCBAA', textColor: '#EA8245' },
-  고단백: { backgroundColor: '#F4F0FF', borderColor: '#D6C7F5', textColor: '#8064C6' },
-  식이섬유: { backgroundColor: '#EFF9F1', borderColor: '#BEE3C6', textColor: '#58A870' },
-  '건강한 지방': { backgroundColor: '#FFF8E8', borderColor: '#EED99E', textColor: '#C8952F' },
-  '나트륨 조절': { backgroundColor: '#FFF0F0', borderColor: '#F3BABA', textColor: '#DD6A6A' },
-  '영양 균형': { backgroundColor: '#F2F5F7', borderColor: '#CCD6DC', textColor: '#657783' },
-};
-
-const defaultTagStyle = DIET_TAG_STYLES['영양 균형'];
 
 function actionStyle(status: MealStatus, selectedStatus: MealStatus, pressed: boolean) {
   const selected = status === selectedStatus;
@@ -393,6 +627,7 @@ const MealCard = memo(function MealCard({
   onToggle,
   onStatusChange,
   onRecordOtherMeal,
+  onRequestAlternativeMeal,
   onCollapse,
   onTransitionChange,
 }: {
@@ -403,6 +638,7 @@ const MealCard = memo(function MealCard({
   onToggle: (mealId: MealType) => void;
   onStatusChange: (mealId: MealType, status: MealStatus) => void;
   onRecordOtherMeal: (mealId: MealType) => void;
+  onRequestAlternativeMeal: (mealId: MealType) => void;
   onCollapse: (mealId: MealType) => void;
   onTransitionChange: (mealId: MealType, active: boolean) => void;
 }) {
@@ -419,21 +655,15 @@ const MealCard = memo(function MealCard({
     ? recordedMeal.foods.map((food) => food.name).join(', ')
     : meal.foods;
   const displayedKcal = showsRecordedMeal ? recordedMeal.kcal : meal.kcal;
-  const displayedTags = showsRecordedMeal ? recordedMeal.tags : meal.tags;
-  const displayedNote = showsRecordedMeal ? recordedMeal.note : meal.note;
+  const displayedImage = showsRecordedMeal
+    ? recordedMeal.photoUri
+      ? { uri: recordedMeal.photoUri }
+      : emptyFoodImage
+    : meal.image;
   const displayedUsedIngredients = showsRecordedMeal
     ? recordedMeal.usedIngredients
     : meal.usedIngredients;
   const displayedIntake = showsRecordedMeal ? recordedMeal.intake : meal.intake;
-  const borderStyle =
-    displayedStatus === 'eaten'
-      ? styles.mealCardEaten
-      : displayedStatus === 'modified'
-        ? styles.mealCardModified
-        : displayedStatus === 'skipped'
-          ? styles.mealCardSkipped
-          : null;
-
   useEffect(
     () => () => {
       if (statusTimer.current) clearTimeout(statusTimer.current);
@@ -441,12 +671,16 @@ const MealCard = memo(function MealCard({
     [],
   );
 
+  // 접힘 상태에서는 detailHeight가 다시 측정돼도 진행 중인 collapse를 재시작하지 않는다.
+  // 펼침 시작에만 실제 측정 높이가 필요하다.
+  const canAnimateDetail = !expanded || detailHeight > 0;
+
   useEffect(() => {
     if (previousExpanded.current === expanded) return;
 
     // 상세 영역의 실제 높이가 측정되기 전에는
     // expand animation을 시작하지 않는다.
-    if (expanded && detailHeight <= 0) return;
+    if (!canAnimateDetail) return;
 
     previousExpanded.current = expanded;
 
@@ -486,7 +720,7 @@ const MealCard = memo(function MealCard({
       animation.stop();
       endTransition();
     };
-  }, [detailHeight, detailOpacity, detailProgress, expanded, meal.id, onTransitionChange]);
+  }, [canAnimateDetail, detailOpacity, detailProgress, expanded, meal.id, onTransitionChange]);
 
   const chooseStatus = (nextStatus: MealStatus) => {
     if (statusTimer.current) clearTimeout(statusTimer.current);
@@ -499,9 +733,7 @@ const MealCard = memo(function MealCard({
 
   const renderDetailContent = () => (
     <>
-      <Text style={styles.mealNote}>{displayedNote}</Text>
       <View style={styles.mealDivider} />
-
       <View style={styles.fridgeDetailCard}>
         <View style={styles.fridgeDetailHeader}>
           <View style={styles.detailTitleRow}>
@@ -590,12 +822,20 @@ const MealCard = memo(function MealCard({
     <Pressable
       accessibilityState={{ expanded }}
       onPress={() => onToggle(meal.id)}
-      style={[styles.mealCard, borderStyle]}
+      style={[styles.mealCard]}
     >
+      {displayedStatus === 'eaten' ? (
+        <View pointerEvents="none" style={[styles.selectedCardBorder, styles.eatenCardBorder]} />
+      ) : null}
+
+      {displayedStatus === 'modified' ? (
+        <View pointerEvents="none" style={[styles.selectedCardBorder, styles.modifiedCardBorder]} />
+      ) : null}
+
       <View style={styles.mealSummary}>
         <Image
           resizeMode="cover"
-          source={meal.image}
+          source={displayedImage}
           style={[styles.mealImage, dimmed && styles.skippedContent]}
         />
         <View style={styles.mealRight}>
@@ -609,14 +849,25 @@ const MealCard = memo(function MealCard({
               <Text style={styles.mealKcal}>{displayedKcal} kcal</Text>
             </View>
             <Pressable
-              accessibilityRole={displayedStatus === 'modified' ? 'button' : undefined}
-              disabled={displayedStatus !== 'modified'}
+              accessibilityRole={
+                displayedStatus === 'recommended' || displayedStatus === 'modified'
+                  ? 'button'
+                  : undefined
+              }
+              disabled={displayedStatus === 'eaten' || displayedStatus === 'skipped'}
               hitSlop={6}
               onPress={(event) => {
                 event.stopPropagation();
+                if (displayedStatus === 'recommended') {
+                  onRequestAlternativeMeal(meal.id);
+                  return;
+                }
                 if (displayedStatus === 'modified') onRecordOtherMeal(meal.id);
               }}
-              style={styles.statusPressable}
+              style={({ pressed }) => [
+                styles.statusPressable,
+                displayedStatus === 'recommended' && pressed && styles.pressed,
+              ]}
             >
               {({ pressed }) => (
                 <StatusBadge
@@ -631,25 +882,6 @@ const MealCard = memo(function MealCard({
               <Text numberOfLines={2} style={styles.foodsText}>
                 {displayedFoods}
               </Text>
-              <View style={styles.tags}>
-                {displayedTags.map((tag) => {
-                  const palette = DIET_TAG_STYLES[tag] ?? defaultTagStyle;
-                  return (
-                    <View
-                      key={tag}
-                      style={[
-                        styles.tag,
-                        {
-                          backgroundColor: palette.backgroundColor,
-                          borderColor: palette.borderColor,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.tagText, { color: palette.textColor }]}>{tag}</Text>
-                    </View>
-                  );
-                })}
-              </View>
             </View>
             <View style={styles.chevronArea}>
               <View style={styles.chevronCircle}>
@@ -712,7 +944,7 @@ export default function DietScreen() {
     date.setHours(12, 0, 0, 0);
     return date;
   });
-  const [dateWindowStart, setDateWindowStart] = useState(0);
+  const [selectedDateOffset, setSelectedDateOffset] = useState(0);
   const [selectedDateKey, setSelectedDateKey] = useState(() => toDateKey(today));
   const [expandedMeals, setExpandedMeals] = useState<Set<MealType>>(() => new Set());
   const [statusesByDate, setStatusesByDate] = useState<Record<string, MealStatuses>>({});
@@ -722,6 +954,7 @@ export default function DietScreen() {
   const [mealRecordsByDate, setMealRecordsByDate] = useState<
     Record<string, Partial<Record<MealType, MealRecordDraft>>>
   >({});
+  const [recommendedMealsByDate, setRecommendedMealsByDate] = useState<RecommendedMealsByDate>({});
   const [fridgeIngredients, setFridgeIngredients] =
     useState<FridgeIngredient[]>(initialFridgeIngredients);
   const activeMealTransitions = useRef(new Set<MealType>());
@@ -747,19 +980,8 @@ export default function DietScreen() {
     16;
   const indicator = useCustomScrollIndicator({ showInitially: true });
   const selectedStatuses = statusesByDate[selectedDateKey] ?? defaultMealStatuses;
-  const visibleDates = [dateWindowStart, dateWindowStart + 1].map((offset) => {
-    const date = addDays(today, offset);
-    return { ...getDateCopy(date, offset), key: toDateKey(date), offset };
-  });
-  const fridgePreview = fridgeIngredients
-    .slice(0, 5)
-    .map((item) => item.name)
-    .join(' · ');
-  const fridgeRemainder = Math.max(0, fridgeIngredients.length - 5);
-  const fridgeDescription =
-    fridgeIngredients.length === 0
-      ? '등록된 재료가 없어요'
-      : `${fridgePreview}${fridgeRemainder > 0 ? ` 외 ${fridgeRemainder}개` : ''}`;
+  const selectedDate = addDays(today, selectedDateOffset);
+  const selectedDateCopy = getDateCopy(selectedDate, selectedDateOffset);
 
   const handleMealTransitionChange = useCallback((mealId: MealType, active: boolean) => {
     if (active) {
@@ -820,9 +1042,21 @@ export default function DietScreen() {
     setRecordingMealId(mealId);
   }, []);
 
+  const requestAlternativeMeal = useCallback(
+    (mealId: MealType) => {
+      setRecommendedMealsByDate((current) => {
+        const currentMeal = current[selectedDateKey]?.[mealId] ?? mealRecommendations[mealId][0];
+        const nextMeal = getRandomMockMeal(mealId, currentMeal.variantId);
+        return applyRecommendedMeal(current, selectedDateKey, mealId, nextMeal);
+      });
+    },
+    [selectedDateKey],
+  );
+
   const completeMealRecord = useCallback(
     (draft: MealRecordDraft) => {
       const mealId = draft.mealId as MealType;
+
       setMealRecordsByDate((current) => ({
         ...current,
         [selectedDateKey]: {
@@ -831,25 +1065,22 @@ export default function DietScreen() {
         },
       }));
       changeMealStatus(mealId, 'modified');
-      collapseMeal(mealId);
       setRecordingMealId(null);
+      collapseMeal(mealId);
     },
     [changeMealStatus, collapseMeal, selectedDateKey],
   );
 
-  const chooseDate = (key: string) => {
-    setSelectedDateKey(key);
-    if (expandedMeals.size > 0) {
-      setExpandedMeals(new Set());
-    }
-  };
-
-  const moveDateWindow = (amount: number) => {
-    const nextWindowStart = Math.max(
+  const moveSelectedDate = (amount: number) => {
+    const nextOffset = Math.max(
       dateWindowMin,
-      Math.min(dateWindowMax, dateWindowStart + amount),
+      Math.min(dateWindowMax, selectedDateOffset + amount),
     );
-    setDateWindowStart(nextWindowStart);
+    if (nextOffset === selectedDateOffset) return;
+
+    setSelectedDateOffset(nextOffset);
+    setSelectedDateKey(toDateKey(addDays(today, nextOffset)));
+    setExpandedMeals(new Set());
   };
 
   return (
@@ -886,16 +1117,11 @@ export default function DietScreen() {
 
             <View style={styles.hero}>
               <View style={styles.heroCopy}>
-                <View style={styles.strategyBadge}>
-                  <Text style={styles.strategyBadgeText}>Auto-Fit 식단전략</Text>
-                </View>
                 <Text style={styles.heroTitle}>
                   OO님을 위한{`\n`}
                   <Text style={styles.primaryText}>맞춤 식단</Text>이에요!
                 </Text>
-                <Text style={styles.heroDescription}>
-                  빠른 감량보다는 근육을 유지하면서{`\n`}체지방을 줄이는 방향으로 구성했어요.
-                </Text>
+                <Text style={styles.heroDescription}>근육은 지키고, 체지방은 천천히</Text>
               </View>
               <Image resizeMode="contain" source={hero} style={styles.heroImage} />
             </View>
@@ -908,17 +1134,14 @@ export default function DietScreen() {
                 style={({ pressed }) => [styles.fridgeCard, pressed && styles.pressed]}
               >
                 <View style={styles.fridgeIconCircle}>
-                  <Fridge color="#2FAF96" height={25} width={17} />
+                  <Fridge color="#2FAF96" height={30} width={30} />
                 </View>
                 <View style={styles.fridgeCopy}>
                   <Text style={styles.fridgeTitle}>
                     <Text style={styles.fridgeTitleEmphasis}>
                       냉장고 재료 {fridgeIngredients.length}개
                     </Text>{' '}
-                    활용 중
-                  </Text>
-                  <Text numberOfLines={1} style={styles.fridgeDescription}>
-                    {fridgeDescription}
+                    반영중
                   </Text>
                 </View>
                 <View style={styles.manageRow}>
@@ -929,48 +1152,31 @@ export default function DietScreen() {
 
               <View style={styles.dateCard}>
                 <Pressable
-                  disabled={dateWindowStart <= dateWindowMin}
+                  disabled={selectedDateOffset <= dateWindowMin}
                   hitSlop={6}
-                  onPress={() => moveDateWindow(-2)}
+                  onPress={() => moveSelectedDate(-1)}
                   style={({ pressed }) => [
                     styles.arrowButton,
-                    dateWindowStart <= dateWindowMin && styles.arrowDisabled,
+                    selectedDateOffset <= dateWindowMin && styles.arrowDisabled,
                     pressed && styles.pressed,
                   ]}
                 >
                   <Left color="#2FAF96" height={15} width={15} />
                 </Pressable>
 
-                <View style={styles.dateChoices}>
-                  {visibleDates.map((item, index) => {
-                    const selected = selectedDateKey === item.key;
-                    return (
-                      <View key={item.key} style={styles.dateChoiceWrap}>
-                        <Pressable
-                          onPress={() => chooseDate(item.key)}
-                          style={[styles.dateChoice, selected && styles.dateChoiceSelected]}
-                        >
-                          <Text style={[styles.dateLabel, selected && styles.dateLabelSelected]}>
-                            {item.label}
-                          </Text>
-                          <Text style={[styles.dateValue, selected && styles.dateValueSelected]}>
-                            {item.date}
-                          </Text>
-                          {selected ? <View style={styles.dateSelectedLine} /> : null}
-                        </Pressable>
-                        {index === 0 ? <View style={styles.dateDivider} /> : null}
-                      </View>
-                    );
-                  })}
+                <View style={styles.selectedDate}>
+                  <Text style={styles.selectedDateLabel}>{selectedDateCopy.label}</Text>
+                  <Text style={styles.selectedDateValue}>{selectedDateCopy.date}</Text>
+                  <View style={styles.selectedDateLine} />
                 </View>
 
                 <Pressable
-                  disabled={dateWindowStart >= dateWindowMax}
+                  disabled={selectedDateOffset >= dateWindowMax}
                   hitSlop={6}
-                  onPress={() => moveDateWindow(2)}
+                  onPress={() => moveSelectedDate(1)}
                   style={({ pressed }) => [
                     styles.arrowButton,
-                    dateWindowStart >= dateWindowMax && styles.arrowDisabled,
+                    selectedDateOffset >= dateWindowMax && styles.arrowDisabled,
                     pressed && styles.pressed,
                   ]}
                 >
@@ -979,16 +1185,14 @@ export default function DietScreen() {
               </View>
 
               <View style={styles.nutritionCard}>
-                <View style={styles.nutritionHeading}>
-                  <Text style={styles.nutritionTitle}>오늘의 영양 목표</Text>
-                  <Text style={styles.nutritionDescription}>
-                    근손실 방지를 위해 단백질 비중을 높였어요
-                  </Text>
-                </View>
-                <View style={styles.goalsGrid}>
-                  {nutritionGoals.map((goal) => (
-                    <Goal key={goal.label} {...goal} />
-                  ))}
+                <Text style={styles.nutritionTitle}>오늘의 영양 목표</Text>
+                <View style={styles.nutritionInner}>
+                  <CalorieGoal {...nutritionGoals[0]} />
+                  <View style={styles.macroGoals}>
+                    {nutritionGoals.slice(1).map((goal) => (
+                      <MacroGoal key={goal.label} {...goal} />
+                    ))}
+                  </View>
                 </View>
               </View>
 
@@ -998,10 +1202,11 @@ export default function DietScreen() {
                   <MealCard
                     expanded={expandedMeals.has(meal.id)}
                     key={meal.id}
-                    meal={meal}
+                    meal={recommendedMealsByDate[selectedDateKey]?.[meal.id] ?? meal}
                     recordedMeal={mealRecordsByDate[selectedDateKey]?.[meal.id]}
                     onCollapse={collapseMeal}
                     onRecordOtherMeal={openMealRecord}
+                    onRequestAlternativeMeal={requestAlternativeMeal}
                     onStatusChange={changeMealStatus}
                     onToggle={toggleMeal}
                     onTransitionChange={handleMealTransitionChange}
@@ -1054,7 +1259,7 @@ const styles = StyleSheet.create({
     width: referenceWidth,
   },
   hero: {
-    height: 143,
+    height: 118,
     marginTop: 11,
     paddingLeft: 21,
     position: 'relative',
@@ -1089,7 +1294,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 9,
   },
-  heroImage: { height: 105, position: 'absolute', right: 19, top: 18, width: 170 },
+  heroImage: { height: 100, position: 'absolute', right: 18, top: 6, width: 165 },
   sectionStack: { gap: 10, marginHorizontal: 21 },
   fridgeCard: {
     alignItems: 'center',
@@ -1104,20 +1309,14 @@ const styles = StyleSheet.create({
   fridgeIconCircle: {
     alignItems: 'center',
     backgroundColor: '#EAF8F5',
-    borderRadius: 20,
-    height: 40,
+    borderRadius: 22,
+    height: 44,
     justifyContent: 'center',
-    width: 40,
+    width: 44,
   },
-  fridgeCopy: { flex: 1, marginLeft: 11 },
+  fridgeCopy: { flex: 1, marginLeft: 11, justifyContent: 'center' },
   fridgeTitle: { color: '#000000', fontFamily: fontFamilies.pretendardMedium, fontSize: 14 },
   fridgeTitleEmphasis: { color: '#2FAF96', fontFamily: fontFamilies.pretendardSemiBold },
-  fridgeDescription: {
-    color: '#767676',
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 11,
-    marginTop: 5,
-  },
   manageRow: { alignItems: 'center', flexDirection: 'row', gap: 3 },
   manageText: { color: '#767676', fontFamily: fontFamilies.pretendardSemiBold, fontSize: 11.5 },
   dateCard: {
@@ -1127,7 +1326,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
-    height: 70,
+    height: 80,
     justifyContent: 'space-between',
     paddingHorizontal: 20,
   },
@@ -1141,41 +1340,31 @@ const styles = StyleSheet.create({
   },
   arrowDisabled: { opacity: 0.3 },
   pressed: { opacity: 0.7 },
-  dateChoices: {
+  selectedDate: {
     alignItems: 'center',
-    flexDirection: 'row',
-    height: 60,
-    justifyContent: 'space-between',
-    width: 258,
-  },
-  dateChoiceWrap: { alignItems: 'center', flexDirection: 'row', gap: 8 },
-  dateChoice: {
-    alignItems: 'center',
+    backgroundColor: '#E8F8F4',
     borderRadius: 10,
-    height: 60,
+    gap: 5,
+    height: 70,
     justifyContent: 'center',
-    width: 120,
+    width: 240,
   },
-  dateChoiceSelected: { backgroundColor: '#EAF8F5' },
-  dateDivider: { backgroundColor: '#E8ECEB', height: 50, marginHorizontal: 1, width: 1 },
-  dateLabel: { color: '#666666', fontFamily: fontFamilies.pretendardSemiBold, fontSize: 15 },
-  dateLabelSelected: { color: '#31A990' },
-  dateValue: {
-    color: '#767676',
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 12,
-    marginTop: 4,
+  selectedDateLabel: {
+    color: '#2FAF96',
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 14,
+    lineHeight: 18,
   },
-  dateValueSelected: {
+  selectedDateValue: {
     color: '#464646',
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 20,
   },
-  dateSelectedLine: {
+  selectedDateLine: {
     backgroundColor: '#2FAF96',
     borderRadius: 1,
     height: 2,
-    marginTop: 7,
     width: 35,
   },
   nutritionCard: {
@@ -1183,74 +1372,72 @@ const styles = StyleSheet.create({
     borderColor: '#E5EAE9',
     borderRadius: 10,
     borderWidth: 1,
-    height: 215,
-    paddingBottom: 20,
-    paddingHorizontal: 17,
-    paddingTop: 15,
+    height: 165,
+    padding: 15,
   },
-  nutritionHeading: { gap: 3 },
   nutritionTitle: {
     color: '#464646',
     fontFamily: fontFamilies.pretendardSemiBold,
     fontSize: 18,
     lineHeight: 17,
   },
-  nutritionDescription: {
-    color: '#767676',
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 13,
-    letterSpacing: 1.3,
-    lineHeight: 16,
-  },
-  goalsGrid: {
-    columnGap: 10,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginLeft: 5,
-    marginTop: 5,
-    rowGap: 10,
-    width: 326,
-  },
-  goal: {
-    alignItems: 'center',
-    gap: 12,
-    height: 70,
-    justifyContent: 'center',
-    width: 158,
-  },
-  goalTop: { alignItems: 'flex-start', flexDirection: 'row', gap: 5, width: '100%' },
-  goalIcon: {
+  nutritionInner: { gap: 17, marginTop: 10, width: '100%' },
+  calorieGoal: { alignItems: 'center', gap: 6, height: 42, paddingHorizontal: 5 },
+  calorieGoalTop: { alignItems: 'center', flexDirection: 'row', gap: 7, width: '100%' },
+  nutritionIcon: {
     alignItems: 'center',
     borderRadius: 15,
     height: 30,
     justifyContent: 'center',
     width: 30,
   },
-  goalCopy: { flex: 1, gap: 3, justifyContent: 'center' },
-  goalLabelRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  goalLabel: { color: '#464646', fontFamily: fontFamilies.pretendardSemiBold, fontSize: 14 },
-  percentageBadge: {
-    alignItems: 'center',
-    borderRadius: 8,
-    height: 17,
-    justifyContent: 'center',
-    width: 40,
-  },
-  percentageText: { fontFamily: fontFamilies.pretendardSemiBold, fontSize: 12 },
-  goalValue: {
+  calorieValue: {
     color: '#464646',
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 15,
+    fontSize: 18,
+    lineHeight: 22,
   },
-  goalTarget: { color: '#767676', fontFamily: fontFamilies.pretendardMedium, fontSize: 12 },
-  goalTrack: {
+  calorieTarget: {
+    color: '#767676',
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  calorieTrack: {
     backgroundColor: '#E5EAE9',
     borderRadius: 3,
     height: 5,
     overflow: 'hidden',
     width: '100%',
   },
-  goalFill: { borderRadius: 3, height: 5 },
+  calorieFill: { borderRadius: 3, height: 5 },
+  macroGoals: { flexDirection: 'row', height: 43, justifyContent: 'space-between', width: '100%' },
+  macroGoal: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+    height: 43,
+    paddingHorizontal: 5,
+  },
+  macroCopy: { alignSelf: 'stretch', gap: 12, justifyContent: 'center' },
+  macroLabel: {
+    color: '#2FAF96',
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 14,
+    lineHeight: 17,
+  },
+  macroValue: {
+    color: '#464646',
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  macroTarget: {
+    color: '#767676',
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 12,
+    lineHeight: 20,
+  },
   mealSectionTitle: {
     color: '#464646',
     fontFamily: fontFamilies.pretendardSemiBold,
@@ -1266,9 +1453,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 12,
+    position: 'relative',
   },
-  mealCardEaten: { borderColor: '#49CDB1', borderWidth: 2 },
-  mealCardModified: { borderColor: '#5FA0FB', borderWidth: 2 },
+  mealCardEaten: { borderColor: '#49CDB1' },
+  mealCardModified: { borderColor: '#5FA0FB' },
   mealCardSkipped: { borderColor: '#E5EAE9' },
   mealSummary: { flexDirection: 'row', gap: 13, height: 110, width: 350 },
   mealRight: { flex: 1, gap: 17, height: 110 },
@@ -1322,15 +1510,6 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     width: 200,
   },
-  tags: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 3, width: 200 },
-  tag: {
-    borderRadius: 10,
-    borderWidth: 0.5,
-    height: 20,
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  tagText: { fontFamily: fontFamilies.pretendardMedium, fontSize: 12 },
   chevronArea: { alignItems: 'center', alignSelf: 'stretch', paddingTop: 10, width: 25 },
   chevronCircle: {
     alignItems: 'center',
@@ -1350,11 +1529,10 @@ const styles = StyleSheet.create({
     zIndex: -1,
   },
   expandedContent: { gap: 12, paddingTop: 12 },
-  mealDivider: { backgroundColor: '#E5EAE9', height: 1 },
-  mealNote: {
-    color: '#767676',
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 14,
+  mealDivider: {
+    backgroundColor: '#E5EAE9',
+    height: 1,
+    width: '100%',
   },
   fridgeDetailCard: {
     backgroundColor: '#EEF9F7',
@@ -1466,4 +1644,19 @@ const styles = StyleSheet.create({
   actionEatenText: { color: '#2FAF96' },
   actionModifiedText: { color: '#0066FF' },
   actionSkippedText: { color: '#727272' },
+
+  selectedCardBorder: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 10,
+    borderWidth: 2,
+    zIndex: 10,
+  },
+
+  eatenCardBorder: {
+    borderColor: '#49CDB1',
+  },
+
+  modifiedCardBorder: {
+    borderColor: '#5FA0FB',
+  },
 });
