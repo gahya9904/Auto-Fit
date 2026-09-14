@@ -1,11 +1,11 @@
 # 공용 서버 챗봇 실연동 검증
 
-검증일: 2026-09-08
+검증일: 2026-09-14
 
 - 대상: https://auto-fit-api-dev.onrender.com
-- 배포 코드: d4ca7d7
+- 배포 코드: d7e84d7
 - Supabase 프로젝트: eeeqibyssajykrhvecbv
-- 결과: 24개 검사 통과, 프로세스 종료 코드 0
+- 결과: 라우팅·발표 흐름 포함 55개 검사 통과, 프로세스 종료 코드 0
 - 방식: 실제 Supabase 비밀번호 로그인 → 공용 HTTPS API → 실제 DB
 - 기존 사용자 데이터는 사용하지 않음. 이메일 발송 없는 합성 계정 2개 사용.
 
@@ -19,17 +19,23 @@
 | 같은 질문 6건 동시 전송 | 신규 1건, 재전송 5건 |
 | 재전송 답변 ID 일치 | 통과 |
 | DB 점수 91→86 비교 | 통과 |
+| 평가 항목 혈압 90→70 비교 | 본인 평가 ID로만 조회, 원인 단정 없이 반환 |
 | 동일 ID·다른 내용 충돌 | 통과 |
 | 다른 내용 동시 요청 충돌 | 통과 |
 | 페이지 조회·메시지 순서 | 통과 |
 | 채팅방 보관·보관 목록 조회 | 통과 |
 | 보관 뒤 재전송 허용·신규 질문 차단 | 통과 |
 | 클라이언트의 서버 전용 RPC 호출 차단 | 통과 |
+| 운동 프로필·추천 컨텍스트 저장 | 통과 |
+| 챗봇 루틴 생성·저장 | 통과 |
+| 운동 세션 시작·항목 기록·완료 | 통과 |
+| 최근 7일·누적 운동 요약 | 통과 |
 
 ## 정리 확인
 
-이번 실행에서 생성한 사용자 ID만 대상으로 chat_messages, chats,
-health_assessments, profiles를 삭제하고 각 테이블 잔여 행이 없는지 재조회했다.
+이번 실행에서 생성한 사용자 ID와 평가·추천 ID만 대상으로 chat_messages, chats,
+health_assessment_items, health_assessments, 운동 세션·추천·프로필 및 profiles를 삭제하고
+각 테이블 잔여 행이 없는지 재조회했다.
 합성 Auth 사용자 2개도 삭제하고 각각 조회 시 404를 확인했다.
 기존 데이터와 DB 구조는 변경하지 않았다.
 
@@ -40,7 +46,9 @@ health_assessments, profiles를 삭제하고 각 테이블 잔여 행이 없는�
 ```bash
 backend/.venv/bin/python -m backend.tests.chat_live_integration \
   --project eeeqibyssajykrhvecbv \
-  --api-base https://auto-fit-api-dev.onrender.com
+  --api-base https://auto-fit-api-dev.onrender.com \
+  --routing \
+  --presentation
 ```
 
 api-base 생략 시 기존 로컬 ASGI 방식이다. HTTPS 대상은 지정된 공용 서버만 허용하며
@@ -48,7 +56,6 @@ api-base 생략 시 기존 로컬 ASGI 방식이다. HTTPS 대상은 지정된 �
 
 ## 미검증·미구현
 
-- 브라우저 Google/Kakao 로그인부터 화면 연결까지의 전체 흐름은 별도 검증 필요.
-- 식사·운동 요약의 공용 서버 실데이터 검증은 이번 검사에 포함하지 않음.
-- 모델 연동, 모델 장애 대응, 한달 자동 삭제, 일반 요청 제한은 미구현.
+- 실제 외부 모델 서버 인증·응답 품질·장애 대응은 별도 검증이 필요하다.
+- 요청 제한의 전체 경계·자연 만료 검사는 이번 실행에 포함하지 않았다.
 - 이번 통과는 전체 서비스 운영 준비 완료를 의미하지 않음.

@@ -140,7 +140,7 @@ async def run(
                     })
                     check(seed.status_code == 201, "seed synthetic exercise summary")
                     for question, auth, source, required, notice in (
-                        ("그건 왜 그래?", owner, "need_more_data", "supported_health_score_question", False),
+                        ("그건 왜 그래?", owner, "need_more_data", "autofit_topic_question", False),
                         ("이번 주 운동 몇 번 했어?", owner, "database", None, False),
                         ("이번 주 운동 기록 설명해줘", owner, "database", None, True),
                         ("이번 주 운동 기록 설명해줘", other, "need_more_data", "exercise_record", False),
