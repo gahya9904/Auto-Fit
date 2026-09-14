@@ -81,6 +81,7 @@ class AnswerDecision:
 
 async def decide_answer(
     content: str, load_scores: Callable[[], Awaitable[list[Assessment]]], load_records=None,
+    load_score_items=None,
 ) -> AnswerDecision:
     """Inspect supported DB evidence before considering AI; never call a model.
 
@@ -88,12 +89,18 @@ async def decide_answer(
     DB failures propagate unchanged instead of triggering a model fallback.
     """
     plan = classify_question(content)
-    answer = await _database_answer(content, plan, load_scores, load_records)
+    answer = await _database_answer(
+        content, plan, load_scores, load_records, load_score_items,
+    )
     if answer["intent"] == "clarification":
         route = "clarification"
     elif answer.get("needs_more_data", False):
         route = "need_more_data"
-    elif plan.requires_explanation and answer.get("evidence"):
+    elif (
+        plan.intent in {"meal_history", "exercise_history"}
+        and plan.requires_explanation
+        and answer.get("evidence")
+    ):
         route = "ai_required"
     else:
         route = "database"
@@ -103,6 +110,7 @@ async def decide_answer(
 async def answer_question(
     content: str, load_scores: Callable[[], Awaitable[list[Assessment]]], load_records=None,
     load_catalog=None, allow_general=False, prepare_routine=None,
+    load_score_items=None,
 ) -> dict:
     if is_routine_generation_request(content):
         if prepare_routine is None:
@@ -134,7 +142,9 @@ async def answer_question(
             'response_source': 'general_ai', 'needs_more_data': False,
             'evidence': [], 'required_data': [],
         }
-    decision = await decide_answer(content, load_scores, load_records)
+    decision = await decide_answer(
+        content, load_scores, load_records, load_score_items,
+    )
     if decision.route == "ai_required":
         explanation = await explain_records(content, decision.answer)
         if explanation is not None:
@@ -145,7 +155,9 @@ async def answer_question(
     return decision.answer
 
 
-async def _database_answer(content, plan, load_scores, load_records):
+async def _database_answer(
+    content, plan, load_scores, load_records, load_score_items,
+):
     text = "".join(content.split())
     if plan.intent in {"meal_history", "exercise_history"} and load_records is not None:
         if any(word in text for word in ("왜", "이유", "원인", "추천", "어떻게", "괜찮", "뜻", "개선", "삭제", "수정", "변경", "저장", "다른사용자", "다른사람", "계획", "목표", "루틴", "종류", "무슨운동", "단백질", "탄수화물", "지방")):
@@ -182,4 +194,7 @@ async def _database_answer(content, plan, load_scores, load_records):
         )
     rows = await load_scores()
     mode = "change" if plan.intent == "health_score_change" else "latest"
-    return build_score_answer(rows, mode, plan.requires_explanation)
+    items = {}
+    if plan.requires_explanation and load_score_items is not None:
+        items = await load_score_items(rows)
+    return build_score_answer(rows, mode, plan.requires_explanation, items)

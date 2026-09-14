@@ -76,8 +76,8 @@ Supabase 조회 실패·잘못된 반환 데이터는 502 DATA_SOURCE_ERROR이�
 
 | 질문 유형 | 테이블 | 조회·답변 기준 |
 | --- | --- | --- |
-| health_score_latest | health_assessments, health_assessment_items | 본인 user_id, assessed_at 최신순. overall_score와 평가 날짜 표시 |
-| health_score_change | health_assessments, health_assessment_items | 비교할 평가 2건 필요. 점수 차이는 서버 계산. 원인은 단순 차이로 단정하지 않음 |
+| health_score_latest | health_assessments, health_assessment_items | 본인 user_id, assessed_at 최신순. 설명 요청에는 최신 평가의 점수가 낮은 항목을 최대 3개 표시 |
+| health_score_change | health_assessments, health_assessment_items | 비교할 평가 2건 필요. 점수 차이와 비교 가능한 항목 점수를 서버 계산하며 직접 원인으로 단정하지 않음 |
 | body_composition | body_compositions | 본인 user_id, measured_at 기준. 질문한 측정값과 단위만 반환 |
 | health_checkup | health_checkups | 본인 user_id, checkup_date 기준. 질문한 검사 수치만 반환 |
 | meal_history | meal_logs, meal_log_items | 본인 식사 기록에서 요청 기간과 실제 섭취 내역 조회 |

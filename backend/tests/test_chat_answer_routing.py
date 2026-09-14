@@ -68,6 +68,63 @@ def test_score_cause_without_evidence_does_not_reach_ai():
     assert "assessment_explanation_evidence" in decision.answer["required_data"]
 
 
+def test_score_cause_with_owned_item_evidence_stays_database_only():
+    current_id = "00000000-0000-0000-0000-000000000101"
+    previous_id = "00000000-0000-0000-0000-000000000102"
+
+    async def scores():
+        return [
+            Assessment(
+                health_assessment_id=current_id,
+                overall_score=86,
+                assessed_at="2026-09-08T00:00:00Z",
+            ),
+            Assessment(
+                health_assessment_id=previous_id,
+                overall_score=91,
+                assessed_at="2026-09-01T00:00:00Z",
+            ),
+        ]
+
+    async def items(rows):
+        return {
+            rows[0].health_assessment_id: [{
+                "health_assessment_id": current_id,
+                "metric_type": "blood_pressure",
+                "metric_name": "혈압",
+                "metric_score": 70,
+                "evaluation_status": "attention",
+                "sequence_order": 1,
+            }],
+            rows[1].health_assessment_id: [{
+                "health_assessment_id": previous_id,
+                "metric_type": "blood_pressure",
+                "metric_name": "혈압",
+                "metric_score": 90,
+                "evaluation_status": "normal",
+                "sequence_order": 1,
+            }],
+        }
+
+    from backend.app.chat_health_scores import AssessmentItem
+
+    async def validated_items(rows):
+        grouped = await items(rows)
+        return {
+            key: [AssessmentItem.model_validate(value) for value in values]
+            for key, values in grouped.items()
+        }
+
+    decision = asyncio.run(decide_answer(
+        "최근 건강 점수가 낮아진 이유는?", scores,
+        load_score_items=validated_items,
+    ))
+    assert decision.route == "database"
+    assert decision.answer["response_source"] == "database"
+    assert not decision.answer["needs_more_data"]
+    assert decision.answer["evidence"][1]["label"] == "혈압"
+
+
 def test_no_model_returns_db_facts_with_explicit_notice():
     async def records(*args):
         return summary()

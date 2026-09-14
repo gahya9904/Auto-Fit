@@ -27,6 +27,7 @@ async def run(
     admin_headers = main.service_headers(settings)
     created_users = []
     created_recommendations = []
+    created_assessments = []
     cleanup_errors = []
     checks = 0
 
@@ -55,11 +56,37 @@ async def run(
 
             # Controlled source data for the owner only.
             for offset, score in ((2, 91), (1, 86)):
+                assessment_id = str(uuid4())
+                created_assessments.append(assessment_id)
                 response = await remote.post("/rest/v1/health_assessments", headers=admin_headers, json={
+                    "health_assessment_id": assessment_id,
                     "user_id": created_users[0], "assessed_at": (datetime.now(UTC) - timedelta(days=offset)).isoformat(),
                     "overall_score": score, "overall_status": "test",
                 })
                 check(response.status_code == 201, "seed synthetic health score")
+            response = await remote.post(
+                "/rest/v1/health_assessment_items",
+                headers=admin_headers,
+                json=[
+                    {
+                        "health_assessment_id": created_assessments[0],
+                        "metric_type": "blood_pressure",
+                        "metric_name": "혈압",
+                        "metric_score": 90,
+                        "evaluation_status": "normal",
+                        "sequence_order": 1,
+                    },
+                    {
+                        "health_assessment_id": created_assessments[1],
+                        "metric_type": "blood_pressure",
+                        "metric_name": "혈압",
+                        "metric_score": 70,
+                        "evaluation_status": "attention",
+                        "sequence_order": 1,
+                    },
+                ],
+            )
+            check(response.status_code == 201, "seed synthetic health assessment evidence")
 
             if api_base is None:
                 main.app.dependency_overrides[main.get_settings] = lambda: settings
@@ -117,12 +144,23 @@ async def run(
                         ("이번 주 운동 몇 번 했어?", owner, "database", None, False),
                         ("이번 주 운동 기록 설명해줘", owner, "database", None, True),
                         ("이번 주 운동 기록 설명해줘", other, "need_more_data", "exercise_record", False),
-                        ("최근 건강 점수가 낮아진 이유는?", owner, "need_more_data", "assessment_explanation_evidence", False),
+                        ("최근 건강 점수가 낮아진 이유는?", owner, "database", None, False),
                     ):
                         result = await api.post("/api/chats/answer-preview", headers=auth, json={"content": question})
                         check(result.status_code == 200, "routing preview responds")
                         answer = result.json()["answer"]
                         check(answer["response_source"] == source and (not required or required in answer["required_data"]) and ("AI 설명을 현재 제공할 수 없어" in answer["content"]) == notice, "routing source and fallback match evidence")
+                        if question == "최근 건강 점수가 낮아진 이유는?":
+                            check(
+                                any(
+                                    row.get("metric") == "health_assessment_item"
+                                    and row.get("label") == "혈압"
+                                    and row.get("current_value") == 70
+                                    and row.get("previous_value") == 90
+                                    for row in answer["evidence"]
+                                ),
+                                "health score explanation uses owned assessment items",
+                            )
                     new_chat = await api.post("/api/chats", headers=owner, json={})
                     check(new_chat.status_code == 201, "create routing test chat")
                     route_path = f"/api/chats/{new_chat.json()['chat']['chat_id']}/messages"
@@ -268,6 +306,27 @@ async def run(
                     check(direct.status_code in (401,403,404), "client cannot mutate quota directly")
         finally:
             main.app.dependency_overrides.clear()
+            for assessment_id in created_assessments:
+                response = await remote.delete(
+                    "/rest/v1/health_assessment_items",
+                    headers=admin_headers,
+                    params={"health_assessment_id": f"eq.{assessment_id}"},
+                )
+                if response.status_code not in (200, 204):
+                    cleanup_errors.append(f"health_assessment_items:{assessment_id}")
+                verify = await remote.get(
+                    "/rest/v1/health_assessment_items",
+                    headers=admin_headers,
+                    params={
+                        "health_assessment_id": f"eq.{assessment_id}",
+                        "select": "health_assessment_item_id",
+                        "limit": 1,
+                    },
+                )
+                if verify.status_code != 200 or verify.json() != []:
+                    cleanup_errors.append(
+                        f"remaining:health_assessment_items:{assessment_id}"
+                    )
             for user_id in created_users:
                 for recommendation_id in created_recommendations:
                     response = await remote.delete(

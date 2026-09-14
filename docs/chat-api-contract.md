@@ -105,6 +105,26 @@ Content-Type: application/json
 
 `previous_value`, `unit`, `measured_at`은 값이 없으면 `null`이다.
 
+건강 점수 설명 요청에 평가 항목 근거가 있으면 최대 3개를 추가한다. 자식 테이블은
+로그인 사용자의 것으로 확인된 `health_assessment_id`로만 조회한다.
+
+```json
+{
+  "metric": "health_assessment_item",
+  "metric_type": "blood_pressure",
+  "label": "혈압",
+  "current_value": 70,
+  "previous_value": 90,
+  "unit": "점",
+  "measured_at": "2026-09-03T09:00:00+09:00",
+  "evaluation_status": "attention"
+}
+```
+
+이 근거는 평가 항목 점수의 동반 변화를 보여줄 뿐, 전체 점수 변화의 의학적·통계적
+인과관계를 뜻하지 않는다. 항목 근거가 없으면 기존처럼
+`assessment_explanation_evidence`를 요청한다.
+
 ### ChatMessage
 
 ```json
@@ -255,7 +275,7 @@ POST /api/chats/{chat_id}/messages
     "message_id": "00000000-0000-0000-0000-000000000002",
     "chat_id": "00000000-0000-0000-0000-000000000000",
     "sender_type": "assistant",
-    "content": "최근 건강 점수는 86점으로 이전 91점보다 5점 낮아졌습니다.",
+    "content": "최근 건강 점수는 86점으로 이전 91점보다 5점 낮아졌습니다. 점수 변화의 직접 원인으로 단정할 수는 없지만, 함께 확인된 평가 항목은 혈압 90→70점입니다.",
     "intent": "health_score_change",
     "response_source": "database",
     "needs_more_data": false,
@@ -267,6 +287,16 @@ POST /api/chats/{chat_id}/messages
         "previous_value": 91,
         "unit": "점",
         "measured_at": "2026-09-03T09:00:00+09:00"
+      },
+      {
+        "metric": "health_assessment_item",
+        "metric_type": "blood_pressure",
+        "label": "혈압",
+        "current_value": 70,
+        "previous_value": 90,
+        "unit": "점",
+        "measured_at": "2026-09-03T09:00:00+09:00",
+        "evaluation_status": "attention"
       }
     ],
     "required_data": [],
