@@ -12,7 +12,7 @@ class ChatRateLimiter:
         if bucket not in {"requests", "answers"}:
             raise ValueError("Unknown chat quota")
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
                 response = await client.post(
                     f"{self.url}/rest/v1/rpc/consume_chat_rate_limit",
                     headers=self.headers,

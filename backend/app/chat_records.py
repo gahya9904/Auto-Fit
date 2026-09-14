@@ -85,7 +85,7 @@ async def answer_records(intent, period, url, headers, user_id):
         answer.update(content=message, response_source="need_more_data", needs_more_data=True, required_data=[required])
         return answer
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         if intent == "exercise_history":
             rows = await read_rows(client, url, headers, "exercise_sessions", {
                 "select": "exercise_session_id,started_at,total_duration_seconds,total_calories_burned,completed_item_count",
