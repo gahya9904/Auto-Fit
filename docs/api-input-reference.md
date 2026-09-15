@@ -510,8 +510,9 @@ OpenAPI에 명시된 상태 코드: 201, 422. 런타임 인증·상태·DB 오�
 
 | 필드 | 필수 | 타입 | 조건 |
 |---|---|---|---|
-| goal_type | 예 | string | enum=["weight_loss","muscle_gain","endurance","maintenance","rehabilitation"] |
+| goal_type | 예 | string | enum=["weight_loss","muscle_gain","endurance","maintenance","rehabilitation","other"] |
 | experience_level | 예 | string | enum=["beginner","intermediate","advanced"] |
+| custom_goal | 조건부 | string 또는 null | 최대 200자; other일 때 공백 제거 후 비어 있으면 422; 일반 목표에서는 null로 초기화 |
 
 ### ExerciseRecommendationContextRequest
 

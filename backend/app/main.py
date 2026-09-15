@@ -182,8 +182,25 @@ class ExercisePreferencesRequest(BaseModel):
         "endurance",
         "maintenance",
         "rehabilitation",
+        "other",
     ]
     experience_level: Literal["beginner", "intermediate", "advanced"]
+    custom_goal: str | None = Field(default=None, max_length=200)
+
+    @field_validator("custom_goal")
+    @classmethod
+    def normalize_custom_goal(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def validate_custom_goal(self) -> "ExercisePreferencesRequest":
+        if self.goal_type == "other" and self.custom_goal is None:
+            raise ValueError("custom_goal is required for other goals")
+        if self.goal_type != "other":
+            self.custom_goal = None
+        return self
 
 
 class ExerciseRecommendationContextRequest(BaseModel):
@@ -609,7 +626,7 @@ async def fetch_exercise_preferences(
 ) -> dict[str, Any] | None:
     params = {
         "select": (
-            "user_exercise_profile_id,user_id,goal_type,experience_level,"
+            "user_exercise_profile_id,user_id,goal_type,experience_level,custom_goal,"
             "created_at,updated_at"
         ),
         "user_id": f"eq.{user_id}",
@@ -641,7 +658,7 @@ async def upsert_exercise_preferences(
     params = {
         "on_conflict": "user_id",
         "select": (
-            "user_exercise_profile_id,user_id,goal_type,experience_level,"
+            "user_exercise_profile_id,user_id,goal_type,experience_level,custom_goal,"
             "created_at,updated_at"
         ),
     }
@@ -864,6 +881,7 @@ def build_exercise_recommendation_plan(
         "endurance": "체력 향상",
         "maintenance": "건강 유지",
         "rehabilitation": "컨디셔닝 / 기능 회복",
+        "other": preferences.get("custom_goal") or "기타",
     }
     return {
         "recommendation": {
@@ -875,6 +893,8 @@ def build_exercise_recommendation_plan(
             "ai_reason": (
                 "기본 프로필의 활동 수준, 운동 목표, 경험 수준, 사용 가능 시간과 "
                 "장비, 현재 컨디션 및 불편 부위를 반영한 규칙 기반 테스트 추천입니다."
+                + (" 기타 목표는 입력 내용을 표시하고 기본 걷기 루틴을 제공합니다."
+                   if goal == "other" else "")
             ),
         },
         "items": items,
