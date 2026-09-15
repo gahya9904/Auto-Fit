@@ -102,11 +102,12 @@ const experienceOptions: ExperienceOption[] = [
   { id: 'advanced', label: '고급', description: '(2년 이상)', icon: MedalIcon },
 ];
 
-const exerciseGoalApiMap: Partial<Record<ExerciseGoal, ExerciseGoalType>> = {
+const exerciseGoalApiMap: Record<ExerciseGoal, ExerciseGoalType> = {
   'fat-loss': 'weight_loss',
   'muscle-gain': 'muscle_gain',
   stamina: 'endurance',
   conditioning: 'rehabilitation',
+  custom: 'other',
 };
 
 export default function SignUpStep4Screen() {
@@ -186,15 +187,17 @@ export default function SignUpStep4Screen() {
   const completeSignup = async () => {
     if (completeInFlightRef.current) return;
 
-    const goalType = exerciseGoalApiMap[exerciseGoal];
-    if (!goalType) {
-      // TODO(backend): ExercisePreferencesRequest가 사용자 정의 goal 값을 지원하면 customGoal을 전송합니다.
-      Alert.alert(
-        '운동 목표를 확인해 주세요',
-        '기타 운동 목표는 현재 서버에서 저장할 수 없습니다. 제공된 운동 목표 중 하나를 선택해 주세요.',
-      );
+    const trimmedCustomGoal = customGoal.trim();
+    if (exerciseGoal === 'custom' && !trimmedCustomGoal) {
+      Alert.alert('운동 목표를 확인해 주세요', '기타 운동 목표를 입력해 주세요.');
       return;
     }
+    if (exerciseGoal === 'custom' && trimmedCustomGoal.length > 200) {
+      Alert.alert('운동 목표를 확인해 주세요', '운동 목표는 200자 이하로 입력해 주세요.');
+      return;
+    }
+    const goalType = exerciseGoalApiMap[exerciseGoal];
+    const customGoalForRequest = exerciseGoal === 'custom' ? trimmedCustomGoal : null;
     if (!draft.name || !draft.birthDate) {
       Alert.alert('회원가입 정보가 없습니다', 'Step1부터 회원가입 정보를 다시 입력해 주세요.');
       router.replace('/signup/step1');
@@ -205,13 +208,13 @@ export default function SignUpStep4Screen() {
     setIsCompleting(true);
     Keyboard.dismiss();
     try {
-      updateDraft({ exerciseGoal, exerciseExperience, customGoal: customGoal.trim() });
+      updateDraft({ exerciseGoal, exerciseExperience, customGoal: trimmedCustomGoal });
       await saveProfile({
         name: draft.name,
         birthDate: draft.birthDate,
         gender: draft.gender,
       });
-      await saveExercisePreferences(goalType, exerciseExperience);
+      await saveExercisePreferences(goalType, exerciseExperience, customGoalForRequest);
       await completeOnboarding();
       resetDraft();
       router.replace('/login');
@@ -375,6 +378,7 @@ function CustomGoalInput({
           onBlur={onBlur}
           onChangeText={onChangeText}
           onFocus={onFocus}
+          maxLength={200}
           placeholder="기타 / 운동 목표를 입력해 주세요"
           placeholderTextColor={colors.textDisabled}
           returnKeyType="done"

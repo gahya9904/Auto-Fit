@@ -1,7 +1,7 @@
 import { ApiError, apiRequest } from '@/src/api/client';
 
 export type ExerciseGoalType =
-  'weight_loss' | 'muscle_gain' | 'endurance' | 'maintenance' | 'rehabilitation';
+  'weight_loss' | 'muscle_gain' | 'endurance' | 'maintenance' | 'rehabilitation' | 'other';
 export type ExerciseExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
 
 interface ProfileInput {
@@ -94,10 +94,15 @@ export async function saveAllergies(selectedAllergens: string[], otherAllergy: s
 export async function saveExercisePreferences(
   goalType: ExerciseGoalType,
   experienceLevel: ExerciseExperienceLevel,
+  customGoal: string | null,
 ) {
   return apiRequest('/api/exercise/preferences', {
     method: 'PUT',
-    body: JSON.stringify({ goal_type: goalType, experience_level: experienceLevel }),
+    body: JSON.stringify({
+      goal_type: goalType,
+      custom_goal: customGoal,
+      experience_level: experienceLevel,
+    }),
   });
 }
 
