@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ComponentType } from 'react';
 import { useRouter } from 'expo-router';
 import {
+  Alert,
   Dimensions,
   Keyboard,
   Platform,
@@ -28,7 +29,9 @@ import ShellfishIcon from '@/assets/icons/food/Shellfish.svg';
 import SoybeanIcon from '@/assets/icons/food/Soybean.svg';
 import CheckCircleFillIcon from '@/assets/icons/system/CheckCircle_Fill.svg';
 import WarningIcon from '@/assets/icons/system/WarningCircle.svg';
+import { getSignupApiErrorMessage, saveAllergies } from '@/src/api/onboarding';
 import { SignUpScreenLayout, SignUpSection } from '@/src/components/auth';
+import { useSignup } from '@/src/features/signup/SignupContext';
 import { colors, fontFamilies, radius, typography } from '@/src/theme';
 
 interface AllergenOption {
@@ -75,14 +78,17 @@ const signUpBrandVisualHeight = 144;
 
 export default function SignUpStep3Screen() {
   const router = useRouter();
+  const { draft, updateDraft } = useSignup();
   const { height: windowHeight } = useWindowDimensions();
   const otherAllergyInputRef = useRef<TextInput>(null);
-  const [selectedAllergens, setSelectedAllergens] = useState<string[]>(['milk']);
-  const [otherAllergy, setOtherAllergy] = useState('');
+  const saveInFlightRef = useRef(false);
+  const [selectedAllergens, setSelectedAllergens] = useState<string[]>(draft.selectedAllergens);
+  const [otherAllergy, setOtherAllergy] = useState(draft.otherAllergy);
   const [descriptionHeight, setDescriptionHeight] = useState(referenceDescriptionHeight);
   const [isOtherAllergyFocused, setIsOtherAllergyFocused] = useState(false);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [keyboardContentOffset, setKeyboardContentOffset] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
   const screenHeight = Dimensions.get('screen').height;
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
   const heightProgress = Math.max(
@@ -152,14 +158,38 @@ export default function SignUpStep3Screen() {
     );
   };
 
+  const goNext = async () => {
+    if (saveInFlightRef.current) return;
+    if (otherAllergy.trim().length > 50) {
+      Alert.alert('기타 알레르기를 확인해 주세요', '기타 알레르기는 50자 이하로 입력해 주세요.');
+      return;
+    }
+
+    saveInFlightRef.current = true;
+    setIsSaving(true);
+    Keyboard.dismiss();
+    try {
+      await saveAllergies(selectedAllergens, otherAllergy);
+      updateDraft({ selectedAllergens, otherAllergy: otherAllergy.trim() });
+      router.push('/signup/step4');
+    } catch (error) {
+      console.error('알레르기 저장 실패:', error);
+      Alert.alert('알레르기 정보를 저장하지 못했습니다', getSignupApiErrorMessage(error));
+    } finally {
+      saveInFlightRef.current = false;
+      setIsSaving(false);
+    }
+  };
+
   return (
     <SignUpScreenLayout
       alignStepCta
       ctaLabel="다음"
+      ctaLoading={isSaving}
       contentOffsetY={keyboardContentOffset}
       currentStep={3}
       onBack={() => router.back()}
-      onContinue={() => router.push('/signup/step4')}
+      onContinue={() => void goNext()}
     >
       <SignUpSection
         innerStyle={[styles.explanation, { gap: explanationGap }]}

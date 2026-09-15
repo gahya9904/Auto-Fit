@@ -111,16 +111,20 @@ export function DraggableAIChatButton({
     y: maximumY,
   });
   const centerButtonX = (containerSize.width - AI_CHAT_BUTTON_SIZE) / 2;
-  const contentOffsetX = position.x.interpolate({
-    extrapolate: 'clamp',
-    inputRange: [
-      leftSnapX,
-      centerButtonX - centerDeadZone,
-      centerButtonX + centerDeadZone,
-      rightSnapX,
-    ],
-    outputRange: [snapContentOffset, 0, 0, -snapContentOffset],
-  });
+  const contentOffsetX =
+    centerButtonX - centerDeadZone >= leftSnapX &&
+    rightSnapX >= centerButtonX + centerDeadZone
+      ? position.x.interpolate({
+          extrapolate: 'clamp',
+          inputRange: [
+            leftSnapX,
+            centerButtonX - centerDeadZone,
+            centerButtonX + centerDeadZone,
+            rightSnapX,
+          ],
+          outputRange: [snapContentOffset, 0, 0, -snapContentOffset],
+        })
+      : 0;
 
   useEffect(() => {
     const nextX = settledPosition.side === 'left' ? leftSnapX : rightSnapX;

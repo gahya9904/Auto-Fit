@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { ExerciseRoutineProvider } from '@/src/features/exercise/ExerciseRoutineContext';
 import { fontAssets } from '@/src/theme';
 
 void SplashScreen.preventAutoHideAsync();
@@ -28,7 +29,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       {Platform.OS === 'android' ? <ExpoNavigationBar hidden /> : null}
-      <Stack screenOptions={{ headerShown: false }} />
+      <ExerciseRoutineProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </ExerciseRoutineProvider>
     </SafeAreaProvider>
   );
 }

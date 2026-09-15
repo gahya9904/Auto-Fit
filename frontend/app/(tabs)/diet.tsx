@@ -822,7 +822,10 @@ const MealCard = memo(function MealCard({
     <Pressable
       accessibilityState={{ expanded }}
       onPress={() => onToggle(meal.id)}
-      style={[styles.mealCard]}
+      style={[
+        styles.mealCard,
+        Platform.OS === 'web' && styles.mealCardWeb,
+      ]}
     >
       {displayedStatus === 'eaten' ? (
         <View pointerEvents="none" style={[styles.selectedCardBorder, styles.eatenCardBorder]} />
@@ -978,6 +981,7 @@ export default function DietScreen() {
     getBottomNavigationVisualHeight(windowHeight) +
     Math.max(insets.bottom, BOTTOM_NAVIGATION_MIN_BOTTOM_GAP) +
     16;
+  
   const indicator = useCustomScrollIndicator({ showInitially: true });
   const selectedStatuses = statusesByDate[selectedDateKey] ?? defaultMealStatuses;
   const selectedDate = addDays(today, selectedDateOffset);
@@ -1651,11 +1655,12 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     zIndex: 10,
   },
-
+  mealCardWeb: {
+    overflow: 'hidden',
+  },
   eatenCardBorder: {
     borderColor: '#49CDB1',
   },
-
   modifiedCardBorder: {
     borderColor: '#5FA0FB',
   },

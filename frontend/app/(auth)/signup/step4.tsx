@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ComponentType, type RefObject } from 'react';
 import { useRouter } from 'expo-router';
 import {
+  Alert,
   Dimensions,
   Image,
   Keyboard,
@@ -21,7 +22,19 @@ import PlantIcon from '@/assets/icons/deco/Plant.svg';
 import TargetIcon from '@/assets/icons/deco/Target.svg';
 import ChartBarIcon from '@/assets/icons/graph/ChartBar.svg';
 import CheckCircleIcon from '@/assets/icons/system/CheckCircle_Fill.svg';
+import {
+  completeOnboarding,
+  getSignupApiErrorMessage,
+  saveExercisePreferences,
+  saveProfile,
+  type ExerciseGoalType,
+} from '@/src/api/onboarding';
 import { SignUpScreenLayout, SignUpSection } from '@/src/components/auth';
+import {
+  useSignup,
+  type SignupExerciseExperience,
+  type SignupExerciseGoal,
+} from '@/src/features/signup/SignupContext';
 import { colors, fontFamilies, radius } from '@/src/theme';
 
 const bodyFatLossImage = require('../../../assets/images/illustrations/exercise/goals/Body_Fat_Loss.png');
@@ -38,9 +51,9 @@ const conditioningGrayImage = require('../../../assets/images/illustrations/exer
 const minimumScreenHeight = 740;
 const maximumScreenHeight = 917;
 
-type ExerciseGoal = 'fat-loss' | 'muscle-gain' | 'stamina' | 'conditioning' | 'custom';
+type ExerciseGoal = SignupExerciseGoal;
 
-type ExerciseExperience = 'beginner' | 'intermediate' | 'advanced';
+type ExerciseExperience = SignupExerciseExperience;
 
 interface GoalOption {
   id: ExerciseGoal;
@@ -89,16 +102,28 @@ const experienceOptions: ExperienceOption[] = [
   { id: 'advanced', label: '고급', description: '(2년 이상)', icon: MedalIcon },
 ];
 
+const exerciseGoalApiMap: Partial<Record<ExerciseGoal, ExerciseGoalType>> = {
+  'fat-loss': 'weight_loss',
+  'muscle-gain': 'muscle_gain',
+  stamina: 'endurance',
+  conditioning: 'rehabilitation',
+};
+
 export default function SignUpStep4Screen() {
   const router = useRouter();
+  const { draft, resetDraft, updateDraft } = useSignup();
   const { height: windowHeight } = useWindowDimensions();
   const customGoalInputRef = useRef<TextInput>(null);
-  const [exerciseGoal, setExerciseGoal] = useState<ExerciseGoal>('fat-loss');
-  const [exerciseExperience, setExerciseExperience] = useState<ExerciseExperience>('beginner');
-  const [customGoal, setCustomGoal] = useState('');
+  const completeInFlightRef = useRef(false);
+  const [exerciseGoal, setExerciseGoal] = useState<ExerciseGoal>(draft.exerciseGoal);
+  const [exerciseExperience, setExerciseExperience] = useState<ExerciseExperience>(
+    draft.exerciseExperience,
+  );
+  const [customGoal, setCustomGoal] = useState(draft.customGoal);
   const [isCustomGoalFocused, setIsCustomGoalFocused] = useState(false);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [keyboardContentOffset, setKeyboardContentOffset] = useState(0);
+  const [isCompleting, setIsCompleting] = useState(false);
   const screenHeight = Dimensions.get('screen').height;
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
   const heightProgress = Math.max(
@@ -145,6 +170,7 @@ export default function SignUpStep4Screen() {
 
   const selectGoal = (goal: ExerciseGoal) => {
     setExerciseGoal(goal);
+    updateDraft({ exerciseGoal: goal });
     if (goal !== 'custom') {
       setIsCustomGoalFocused(false);
       setKeyboardContentOffset(0);
@@ -152,14 +178,61 @@ export default function SignUpStep4Screen() {
     }
   };
 
+  const selectExperience = (experience: ExerciseExperience) => {
+    setExerciseExperience(experience);
+    updateDraft({ exerciseExperience: experience });
+  };
+
+  const completeSignup = async () => {
+    if (completeInFlightRef.current) return;
+
+    const goalType = exerciseGoalApiMap[exerciseGoal];
+    if (!goalType) {
+      // TODO(backend): ExercisePreferencesRequest가 사용자 정의 goal 값을 지원하면 customGoal을 전송합니다.
+      Alert.alert(
+        '운동 목표를 확인해 주세요',
+        '기타 운동 목표는 현재 서버에서 저장할 수 없습니다. 제공된 운동 목표 중 하나를 선택해 주세요.',
+      );
+      return;
+    }
+    if (!draft.name || !draft.birthDate) {
+      Alert.alert('회원가입 정보가 없습니다', 'Step1부터 회원가입 정보를 다시 입력해 주세요.');
+      router.replace('/signup/step1');
+      return;
+    }
+
+    completeInFlightRef.current = true;
+    setIsCompleting(true);
+    Keyboard.dismiss();
+    try {
+      updateDraft({ exerciseGoal, exerciseExperience, customGoal: customGoal.trim() });
+      await saveProfile({
+        name: draft.name,
+        birthDate: draft.birthDate,
+        gender: draft.gender,
+      });
+      await saveExercisePreferences(goalType, exerciseExperience);
+      await completeOnboarding();
+      resetDraft();
+      router.replace('/login');
+    } catch (error) {
+      console.error('회원가입 완료 처리 실패:', error);
+      Alert.alert('회원가입을 완료하지 못했습니다', getSignupApiErrorMessage(error));
+    } finally {
+      completeInFlightRef.current = false;
+      setIsCompleting(false);
+    }
+  };
+
   return (
     <SignUpScreenLayout
       ctaLabel="회원가입 완료"
+      ctaLoading={isCompleting}
       ctaTop={verticalValue(830, 772)}
       contentOffsetY={keyboardContentOffset}
       currentStep={4}
       onBack={() => router.back()}
-      onContinue={() => router.replace('/login')}
+      onContinue={() => void completeSignup()}
     >
       <SignUpSection innerStyle={styles.content} top={verticalValue(285, 242)}>
         <View style={styles.optionSection}>
@@ -183,9 +256,13 @@ export default function SignUpStep4Screen() {
                 setIsCustomGoalFocused(false);
                 setKeyboardContentOffset(0);
               }}
-              onChangeText={setCustomGoal}
+              onChangeText={(value) => {
+                setCustomGoal(value);
+                updateDraft({ customGoal: value });
+              }}
               onFocus={() => {
                 setExerciseGoal('custom');
+                updateDraft({ exerciseGoal: 'custom' });
                 setIsCustomGoalFocused(true);
               }}
               selected={exerciseGoal === 'custom'}
@@ -204,7 +281,7 @@ export default function SignUpStep4Screen() {
             {experienceOptions.map((option) => (
               <ExperienceButton
                 key={option.id}
-                onPress={() => setExerciseExperience(option.id)}
+                onPress={() => selectExperience(option.id)}
                 option={option}
                 selected={exerciseExperience === option.id}
               />
@@ -512,7 +589,7 @@ const styles = StyleSheet.create({
   experienceLabel: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 12,
+    fontSize: 14,
     includeFontPadding: false,
     lineHeight: 15,
     textAlign: 'center',
@@ -520,7 +597,7 @@ const styles = StyleSheet.create({
   experienceDescription: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 10,
+    fontSize: 12,
     includeFontPadding: false,
     lineHeight: 15,
     textAlign: 'center',

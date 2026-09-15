@@ -36,6 +36,8 @@ export interface SignUpScreenLayoutProps {
   contentOffsetY?: number;
   ctaTop?: number;
   alignStepCta?: boolean;
+  ctaDisabled?: boolean;
+  ctaLoading?: boolean;
 }
 
 export interface SignUpSectionProps {
@@ -62,6 +64,8 @@ export function SignUpScreenLayout({
   contentOffsetY = 0,
   ctaTop,
   alignStepCta = false,
+  ctaDisabled = false,
+  ctaLoading = false,
 }: SignUpScreenLayoutProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
@@ -118,7 +122,9 @@ export function SignUpScreenLayout({
               {children}
               <SignUpSection top={ctaTop ?? verticalValue(760, alignStepCta ? 696 : 660)}>
                 <AppButton
+                  disabled={ctaDisabled}
                   labelStyle={alignStepCta ? styles.stepCtaLabel : undefined}
+                  loading={ctaLoading}
                   onPress={onContinue}
                   title={ctaLabel}
                 />

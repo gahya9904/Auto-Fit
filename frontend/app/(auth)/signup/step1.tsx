@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
   Dimensions,
+  Alert,
   Keyboard,
   Platform,
   Pressable,
@@ -24,9 +25,12 @@ import UserIcon from '@/assets/icons/input/User.svg';
 import CheckIcon from '@/assets/icons/system/Check.svg';
 import { BirthDatePicker, SignUpScreenLayout, SignUpSection } from '@/src/components/auth';
 import { AppTextField, IconButton, SelectField } from '@/src/components/common';
+import { useSignup, type SignupGender } from '@/src/features/signup/SignupContext';
+import { getSignupAuthErrorMessage } from '@/src/features/signup/signupAuthError';
+import { getSupabaseClient } from '@/src/lib/supabase';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
-type Gender = 'male' | 'female';
+type Gender = SignupGender;
 type Step1InputKey = 'email' | 'password' | 'confirm-password' | 'name';
 
 const minimumScreenHeight = 740;
@@ -43,27 +47,79 @@ function formatBirthday(date: Date) {
   return `${year}.${month}.${day}`;
 }
 
+function formatBirthDateForApi(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseBirthDate(value: string | null) {
+  return value ? new Date(`${value}T00:00:00`) : undefined;
+}
+
+function getValidationMessage({
+  email,
+  password,
+  confirmPassword,
+  name,
+  birthday,
+  gender,
+  agreed,
+}: {
+  email: string;
+  password: string;
+  confirmPassword: string;
+  name: string;
+  birthday?: Date;
+  gender?: Gender;
+  agreed: boolean;
+}) {
+  if (!email.trim()) return '이메일을 입력해 주세요.';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+    return '올바른 이메일 형식을 입력해 주세요.';
+  if (!password) return '비밀번호를 입력해 주세요.';
+  if (
+    password.length < 8 ||
+    !/[a-z]/.test(password) ||
+    !/[A-Z]/.test(password) ||
+    !/\d/.test(password) ||
+    !/[^A-Za-z0-9]/.test(password)
+  ) {
+    return '비밀번호는 8자 이상이며 영문, 숫자, 특수문자를 포함해야 합니다.';
+  }
+  if (password !== confirmPassword) return '비밀번호와 비밀번호 확인이 일치하지 않습니다.';
+  if (!birthday) return '생년월일을 선택해 주세요.';
+  if (!name.trim()) return '이름을 입력해 주세요.';
+  if (!gender) return '성별을 선택해 주세요.';
+  if (!agreed) return '회원가입을 위해 약관에 동의해 주세요.';
+  return undefined;
+}
+
 export default function SignUpStep1Screen() {
   const router = useRouter();
+  const { draft, updateDraft } = useSignup();
   const { height: windowHeight } = useWindowDimensions();
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const confirmPasswordRef = useRef<TextInput>(null);
   const nameRef = useRef<TextInput>(null);
   const focusedInputRef = useRef<TextInput | null>(null);
-  const [email, setEmail] = useState('');
+  const submitInFlightRef = useRef(false);
+  const [email, setEmail] = useState(draft.email);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [name, setName] = useState('');
-  const [birthday, setBirthday] = useState<Date>();
+  const [name, setName] = useState(draft.name);
+  const [birthday, setBirthday] = useState<Date | undefined>(() => parseBirthDate(draft.birthDate));
   const [birthdayPickerVisible, setBirthdayPickerVisible] = useState(false);
-  const [gender, setGender] = useState<Gender>('male');
+  const [gender, setGender] = useState<Gender>(draft.gender);
   const [agreed, setAgreed] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
   const [focusedInputKey, setFocusedInputKey] = useState<Step1InputKey | null>(null);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [keyboardContentOffset, setKeyboardContentOffset] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const screenHeight = Dimensions.get('screen').height;
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
   const heightProgress = Math.max(
@@ -120,8 +176,62 @@ export default function SignUpStep1Screen() {
     else router.replace('/login');
   };
 
-  const goNext = () => {
-    router.push({ pathname: '/signup/step2', params: { email: email || 'user@example.com' } });
+  const goNext = async () => {
+    if (submitInFlightRef.current) return;
+
+    const validationMessage = getValidationMessage({
+      email,
+      password,
+      confirmPassword,
+      name,
+      birthday,
+      gender,
+      agreed,
+    });
+    if (validationMessage) {
+      Alert.alert('입력 정보를 확인해 주세요', validationMessage);
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const birthDate = formatBirthDateForApi(birthday!);
+    submitInFlightRef.current = true;
+    setIsSubmitting(true);
+    Keyboard.dismiss();
+
+    try {
+      console.log('회원가입 요청 확인', {
+        rawEmail: email,
+        normalizedEmail,
+        emailLength: normalizedEmail.length,
+      });
+
+      const { data, error } = await getSupabaseClient().auth.signUp({
+        email: normalizedEmail,
+        password,
+      });
+      if (error) throw error;
+      if (data.user && data.user.identities?.length === 0) {
+        throw new Error('이미 가입된 이메일입니다. 로그인하거나 다른 이메일을 사용해 주세요.');
+      }
+
+      updateDraft({ email: normalizedEmail, name: name.trim(), birthDate, gender });
+
+      if (data.session) {
+        router.push('/signup/step3');
+      } else {
+        router.push({ pathname: '/signup/step2', params: { email: normalizedEmail } });
+      }
+    } catch (error) {
+      console.error('회원가입 시작 실패:', error);
+      Alert.alert(
+        '회원가입을 시작하지 못했습니다',
+        getSignupAuthErrorMessage(error, '잠시 후 다시 시도해 주세요.'),
+      );
+    } finally {
+      submitInFlightRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const openBirthdayPicker = () => {
@@ -132,6 +242,7 @@ export default function SignUpStep1Screen() {
     <SignUpScreenLayout
       alignStepCta
       ctaLabel="다음"
+      ctaLoading={isSubmitting}
       contentOffsetY={keyboardContentOffset}
       currentStep={1}
       onBack={goBack}
