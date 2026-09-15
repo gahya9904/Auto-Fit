@@ -10,7 +10,9 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import ArrowRightShortIcon from '@/assets/icons/common/ArrowRight_Short.svg';
 import RightIcon from '@/assets/icons/common/chevrons/Right.svg';
 import BmrIcon from '@/assets/icons/data/BMR.svg';
 import BarbellIcon from '@/assets/icons/deco/Barbell.svg';
@@ -52,19 +54,27 @@ const heroCopy = {
 
 export default function ExerciseScreen() {
   const router = useRouter();
-  const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { status } = useExerciseRoutine();
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
   const heightProgress = Math.max(0, Math.min(1, (responsiveHeight - 740) / (917 - 740)));
   const verticalValue = (expanded: number, compact: number) =>
     compact + (expanded - compact) * heightProgress;
+  const availableWidth = windowWidth - insets.left - insets.right;
+  const dietWidthScale = Math.min(1, availableWidth / 412);
+  const frameWidthScale = Math.min(1, windowWidth / 412);
+  const dietCanvasTop = Math.max(0, insets.top + 8 - 38 * dietWidthScale);
+  const titleTop =
+    (dietCanvasTop + verticalValue(38, 30) * dietWidthScale) /
+    Math.max(frameWidthScale, 0.01);
   const layout = {
     contentHeight: verticalValue(818, 743),
     heroBadgeTop: verticalValue(39, 25),
     heroHeight: verticalValue(220, 205),
     heroImageTop: verticalValue(10, 5),
     heroTitleTop: verticalValue(78, 58),
-    heroTop: verticalValue(70, 58),
+    heroTop: verticalValue(74, 62),
     menuHeight: verticalValue(65, 61),
     menuTop: verticalValue(613, 550),
     recentCardHeight: verticalValue(110, 100),
@@ -75,7 +85,7 @@ export default function ExerciseScreen() {
     summaryCardPadding: verticalValue(15, 10),
     summaryCardTop: verticalValue(334, 303),
     summaryTitleTop: verticalValue(305, 276),
-    titleTop: verticalValue(38, 32),
+    titleTop,
   };
   const hero = heroCopy[status];
   const summary = useMemo(
@@ -121,7 +131,17 @@ export default function ExerciseScreen() {
           style={[styles.heroImage, { top: layout.heroImageTop }]}
         />
         <View style={styles.heroButton}>
-          <ExerciseActionButton compact gradient onPress={handleHeroAction} title={hero.action} />
+          <ExerciseActionButton
+            compact
+            gradient
+            icon={
+              <View style={styles.heroArrowCircle}>
+                <ArrowRightShortIcon color={colors.primary} height={16} width={16} />
+              </View>
+            }
+            onPress={handleHeroAction}
+            title={hero.action}
+          />
         </View>
       </View>
       <Text style={[styles.sectionTitle, { top: layout.summaryTitleTop }]}>
@@ -252,6 +272,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     includeFontPadding: false,
     letterSpacing: 0.75,
+  },
+  heroArrowCircle: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 999,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
   },
   heroButton: { bottom: 16, left: 20, position: 'absolute', right: 20 },
   heroCard: {

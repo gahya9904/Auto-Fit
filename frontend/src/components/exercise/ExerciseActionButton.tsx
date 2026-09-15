@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
@@ -29,6 +29,7 @@ export function ExerciseActionButton({
   variant = 'primary',
 }: ExerciseActionButtonProps) {
   const secondary = variant === 'secondary';
+  const gradientId = `exercise-cta-gradient-${useId().replace(/:/g, '')}`;
   return (
     <Pressable
       accessibilityRole="button"
@@ -45,31 +46,33 @@ export function ExerciseActionButton({
       {!secondary && gradient ? (
         <Svg height="100%" pointerEvents="none" style={styles.gradient} width="100%">
           <Defs>
-            <LinearGradient id="exerciseCtaGradient" x1="0" x2="1" y1="0.45" y2="0.55">
+            <LinearGradient id={gradientId} x1="0" x2="1" y1="0.45" y2="0.55">
               <Stop offset="0" stopColor="#4DCC95" />
               <Stop offset="0.32" stopColor="#46C5A1" />
               <Stop offset="1" stopColor="#3EBFA4" />
             </LinearGradient>
           </Defs>
-          <Rect fill="url(#exerciseCtaGradient)" height="100%" rx={borderRadius ?? 50} width="100%" />
+          <Rect fill={`url(#${gradientId})`} height="100%" rx={borderRadius ?? 50} width="100%" />
         </Svg>
       ) : null}
-      {icon}
-      <Text
-        style={[
-          styles.label,
-          compact && styles.compactLabel,
-          secondary && styles.secondaryLabel,
-          labelStyle,
-        ]}
-      >
-        {title}
-      </Text>
-      {!secondary && !icon ? (
-        <View style={styles.arrowCircle}>
-          <ArrowRight color={colors.primary} fill={colors.primary} height={16} width={16} />
-        </View>
-      ) : null}
+      <View pointerEvents="none" style={[styles.foreground, gap !== undefined && { gap }]}>
+        {icon}
+        <Text
+          style={[
+            styles.label,
+            compact && styles.compactLabel,
+            secondary && styles.secondaryLabel,
+            labelStyle,
+          ]}
+        >
+          {title}
+        </Text>
+        {!secondary && !icon ? (
+          <View style={styles.arrowCircle}>
+            <ArrowRight color={colors.primary} fill={colors.primary} height={16} width={16} />
+          </View>
+        ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -103,7 +106,14 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   compactLabel: { fontSize: 17, letterSpacing: 0.85, lineHeight: 17 },
-  gradient: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  foreground: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    position: 'relative',
+    zIndex: 1,
+  },
+  gradient: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 0 },
   label: {
     color: colors.surface,
     fontFamily: fontFamilies.pretendardBold,

@@ -3,8 +3,8 @@ export type ExerciseLocation = 'gym' | 'home' | 'outdoor' | 'other';
 export type ExerciseEquipment = 'machine' | 'band' | 'dumbbell' | 'bodyweight' | 'other';
 
 export interface ExerciseCondition {
-  availableMinutes: number;
-  location: ExerciseLocation;
+  availableMinutes: number | null;
+  location: ExerciseLocation | null;
   equipment: ExerciseEquipment[];
   condition: string;
   discomfortArea: string;
@@ -26,9 +26,9 @@ export interface ExerciseRoutine {
 }
 
 export const initialExerciseCondition: ExerciseCondition = {
-  availableMinutes: 60,
-  location: 'gym',
-  equipment: ['machine', 'band', 'bodyweight'],
+  availableMinutes: null,
+  location: null,
+  equipment: [],
   condition: '',
   discomfortArea: '',
 };
