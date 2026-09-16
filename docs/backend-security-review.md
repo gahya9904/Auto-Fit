@@ -15,7 +15,7 @@
 | Host Header 공격 | `BACKEND_ALLOWED_HOSTS` 허용 목록 외 Host 거부 | 허용되지 않은 Host가 400인지 테스트 |
 | 과도한 요청 본문 | 기본 1 MiB 요청 본문 상한 | 제한 초과 요청이 인증·본문 파싱 전에 413인지 테스트 |
 | 오류를 통한 개인정보 노출 | 검증 오류에서 실제 입력값을 제거하고 필드 위치만 반환 | 비밀 표식 문자열이 응답에 포함되지 않는지 테스트 |
-| 운영 공격 표면 | 운영 환경에서 대화형 API 문서와 테스트용 roundtrip API 비활성화 | Render 환경변수 및 배포 후 404 확인 |
+| 운영 공격 표면 | 공유 개발 서버의 API 문서는 팀 연동을 위해 공개하고 테스트용 roundtrip API는 비활성화 | Render 환경변수와 배포 후 문서 200·테스트 경로 404 확인 |
 | 공급망 취약점 | CI에서 `pip-audit`, Bandit 및 전체 백엔드 테스트 실행 | GitHub Actions `Backend security` 결과 |
 
 ## Supabase 권한 모델
@@ -56,7 +56,9 @@ Bandit 1.9.4로 `backend/app`을 검사해 보안 경고 0건을 확인했다.
 
 - Supabase Auth의 유출 비밀번호 보호가 활성 상태인지 확인한다.
 - Security Advisor의 ERROR/WARN을 확인하고, RLS 정책 없음 INFO는 서버 전용 권한 철회가 유지되는지 검증한다.
-- Render에서 `/docs`, `/redoc`, `/openapi.json`, `/api/test/roundtrip`이 404인지 확인한다.
+- 공유 개발 Render에서 `/docs`, `/redoc`, `/openapi.json`이 200인지 확인하고,
+  `/api/test/roundtrip`은 404인지 확인한다. 문서 공개 여부와 무관하게 보호 API의 JWT
+  인증·소유권 검사는 유지한다.
 - 실제 API 응답에 보안 헤더가 존재하고 HTTP가 HTTPS로 리다이렉트되는지 확인한다.
 - 서비스 키와 AI 공유키의 담당자, 교체 주기, 폐기 및 사고 대응 절차를 지정한다.
 

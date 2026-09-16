@@ -26,6 +26,6 @@ services:
       - key: MAX_REQUEST_BODY_BYTES
         value: "1048576"
       - key: API_DOCS_ENABLED
-        value: "false"
+        value: "true"
       - key: ENABLE_TEST_ENDPOINTS
         value: "false"
