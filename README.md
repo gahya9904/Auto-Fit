@@ -79,6 +79,10 @@ backend/.venv/bin/python -m backend.tests.diet_live_integration \
 - `GET /api/allergies`: 활성 알레르기 기준정보와 본인 선택 조회
 - `PUT /api/allergies`: 본인 알레르기 복수 선택을 트랜잭션으로 전체 교체
 - `POST /api/onboarding/complete`: 필수 프로필 입력 여부를 검사하고 회원가입 완료 시각 저장
+- `POST /api/health-documents`: 건강검진/인바디 PDF·이미지 업로드 및 수동 검토용 임시 OCR 결과 생성
+- `GET /api/health-documents/{uploaded_file_id}`: 본인 업로드 파일 메타데이터와 임시 OCR 결과 조회
+- `PATCH /api/health-documents/{uploaded_file_id}/ocr-result`: 추출값 수동 입력·수정
+- `POST /api/health-documents/{uploaded_file_id}/confirm`: 검토값을 건강검진 또는 체성분 데이터로 확정 저장
 - `GET /api/exercise/preferences`: 본인의 운동 목표와 경험 수준 조회
 - `PUT /api/exercise/preferences`: 본인의 운동 목표와 경험 수준 저장 또는 갱신
 - `GET /api/exercise/recommendation-contexts/latest`: 본인의 최근 운동 추천 입력 조건 조회

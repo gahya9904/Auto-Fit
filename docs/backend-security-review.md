@@ -13,7 +13,7 @@
 | 통신 구간 | 배포 API, Supabase 및 선택적 AI 서버에 HTTPS 사용, 서버 HTTP 클라이언트의 운영체제 프록시 자동 신뢰 차단 | 배포 주소·인증서와 `trust_env=False` 회귀 테스트 확인 |
 | 브라우저 기반 공격 | HSTS, nosniff, frame 차단, referrer·permissions policy, API 응답 캐시 금지 | `backend/tests/test_security.py` |
 | Host Header 공격 | `BACKEND_ALLOWED_HOSTS` 허용 목록 외 Host 거부 | 허용되지 않은 Host가 400인지 테스트 |
-| 과도한 요청 본문 | 기본 1 MiB 요청 본문 상한 | 제한 초과 요청이 인증·본문 파싱 전에 413인지 테스트 |
+| 과도한 요청 본문 | 기본 12 MiB 요청 본문 상한, 건강 문서는 별도 10 MiB 상한 | 제한 초과 요청이 인증·본문 파싱 전에 413인지 테스트 |
 | 오류를 통한 개인정보 노출 | 검증 오류에서 실제 입력값을 제거하고 필드 위치만 반환 | 비밀 표식 문자열이 응답에 포함되지 않는지 테스트 |
 | 운영 공격 표면 | 공유 개발 서버의 API 문서는 팀 연동을 위해 공개하고 테스트용 roundtrip API는 비활성화 | Render 환경변수와 배포 후 문서 200·테스트 경로 404 확인 |
 | 공급망 취약점 | CI에서 `pip-audit`, Bandit 및 전체 백엔드 테스트 실행 | GitHub Actions `Backend security` 결과 |

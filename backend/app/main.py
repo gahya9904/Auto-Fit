@@ -34,6 +34,7 @@ from backend.app.chat_model import get_model_config
 from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
 from backend.app.chat_rate_limit import ChatRateLimiter
+from backend.app.health_documents import create_health_documents_router
 from backend.app.security import (
     BlockedPathMiddleware,
     RequestBodyLimitMiddleware,
@@ -2740,6 +2741,12 @@ app.add_middleware(
     allowed_hosts=parse_allowed_hosts(os.getenv("BACKEND_ALLOWED_HOSTS")),
 )
 app.add_middleware(SecurityHeadersMiddleware)
+app.include_router(
+    create_health_documents_router(
+        current_user_dependency=get_current_user,
+        settings_dependency=get_settings,
+    )
+)
 
 
 @app.get("/health")

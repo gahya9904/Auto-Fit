@@ -5,6 +5,260 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/health-documents": {
+      "post": {
+        "tags": [
+          "health-documents"
+        ],
+        "summary": "Upload Health Document",
+        "operationId": "upload_health_document_api_health_documents_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_health_document_api_health_documents_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Upload Health Document Api Health Documents Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health-documents/{uploaded_file_id}": {
+      "get": {
+        "tags": [
+          "health-documents"
+        ],
+        "summary": "Get Health Document",
+        "operationId": "get_health_document_api_health_documents__uploaded_file_id__get",
+        "parameters": [
+          {
+            "name": "uploaded_file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Uploaded File Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Health Document Api Health Documents  Uploaded File Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health-documents/{uploaded_file_id}/ocr-result": {
+      "patch": {
+        "tags": [
+          "health-documents"
+        ],
+        "summary": "Update Health Document Result",
+        "operationId": "update_health_document_result_api_health_documents__uploaded_file_id__ocr_result_patch",
+        "parameters": [
+          {
+            "name": "uploaded_file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Uploaded File Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OCRResultUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Health Document Result Api Health Documents  Uploaded File Id  Ocr Result Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health-documents/{uploaded_file_id}/confirm": {
+      "post": {
+        "tags": [
+          "health-documents"
+        ],
+        "summary": "Confirm Health Document",
+        "operationId": "confirm_health_document_api_health_documents__uploaded_file_id__confirm_post",
+        "parameters": [
+          {
+            "name": "uploaded_file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Uploaded File Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Confirm Health Document Api Health Documents  Uploaded File Id  Confirm Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -1510,6 +1764,9 @@
     },
     "/api/diet/inventory": {
       "get": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Get Diet Inventory",
         "operationId": "get_diet_inventory_api_diet_inventory_get",
         "parameters": [
@@ -1556,6 +1813,9 @@
         }
       },
       "post": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Post Diet Inventory",
         "operationId": "post_diet_inventory_api_diet_inventory_post",
         "parameters": [
@@ -1614,6 +1874,9 @@
     },
     "/api/diet/inventory/{inventory_id}": {
       "patch": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Patch Diet Inventory",
         "operationId": "patch_diet_inventory_api_diet_inventory__inventory_id__patch",
         "parameters": [
@@ -1680,6 +1943,9 @@
         }
       },
       "delete": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Delete Diet Inventory",
         "operationId": "delete_diet_inventory_api_diet_inventory__inventory_id__delete",
         "parameters": [
@@ -1729,6 +1995,9 @@
     },
     "/api/diet/recommendations": {
       "get": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Get Diet Recommendation By Date",
         "operationId": "get_diet_recommendation_by_date_api_diet_recommendations_get",
         "parameters": [
@@ -1787,6 +2056,9 @@
     },
     "/api/diet/recommendations/latest": {
       "get": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Get Latest Diet Recommendation",
         "operationId": "get_latest_diet_recommendation_api_diet_recommendations_latest_get",
         "parameters": [
@@ -1835,6 +2107,9 @@
     },
     "/api/diet/nutrition-summary": {
       "get": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Get Diet Nutrition Summary",
         "operationId": "get_diet_nutrition_summary_api_diet_nutrition_summary_get",
         "parameters": [
@@ -1893,6 +2168,9 @@
     },
     "/api/diet/recommendations/generate": {
       "post": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Generate Diet Recommendation",
         "operationId": "generate_diet_recommendation_api_diet_recommendations_generate_post",
         "parameters": [
@@ -1951,6 +2229,9 @@
     },
     "/api/diet/meals/{diet_meal_id}/regenerate": {
       "post": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Regenerate Recommended Diet Meal",
         "operationId": "regenerate_recommended_diet_meal_api_diet_meals__diet_meal_id__regenerate_post",
         "parameters": [
@@ -2019,6 +2300,9 @@
     },
     "/api/diet/meals/{diet_meal_id}/feedback": {
       "post": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Post Diet Meal Feedback",
         "operationId": "post_diet_meal_feedback_api_diet_meals__diet_meal_id__feedback_post",
         "parameters": [
@@ -2087,6 +2371,9 @@
     },
     "/api/diet/meal-logs": {
       "get": {
+        "tags": [
+          "Diet"
+        ],
         "summary": "Get Diet Meal Logs",
         "operationId": "get_diet_meal_logs_api_diet_meal_logs_get",
         "parameters": [
@@ -2656,6 +2943,30 @@
         "additionalProperties": false,
         "type": "object",
         "title": "AllergySelectionRequest"
+      },
+      "Body_upload_health_document_api_health_documents_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "PDF, PNG, JPEG, or HEIC; max 10 MB"
+          },
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "health_checkup",
+              "body_composition"
+            ],
+            "title": "Document Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "document_type"
+        ],
+        "title": "Body_upload_health_document_api_health_documents_post"
       },
       "ChatAnswerPreviewRequest": {
         "properties": {
@@ -3435,6 +3746,21 @@
           "unit"
         ],
         "title": "MealLogItemRequest"
+      },
+      "OCRResultUpdateRequest": {
+        "properties": {
+          "extracted_data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Extracted Data"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "extracted_data"
+        ],
+        "title": "OCRResultUpdateRequest"
       },
       "ProfileUpdateRequest": {
         "properties": {

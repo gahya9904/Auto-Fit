@@ -1,12 +1,12 @@
 # Auto-Fit 프론트엔드 협업용 전체 API 안내
 
 기준일: 2026-09-16. 근거: `backend/app/main.py`, 챗봇 모듈, 저장소 SQL, 기존 검증 기록.
-현재 FastAPI operation은 **45개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
+현재 FastAPI operation은 **49개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
 
 ## 공유 파일
 
 - 이 문서: 화면별 API, 호출 순서, 응답 주요 경로, 예제, 미구현 영역.
-- [입력 필드 전체 참조](api-input-reference.md): 45개 operation의 파라미터·본문 필드·제약.
+- [입력 필드 전체 참조](api-input-reference.md): 49개 operation의 파라미터·본문 필드·제약.
 - [OpenAPI 원본](openapi.json): 코드에서 추출한 3.1 스키마. API 도구에 가져오기 가능.
 - [챗봇 상세 계약](chat-api-contract.md): 메시지·근거 전체 형식과 재전송 규칙.
 - [실연동 검증 기록](chat-integration-results.md): 실제 검증 범위와 한계.
@@ -33,6 +33,7 @@ OpenAPI는 요청 스키마에 유용하지만 대부분 응답은 아직 `dict[
 | ID | 응답에서 받은 UUID를 재사용. session_id와 exercise_item_id 등 서로 다른 ID를 혼용하지 않음 |
 | 날짜 | `YYYY-MM-DD`; 시각은 timezone 포함 ISO 8601로 전송 |
 | 수치 | 응답은 직접 DB JSON 또는 Decimal 직렬화에 따라 숫자/문자열 가능. 표시 계층에서 안전하게 변환 |
+| 건강 문서 업로드 | `multipart/form-data`, 파일 필드 `file`, 문서 구분 `document_type`; PDF/PNG/JPEG/HEIC, 최대 10 MiB |
 
 GET은 JSON 본문 없이 호출한다. 아래 표의 `{}`는 빈 객체 본문을 보내야 하는 POST다.
 POST라고 모두 201은 아니다. 코드가 지정한 성공 코드를 표에 명시했다.
@@ -234,7 +235,14 @@ PATCH는 변경할 필드를 하나 이상 보내며, 생략한 필드는 유지
 이미 삭제되었거나 본인 소유가 아닌 ID에도 멱등하게 204를 반환한다.
 result.recommendation: diet_recommendation_id, recommendation_date, target_calories,
 target_carbohydrates, target_protein, target_fat, recommendation_summary, ai_reason, status.
-result.meals[]: diet_meal_id, meal_type, meal_order, recommended_calories, recommendation_note, status, foods[].
+result.meals[]: diet_meal_id, meal_type, meal_order, recommended_calories, recommendation_note,
+image_storage_path, image_url, status, foods[]. `image_url`은 공개 Supabase Storage URL이며
+추천 식단 카드의 이미지 소스로 바로 사용할 수 있다.
+`menu_image_key`, `image_source`, `image_generation_status`, `image_generation_required`는
+이미지 캐시 상태를 나타낸다. `image_generation_required=true`이면 캐시에 완성된 이미지가
+없다는 뜻이며, 향후 이미지 모델 작업 큐를 시작하는 기준으로 사용한다.
+백엔드가 `foods[].food_name`을 정규화해 기존 사진과 자동 매칭하므로 프론트는 음식 이름과
+사진을 개별 매핑하지 않는다. `image_url`만 사용하고 값이 없으면 기본 이미지를 표시한다.
 foods[]: food_name, quantity, unit, calories, carbohydrates, protein, fat 등.
 식단 생성도 현재 rules_v1이며 팀원 모델과 연결된 것으로 가정하면 안 된다.
 날짜별 조회는 KST 기준 해당 날짜에 마지막으로 생성된 추천을 반환한다. 한 끼 재추천은
@@ -263,7 +271,48 @@ feedback_type: eaten/different_food/skipped. different_food만 actual_items 1~20
 logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 null일 수 있다.
 이 API는 diet_meal_id와 연결된 기록이다. 추천 식단과 무관한 독립 식사 등록 API는 아직 없다.
 
-## 7. 챗봇 (7개)
+## 7. 건강 문서 업로드·검토 (4개)
+
+현재 버전은 실제 OCR 엔진 대신 빈 추출 결과를 만든다. 사용자가 화면에서 값을 입력·수정한 뒤
+확정하면 `health_checkups` 또는 `body_compositions`에 저장되는 임시 MVP다.
+
+| Method | 경로 | 입력 | 성공 응답 | 코드 |
+|---|---|---|---|---|
+| POST | `/api/health-documents` | multipart `file`, `document_type` | `file, ocr_result` | 201 |
+| GET | `/api/health-documents/{uploaded_file_id}` | 경로 UUID | `file, ocr_result` | 200 |
+| PATCH | `/api/health-documents/{uploaded_file_id}/ocr-result` | `extracted_data` | `file, ocr_result` | 200 |
+| POST | `/api/health-documents/{uploaded_file_id}/confirm` | 본문 없음 | `file, health_data, already_confirmed` | 200 |
+
+- `document_type`: `health_checkup` 또는 `body_composition` (`inbody`가 아님).
+- 업로드 응답의 `ocr_result.extracted_data`는 필드가 `null`인 빈 템플릿이다.
+- PATCH에는 화면에서 검토·입력한 `extracted_data` 전체를 보낸다.
+- 확정 전 건강검진은 `checkup_date`, 인바디는 timezone을 포함한 `measured_at`이 필수다.
+- confirm은 같은 파일로 반복 호출해도 기존 건강 데이터를 반환한다.
+- 파일은 private Storage 버킷에 저장하며 현재 다운로드 URL은 제공하지 않는다.
+
+```bash
+curl -X POST "$API_BASE/api/health-documents" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -F "document_type=health_checkup" \
+  -F "file=@./checkup.pdf"
+```
+
+업로드 응답의 `file.uploaded_file_id`를 다음 두 호출의 경로 ID로 사용한다.
+
+```json
+{
+  "extracted_data": {
+    "checkup_date": "2026-09-16",
+    "height_cm": 175.2,
+    "weight_kg": 68.4,
+    "systolic_bp": 120,
+    "diastolic_bp": 80,
+    "fasting_glucose": 92
+  }
+}
+```
+
+## 8. 챗봇 (7개)
 
 | Method | 경로 | 입력 | 성공 응답 | 코드 |
 |---|---|---|---|---|
@@ -296,7 +345,7 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 그 밖의 임의 자연어·후속 대화 문맥·모델 해석은 아직 지원하지 않는다. 모델은 팀원 개발 완료, 백엔드 접속 규격은 미확인.
 보관기간은 메시지 생성 후 30일(720시간)이다. 5분 주기로 만료 메시지를 삭제한다. 상세는 [보관 정책](chat-retention-policy.md)을 따른다. 요청 제한은 구현했고 AI 연동은 미완료이다.
 
-## 8. 화면별 호출 순서
+## 9. 화면별 호출 순서
 
 | 화면·흐름 | 프론트 호출 순서 |
 |---|---|
@@ -306,15 +355,18 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 | 수행 중 불편함 | POST discomfort → 반환 session/adjusted_items로 남은 화면 갱신 |
 | 운동 목표·기록 | GET/PUT goals/active, 기간을 선택해 GET history/progress |
 | 식단 | GET/PATCH/DELETE inventory → GET recommendations?date=... 또는 POST generate → 필요 시 POST meals/{id}/regenerate → POST feedback → GET nutrition-summary/meal-logs |
+| 건강 데이터 업로드 | POST health-documents → PATCH ocr-result → POST confirm |
 | 챗봇 재진입 | GET chats?status=active&limit=1 → 없으면 POST chats → GET messages |
 | 챗봇 질문 | UUID 생성 → POST messages → assistant_message 표시 → 실패 시 같은 UUID로 재시도 |
 
-## 9. 오류·재시도 협업 규칙
+## 10. 오류·재시도 협업 규칙
 
 - 401: 토큰 갱신·재로그인 처리. 기존 토큰이 만료됐으면 새 access_token 사용.
 - 404: 없는 데이터 또는 챗봇 타 사용자 접근. 빈 화면/안내로 처리.
 - 409: 사전 단계 누락, 보관된 채팅, 중복 ID 충돌 등. 무조건 자동 재시도하지 말고 원인 표시.
 - 422: 요청 필드·범위 오류. 입력 수정 안내.
+- 413: 전체 요청 12 MiB 또는 건강 문서 10 MiB 제한 초과.
+- 415: 실제 파일 시그니처가 PDF/PNG/JPEG/HEIC가 아님.
 - 502: DB/외부 서비스 오류. 입력을 보존하고 재시도 제공.
 - 현재 운동 session RPC 실패는 원인과 무관하게 409로 매핑되는 한계가 있다.
 - 챗봇 오류: `{"detail":{"code":"VALIDATION_ERROR","message":"입력값을 확인해 주세요.","fields":["body.content"]}}`.
@@ -324,7 +376,7 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 - 채팅 외 POST의 중복 방지 보장을 일반화하지 않는다. 연속 클릭을 막고 상태 조회 후 재시도한다.
 - 429 요청 제한: 사용자별 최근 60초간 전체 60회, 답변 생성 10회. `detail.retry_after`초 후 같은 요청 ID로 재시도한다. 상세는 [요청 제한](chat-rate-limits.md)을 따른다.
 
-## 10. 최종 UI 대비 아직 없는 전용 API
+## 11. 최종 UI 대비 아직 없는 전용 API
 
 아래는 UI 요구사항이다. 구현된 경로가 없으므로 프론트가 임의 URL을 가정하면 안 된다.
 
@@ -332,7 +384,7 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 |---|---|
 | 마이페이지 초기 표시 | GET profile 전용 조회 없음 |
 | 프로필 사진·키·현재 체중·선호 운동 편집 | 현재 PATCH profile 필드로 모두 지원되지 않음 |
-| 건강 문서 업로드·촬영·OCR 검토·수정 | 업로드/OCR API 없음 |
+| 건강 문서 실제 OCR 자동 인식 | 업로드·수동 검토·확정 API는 있으나 OCR 엔진 연동 없음 |
 | 건강 데이터 상세·삭제, 종합 건강 분석 | 전용 API 없음. 챗봇 건강 점수 조회와 별도 |
 | 월간 건강 리포트·인바디 변화 | 전용 API 없음. 운동 progress와 별도 |
 | 냉장고 재료 다중 삭제 | 단건 PATCH/DELETE만 있으며 bulk API는 없음 |
@@ -341,9 +393,9 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 | 회원 탈퇴·연관 데이터 삭제 | 전용 API 없음 |
 | 운동 동영상·세트별 재개·연속 목표 성취 | 현재 API와 최종 UI 요구를 추가 대조해야 함 |
 
-## 11. 검증 상태와 담당
+## 12. 검증 상태와 담당
 
-전체 자동 테스트 296개 통과 기록. 발표 시나리오 로컬 API 흐름 검증을 포함한다. 챗봇 저장/건강 점수는 실제 Supabase 연동 24개 검증 완료.
+전체 자동 테스트 306개 통과 기록. 발표 시나리오 로컬 API 흐름 검증을 포함한다. 챗봇 저장/건강 점수는 실제 Supabase 연동 24개 검증 완료.
 이번 식단 확장은 로컬 API 테스트와 PGlite 기반 `replace_diet_meal` RPC 검증 8개를 통과했다.
 신규 `replace_diet_meal` 마이그레이션은 연결된 개발 Supabase에 적용됐고, 신규 API 코드는
 Render 공유 서버에 배포됐다. `/health` 200과 신규 5개 경로의 인증 적용(미인증 401)을 확인했다.

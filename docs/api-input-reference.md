@@ -1,6 +1,6 @@
 # Auto-Fit 전체 API 입력 필드 참조
 
-기준: 2026-09-16 로컬 FastAPI OpenAPI. 총 45개 operation. 코드 자동 추출이며 실제 서버 배포 상태를 보증하지 않는다.
+기준: 2026-09-16 로컬 FastAPI OpenAPI. 총 49개 operation. 코드 자동 추출이며 실제 서버 배포 상태를 보증하지 않는다.
 
 인증·호출 순서·응답 형태·추가 검증은 [프론트엔드 협업 안내](frontend-api-handoff.md), 원본은 [openapi.json](openapi.json)을 참고한다.
 
@@ -479,6 +479,34 @@ JSON 본문: 필수, 타입: **ChatMessageRequest**
 
 OpenAPI에 명시된 상태 코드: 201, 422. 런타임 인증·상태·DB 오류는 협업 안내 참고.
 
+## POST /api/health-documents
+
+`multipart/form-data` 본문:
+
+| 필드 | 필수 | 타입 | 조건 |
+|---|---|---|---|
+| file | 예 | binary | PDF, PNG, JPEG, HEIC; 파일 자체 최대 10 MiB |
+| document_type | 예 | string | enum=["health_checkup","body_composition"] |
+
+OpenAPI에 명시된 상태 코드: 201, 422. 런타임에는 413, 415, 502도 가능하다.
+
+## GET /api/health-documents/{uploaded_file_id}
+
+| 위치 | 이름 | 필수 | 타입 | 조건 |
+|---|---|---|---|---|
+| path | uploaded_file_id | 예 | string (uuid) | — |
+| header | authorization | 아니오 | string 또는 null | 실제 호출에는 Bearer 토큰 필수 |
+
+## PATCH /api/health-documents/{uploaded_file_id}/ocr-result
+
+경로·인증은 위와 동일하다. JSON 본문은 `OCRResultUpdateRequest`이며
+`extracted_data`에 문서 유형별 전체 검토값을 보낸다. 정의되지 않은 필드는 거부한다.
+
+## POST /api/health-documents/{uploaded_file_id}/confirm
+
+경로·인증은 위와 동일하며 JSON 본문은 보내지 않는다. 건강검진은 `checkup_date`,
+체성분은 `measured_at`이 임시 결과에 있어야 한다.
+
 ## 본문 타입 필드
 
 기본값이 명시되지 않은 선택 필드는 서버 default_factory를 사용할 수 있다. 사용자 정의 검증은 아래 표에 자동 표현되지 않는다.
@@ -646,6 +674,12 @@ OpenAPI에 명시된 상태 코드: 201, 422. 런타임 인증·상태·DB 오�
 | carbohydrates | 아니오 | number 또는 string 또는 null | — |
 | protein | 아니오 | number 또는 string 또는 null | — |
 | fat | 아니오 | number 또는 string 또는 null | — |
+
+### OCRResultUpdateRequest
+
+| 필드 | 필수 | 타입 | 조건 |
+|---|---|---|---|
+| extracted_data | 예 | object | 최대 30개 필드; 문서 유형별 필드·범위 검증 |
 
 ### ProfileUpdateRequest
 

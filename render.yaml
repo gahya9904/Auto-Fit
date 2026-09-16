@@ -24,7 +24,7 @@ services:
       - key: BACKEND_ALLOWED_HOSTS
         value: auto-fit-api-dev.onrender.com,localhost,127.0.0.1
       - key: MAX_REQUEST_BODY_BYTES
-        value: "1048576"
+        value: "12582912"
       - key: API_DOCS_ENABLED
         value: "true"
       - key: ENABLE_TEST_ENDPOINTS

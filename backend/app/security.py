@@ -5,7 +5,8 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
-DEFAULT_MAX_REQUEST_BODY_BYTES = 1024 * 1024
+# Allows a 10 MiB health document plus multipart framing while remaining bounded.
+DEFAULT_MAX_REQUEST_BODY_BYTES = 12 * 1024 * 1024
 
 
 def environment_flag(value: str | None, *, default: bool) -> bool:

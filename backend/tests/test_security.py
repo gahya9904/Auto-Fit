@@ -39,8 +39,11 @@ def test_untrusted_host_is_rejected() -> None:
 def test_large_declared_request_body_is_rejected_before_auth() -> None:
     response = TestClient(main.app).post(
         "/api/profile",
-        content=b"x" * (1024 * 1024 + 1),
-        headers={"Content-Type": "application/json"},
+        content=b"x",
+        headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(12 * 1024 * 1024 + 1),
+        },
     )
     assert response.status_code == 413
     assert response.json() == {"detail": "Request body is too large"}
