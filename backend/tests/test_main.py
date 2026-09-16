@@ -1,3 +1,5 @@
+import httpx
+import json
 from fastapi.testclient import TestClient
 
 from backend.app import main
@@ -1370,6 +1372,133 @@ def test_create_food_inventory_uses_authenticated_user(monkeypatch) -> None:
         main.app.dependency_overrides.clear()
 
 
+def test_inventory_freshness_uses_explicit_reference_date() -> None:
+    reference = main.date(2026, 9, 16)
+
+    assert main.inventory_freshness(None, reference) == "unknown"
+    assert main.inventory_freshness(main.date(2026, 9, 15), reference) == "expired"
+    assert main.inventory_freshness(main.date(2026, 9, 19), reference) == "expiring_soon"
+    assert main.inventory_freshness(main.date(2026, 9, 20), reference) == "fresh"
+
+
+def test_update_food_inventory_item_scopes_user_and_active(monkeypatch) -> None:
+    original = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "PATCH"
+        assert request.url.path == "/rest/v1/user_food_inventory"
+        assert request.url.params["user_food_inventory_id"] == "eq.inventory-1"
+        assert request.url.params["user_id"] == "eq.authenticated-user"
+        assert request.url.params["is_available"] == "eq.true"
+        assert request.headers["Prefer"] == "return=representation"
+        assert request.content == b'{"quantity":"2"}'
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "user_food_inventory_id": "inventory-1",
+                    "user_id": "authenticated-user",
+                    "quantity": 2,
+                    "is_available": True,
+                }
+            ],
+        )
+
+    monkeypatch.setattr(
+        main.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(
+            transport=httpx.MockTransport(handler),
+            **kwargs,
+        ),
+    )
+
+    body = main.FoodInventoryUpdateRequest(quantity=2)
+    result = main.asyncio.run(
+        main.update_food_inventory_item(
+            "authenticated-user",
+            "inventory-1",
+            body,
+            TEST_SETTINGS,
+        )
+    )
+
+    assert result["user_food_inventory_id"] == "inventory-1"
+
+
+def test_delete_food_inventory_item_is_idempotent_and_scoped(monkeypatch) -> None:
+    original = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "PATCH"
+        assert request.url.params["user_food_inventory_id"] == "eq.inventory-1"
+        assert request.url.params["user_id"] == "eq.authenticated-user"
+        assert request.url.params["is_available"] == "eq.true"
+        assert request.content == b'{"is_available":false}'
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(
+        main.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(
+            transport=httpx.MockTransport(handler),
+            **kwargs,
+        ),
+    )
+
+    main.asyncio.run(
+        main.delete_food_inventory_item(
+            "authenticated-user",
+            "inventory-1",
+            TEST_SETTINGS,
+        )
+    )
+
+
+def test_patch_and_delete_inventory_use_authenticated_user(monkeypatch) -> None:
+    inventory_id = "11111111-1111-1111-1111-111111111111"
+
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def fake_update(user_id, received_id, body, settings):
+        assert user_id == "authenticated-user"
+        assert received_id == inventory_id
+        assert body.name == "두부"
+        assert settings == TEST_SETTINGS
+        return {"user_food_inventory_id": received_id, "custom_name": body.name}
+
+    async def fake_delete(user_id, received_id, settings):
+        assert user_id == "authenticated-user"
+        assert received_id == inventory_id
+        assert settings == TEST_SETTINGS
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "update_food_inventory_item", fake_update)
+    monkeypatch.setattr(main, "delete_food_inventory_item", fake_delete)
+    try:
+        client = TestClient(main.app)
+        updated = client.patch(
+            f"/api/diet/inventory/{inventory_id}",
+            json={"name": " 두부 "},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["item"]["custom_name"] == "두부"
+
+        rejected = client.patch(
+            f"/api/diet/inventory/{inventory_id}",
+            json={"user_id": "another-user"},
+        )
+        assert rejected.status_code == 422
+
+        deleted = client.delete(f"/api/diet/inventory/{inventory_id}")
+        assert deleted.status_code == 204
+        assert deleted.content == b""
+    finally:
+        main.app.dependency_overrides.clear()
+
+
 def test_build_diet_plan_reflects_inventory_and_excludes_allergens() -> None:
     result = main.build_diet_recommendation_plan(
         [{"custom_name": "브로콜리"}],
@@ -1384,6 +1513,77 @@ def test_build_diet_plan_reflects_inventory_and_excludes_allergens() -> None:
     assert "냉장고 반영: 브로콜리" in result["meals"][0]["recommendation_note"]
     assert not {"두부구이", "그릭요거트", "호두", "연어구이"} & food_names
     assert "알레르기 제외 식재료" in result["recommendation"]["ai_reason"]
+
+
+def test_fetch_diet_recommendation_filters_user_and_date(monkeypatch) -> None:
+    original = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/rest/v1/diet_recommendations"
+        assert request.url.params["user_id"] == "eq.authenticated-user"
+        assert request.url.params["recommendation_date"] == "eq.2026-09-16"
+        assert request.url.params["order"] == "created_at.desc"
+        assert request.url.params["limit"] == "1"
+        assert "status" not in request.url.params
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(
+        main.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(
+            transport=httpx.MockTransport(handler),
+            **kwargs,
+        ),
+    )
+
+    result = main.asyncio.run(
+        main.fetch_diet_recommendation(
+            "authenticated-user",
+            TEST_SETTINGS,
+            main.date(2026, 9, 16),
+        )
+    )
+
+    assert result is None
+
+
+def test_get_diet_recommendation_by_date_uses_authenticated_user(
+    monkeypatch,
+) -> None:
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def fake_fetch(user_id, settings, recommendation_date):
+        assert user_id == "authenticated-user"
+        assert settings == TEST_SETTINGS
+        assert recommendation_date == main.date(2026, 9, 16)
+        return {
+            "recommendation": {
+                "diet_recommendation_id": "recommendation-1",
+                "recommendation_date": "2026-09-16",
+            },
+            "meals": [],
+        }
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_diet_recommendation", fake_fetch)
+    try:
+        client = TestClient(main.app)
+        response = client.get("/api/diet/recommendations?date=2026-09-16")
+        assert response.status_code == 200
+        assert response.json()["result"]["recommendation"][
+            "diet_recommendation_id"
+        ] == "recommendation-1"
+
+        missing = client.get("/api/diet/recommendations")
+        assert missing.status_code == 422
+
+        invalid = client.get("/api/diet/recommendations?date=09-16-2026")
+        assert invalid.status_code == 422
+    finally:
+        main.app.dependency_overrides.clear()
 
 
 def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
@@ -1427,6 +1627,166 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
         main.app.dependency_overrides.clear()
 
 
+def test_build_regenerated_meal_preserves_slot_and_changes_representative() -> None:
+    current_meal = {
+        "diet_meal_id": "meal-1",
+        "meal_type": "breakfast",
+        "meal_order": 1,
+        "recommended_calories": 400,
+        "status": "recommended",
+        "foods": [{"food_name": "현미밥"}],
+    }
+
+    result = main.build_regenerated_meal(current_meal, [], [])
+
+    assert result["meal_type"] == "breakfast"
+    assert result["meal_order"] == 1
+    assert result["foods"][0]["food_name"] != "현미밥"
+    assert abs(result["recommended_calories"] - 400) < 0.1
+
+
+def test_regenerate_diet_meal_calls_owner_scoped_rpc(monkeypatch) -> None:
+    original = httpx.AsyncClient
+    replacement = {
+        "meal_type": "lunch",
+        "meal_order": 2,
+        "recommended_calories": 480,
+        "recommendation_note": "다른 점심",
+        "foods": [
+            {
+                "food_name": "고구마",
+                "quantity": 200,
+                "unit": "g",
+                "calories": 480,
+                "carbohydrates": 80,
+                "protein": 10,
+                "fat": 5,
+            }
+        ],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/rest/v1/rpc/replace_diet_meal"
+        payload = json.loads(request.content)
+        assert payload == {
+            "p_user_id": "authenticated-user",
+            "p_diet_meal_id": "meal-1",
+            "p_meal": replacement,
+        }
+        return httpx.Response(
+            200,
+            json={"diet_meal_id": "meal-1", "foods": replacement["foods"]},
+        )
+
+    monkeypatch.setattr(
+        main.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(
+            transport=httpx.MockTransport(handler),
+            **kwargs,
+        ),
+    )
+
+    result = main.asyncio.run(
+        main.regenerate_diet_meal(
+            "authenticated-user",
+            "meal-1",
+            replacement,
+            TEST_SETTINGS,
+        )
+    )
+
+    assert result["diet_meal_id"] == "meal-1"
+
+
+def test_regenerate_recommended_diet_meal_uses_authenticated_user(
+    monkeypatch,
+) -> None:
+    meal_id = "11111111-1111-1111-1111-111111111111"
+
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def fake_context(user_id, received_id, settings):
+        assert user_id == "authenticated-user"
+        assert received_id == meal_id
+        return {
+            "recommendation": {"status": "active"},
+            "meal": {
+                "diet_meal_id": meal_id,
+                "meal_type": "lunch",
+                "meal_order": 2,
+                "recommended_calories": 480,
+                "status": "recommended",
+                "foods": [{"food_name": "현미밥"}],
+            },
+        }
+
+    async def fake_inventory(user_id, settings):
+        assert user_id == "authenticated-user"
+        return []
+
+    async def fake_catalog(settings):
+        return []
+
+    async def fake_allergies(user_id, settings):
+        assert user_id == "authenticated-user"
+        return []
+
+    async def fake_regenerate(user_id, received_id, replacement, settings):
+        assert user_id == "authenticated-user"
+        assert received_id == meal_id
+        assert replacement["meal_type"] == "lunch"
+        assert replacement["foods"][0]["food_name"] != "현미밥"
+        return {"diet_meal_id": received_id, **replacement}
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_diet_meal_context", fake_context)
+    monkeypatch.setattr(main, "fetch_food_inventory", fake_inventory)
+    monkeypatch.setattr(main, "fetch_allergy_catalog", fake_catalog)
+    monkeypatch.setattr(main, "fetch_user_allergies", fake_allergies)
+    monkeypatch.setattr(main, "regenerate_diet_meal", fake_regenerate)
+    try:
+        response = TestClient(main.app).post(
+            f"/api/diet/meals/{meal_id}/regenerate",
+            json={},
+        )
+        assert response.status_code == 200
+        assert response.json()["generator"] == "rules_v1"
+        assert response.json()["meal"]["diet_meal_id"] == meal_id
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_regenerate_recommended_diet_meal_rejects_finished_meal(
+    monkeypatch,
+) -> None:
+    meal_id = "11111111-1111-1111-1111-111111111111"
+
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def fake_context(user_id, received_id, settings):
+        return {
+            "recommendation": {"status": "active"},
+            "meal": {"status": "completed"},
+        }
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_diet_meal_context", fake_context)
+    try:
+        response = TestClient(main.app).post(
+            f"/api/diet/meals/{meal_id}/regenerate",
+            json={},
+        )
+        assert response.status_code == 409
+    finally:
+        main.app.dependency_overrides.clear()
+
+
 def test_changed_meal_requires_actual_items() -> None:
     async def fake_user() -> main.AuthenticatedUser:
         return main.AuthenticatedUser(id="authenticated-user")
@@ -1463,6 +1823,128 @@ def test_record_meal_feedback_uses_authenticated_user(monkeypatch) -> None:
         )
         assert response.status_code == 200
         assert response.json()["result"]["feedback"]["feedback_type"] == "eaten"
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_fetch_meal_logs_uses_kst_date_boundaries(monkeypatch) -> None:
+    original = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/rest/v1/meal_logs"
+        assert request.url.params["user_id"] == "eq.authenticated-user"
+        assert request.url.params["eaten_at"] == "gte.2026-09-15T15:00:00+00:00"
+        assert request.url.params["and"] == (
+            "(eaten_at.lt.2026-09-16T15:00:00+00:00)"
+        )
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(
+        main.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(
+            transport=httpx.MockTransport(handler),
+            **kwargs,
+        ),
+    )
+
+    result = main.asyncio.run(
+        main.fetch_meal_logs(
+            "authenticated-user",
+            main.date(2026, 9, 16),
+            main.date(2026, 9, 16),
+            TEST_SETTINGS,
+        )
+    )
+
+    assert result == []
+
+
+def test_build_daily_nutrition_summary_reports_unknown_items() -> None:
+    recommendation = {
+        "recommendation": {
+            "target_calories": "1650",
+            "target_carbohydrates": "210",
+            "target_protein": "85",
+            "target_fat": "45",
+        }
+    }
+    logs = [
+        {
+            "items": [
+                {
+                    "calories": "500",
+                    "carbohydrates": "60",
+                    "protein": "30",
+                    "fat": "15",
+                },
+                {
+                    "calories": 200,
+                    "carbohydrates": 25,
+                    "protein": 10,
+                    "fat": None,
+                },
+            ]
+        }
+    ]
+
+    summary = main.build_daily_nutrition_summary(
+        main.date(2026, 9, 16),
+        recommendation,
+        logs,
+    )
+
+    assert summary["date"] == "2026-09-16"
+    assert summary["has_recommendation"] is True
+    assert summary["has_unknown_items"] is True
+    assert summary["calories"] == {
+        "consumed": 700.0,
+        "target": 1650.0,
+        "unit": "kcal",
+    }
+    assert summary["carbohydrates"]["consumed"] == 85.0
+    assert summary["protein"]["consumed"] == 40.0
+    assert summary["fat"]["consumed"] == 15.0
+
+
+def test_get_diet_nutrition_summary_uses_authenticated_user(monkeypatch) -> None:
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def fake_recommendation(user_id, settings, recommendation_date):
+        assert user_id == "authenticated-user"
+        assert settings == TEST_SETTINGS
+        assert recommendation_date == main.date(2026, 9, 16)
+        return None
+
+    async def fake_logs(user_id, from_date, to_date, settings):
+        assert user_id == "authenticated-user"
+        assert from_date == main.date(2026, 9, 16)
+        assert to_date == main.date(2026, 9, 16)
+        assert settings == TEST_SETTINGS
+        return []
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_diet_recommendation", fake_recommendation)
+    monkeypatch.setattr(main, "fetch_meal_logs", fake_logs)
+    try:
+        client = TestClient(main.app)
+        response = client.get("/api/diet/nutrition-summary?date=2026-09-16")
+        assert response.status_code == 200
+        assert response.json()["summary"] == {
+            "date": "2026-09-16",
+            "has_recommendation": False,
+            "has_unknown_items": False,
+            "calories": {"consumed": 0.0, "target": None, "unit": "kcal"},
+            "carbohydrates": {"consumed": 0.0, "target": None, "unit": "g"},
+            "protein": {"consumed": 0.0, "target": None, "unit": "g"},
+            "fat": {"consumed": 0.0, "target": None, "unit": "g"},
+        }
+
+        missing = client.get("/api/diet/nutrition-summary")
+        assert missing.status_code == 422
     finally:
         main.app.dependency_overrides.clear()
 

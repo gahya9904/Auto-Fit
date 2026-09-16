@@ -1,12 +1,12 @@
 # Auto-Fit 프론트엔드 협업용 전체 API 안내
 
-기준일: 2026-09-10. 근거: `backend/app/main.py`, 챗봇 모듈, 저장소 SQL, 기존 검증 기록.
-현재 FastAPI operation은 **40개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
+기준일: 2026-09-16. 근거: `backend/app/main.py`, 챗봇 모듈, 저장소 SQL, 기존 검증 기록.
+현재 FastAPI operation은 **45개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
 
 ## 공유 파일
 
 - 이 문서: 화면별 API, 호출 순서, 응답 주요 경로, 예제, 미구현 영역.
-- [입력 필드 전체 참조](api-input-reference.md): 40개 operation의 파라미터·본문 필드·제약.
+- [입력 필드 전체 참조](api-input-reference.md): 45개 operation의 파라미터·본문 필드·제약.
 - [OpenAPI 원본](openapi.json): 코드에서 추출한 3.1 스키마. API 도구에 가져오기 가능.
 - [챗봇 상세 계약](chat-api-contract.md): 메시지·근거 전체 형식과 재전송 규칙.
 - [실연동 검증 기록](chat-integration-results.md): 실제 검증 범위와 한계.
@@ -180,20 +180,26 @@ target_workout_count, target_duration_minutes, goal_achievement_rate.
 목표가 없으면 목표 관련 값은 null일 수 있다.
 
 기록 기간은 from_date ≤ to_date, 차이 최대 366일(양 끝 포함 최대 367일).
-**현재 일반 운동 history와 식사 meal-logs API의 날짜 경계는 UTC**, 챗봇 요약의 날짜 경계는 KST다.
-같은 '오늘'이어도 결과가 달라질 수 있으므로 실제 서비스 연동 전 날짜 기준 통일이 필요하다.
+**현재 일반 운동 history의 날짜 경계는 UTC**다. 식사 meal-logs, 날짜별 식단·영양 요약,
+챗봇 요약은 KST 날짜 경계를 사용한다. 같은 '오늘'이어도 운동 기록 결과가 달라질 수 있으므로
+실제 서비스 연동 전 운동 날짜 기준도 통일이 필요하다.
 progress는 서버 date.today 기준이며 three_months는 이번 달과 앞선 두 달의 첫날부터 오늘까지다.
 summary는 완료 상태 세션을 기준으로 최근 7일(오늘 포함 7일)과 누적 운동 횟수, 완료 종목 수, 시간, 열량, 활동일을 반환한다.
 채팅 이외 목록 API에는 일반화된 페이지네이션이 없다. 대량 데이터 완전 조회를 보장하지 않는다.
 
-## 6. 식단·냉장고 (6개)
+## 6. 식단·냉장고 (11개)
 
 | Method | 경로 | 입력 | 성공 응답 | 코드 |
 |---|---|---|---|---|
 | GET | `/api/diet/inventory` | 없음 | `count, inventory[]` | 200 |
 | POST | `/api/diet/inventory` | FoodInventoryCreateRequest | `ok, item` | 201 |
+| PATCH | `/api/diet/inventory/{inventory_id}` | FoodInventoryUpdateRequest | `ok, item` | 200 |
+| DELETE | `/api/diet/inventory/{inventory_id}` | 없음 | 본문 없음 | 204 |
+| GET | `/api/diet/recommendations?date=YYYY-MM-DD` | `date` 필수 | `result` 또는 null | 200 |
 | GET | `/api/diet/recommendations/latest` | 없음 | `result` 또는 null | 200 |
+| GET | `/api/diet/nutrition-summary?date=YYYY-MM-DD` | `date` 필수 | `summary` | 200 |
 | POST | `/api/diet/recommendations/generate` | `{}` | `ok, generator, result` | 200 |
+| POST | `/api/diet/meals/{diet_meal_id}/regenerate` | `{}` | `ok, generator, meal` | 200 |
 | POST | `/api/diet/meals/{diet_meal_id}/feedback` | DietMealFeedbackRequest | `ok, result.feedback, result.meal_log` | 200 |
 | GET | `/api/diet/meal-logs` | query: `from_date, to_date` 필수 | `period, count, logs[]` | 200 |
 
@@ -204,11 +210,20 @@ summary는 완료 상태 세션을 기준으로 최근 7일(오늘 포함 7일)�
 ```
 
 name만 필수(1~100자). quantity 0~100000, unit 최대 20자. 구매일이 있으면 유통기한은 구매일 이후.
+PATCH는 변경할 필드를 하나 이상 보내며, 생략한 필드는 유지한다. DELETE는 소프트 삭제이며
+이미 삭제되었거나 본인 소유가 아닌 ID에도 멱등하게 204를 반환한다.
 result.recommendation: diet_recommendation_id, recommendation_date, target_calories,
 target_carbohydrates, target_protein, target_fat, recommendation_summary, ai_reason, status.
 result.meals[]: diet_meal_id, meal_type, meal_order, recommended_calories, recommendation_note, status, foods[].
 foods[]: food_name, quantity, unit, calories, carbohydrates, protein, fat 등.
 식단 생성도 현재 rules_v1이며 팀원 모델과 연결된 것으로 가정하면 안 된다.
+날짜별 조회는 KST 기준 해당 날짜에 마지막으로 생성된 추천을 반환한다. 한 끼 재추천은
+기존 `diet_meal_id`, `meal_type`, `meal_order`를 유지한 채 음식 목록을 교체하며, 완료·변경·건너뜀
+상태의 식사는 409다. 현재 생성기는 `rules_v1`이고 DB 반영에는 `replace_diet_meal` RPC가 필요하다.
+
+영양 요약의 `summary`에는 날짜, 추천 존재 여부, 알 수 없는 영양 항목 여부와 칼로리·탄수화물·
+단백질·지방의 `consumed`, `target`, `unit`이 포함된다. 목표는 해당 날짜 최신 추천에서,
+섭취량은 해당 KST 날짜의 기록된 식사 항목에서 계산한다. 목표가 없으면 `target`은 null이다.
 
 추천 식단을 그대로 먹었을 때:
 
@@ -270,7 +285,7 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 | 운동 수행 | POST sessions/start → 항목마다 POST items/{item_id} → POST complete → PUT feedback → GET analysis |
 | 수행 중 불편함 | POST discomfort → 반환 session/adjusted_items로 남은 화면 갱신 |
 | 운동 목표·기록 | GET/PUT goals/active, 기간을 선택해 GET history/progress |
-| 식단 | GET inventory → 필요한 재료 POST → GET latest 또는 POST generate → 식사별 POST feedback → GET meal-logs |
+| 식단 | GET/PATCH/DELETE inventory → GET recommendations?date=... 또는 POST generate → 필요 시 POST meals/{id}/regenerate → POST feedback → GET nutrition-summary/meal-logs |
 | 챗봇 재진입 | GET chats?status=active&limit=1 → 없으면 POST chats → GET messages |
 | 챗봇 질문 | UUID 생성 → POST messages → assistant_message 표시 → 실패 시 같은 UUID로 재시도 |
 
@@ -300,18 +315,19 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 | 건강 문서 업로드·촬영·OCR 검토·수정 | 업로드/OCR API 없음 |
 | 건강 데이터 상세·삭제, 종합 건강 분석 | 전용 API 없음. 챗봇 건강 점수 조회와 별도 |
 | 월간 건강 리포트·인바디 변화 | 전용 API 없음. 운동 progress와 별도 |
-| 냉장고 재료 수정·다중 삭제 | GET/POST만 있음 |
+| 냉장고 재료 다중 삭제 | 단건 PATCH/DELETE만 있으며 bulk API는 없음 |
 | 음식 검색·사진 인식·독립 식사 추가·수정 | 전용 API 없음 |
-| 특정 날짜 식단·끼니 하나 교체 | 현재 latest/generate로 동일 기능을 보장하지 않음 |
 | 알림 설정·방해금지·푸시 | 전용 API 없음 |
 | 회원 탈퇴·연관 데이터 삭제 | 전용 API 없음 |
 | 운동 동영상·세트별 재개·연속 목표 성취 | 현재 API와 최종 UI 요구를 추가 대조해야 함 |
 
 ## 11. 검증 상태와 담당
 
-전체 자동 테스트 259개 통과 기록. 발표 시나리오 로컬 API 흐름 검증을 포함한다. 챗봇 저장/건강 점수는 실제 Supabase 연동 24개 검증 완료.
+전체 자동 테스트 280개 통과 기록. 발표 시나리오 로컬 API 흐름 검증을 포함한다. 챗봇 저장/건강 점수는 실제 Supabase 연동 24개 검증 완료.
+이번 식단 확장은 로컬 API 테스트와 PGlite 기반 `replace_diet_meal` RPC 검증 8개를 통과했다.
+신규 마이그레이션은 원격 Supabase에 아직 적용하지 않았으므로 공유 서버 배포 전 적용이 필요하다.
 신규 챗봇 식사·운동은 모의 HTTP 검증 완료, 실제 DB 통합은 남아 있다.
-나머지 31개 API는 이번 인수인계에서 코드·SQL을 확인한 것이며 전부 최신 실연동 검증한 것은 아니다.
+그 밖의 API는 이번 인수인계에서 코드·SQL을 확인한 것이며 전부 최신 실연동 검증한 것은 아니다.
 
 | 담당 | 인수인계 작업 |
 |---|---|

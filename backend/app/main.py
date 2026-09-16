@@ -10,6 +10,7 @@ from decimal import Decimal
 from math import ceil
 from typing import Annotated, Any, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
@@ -31,6 +32,9 @@ from backend.app.chat_model import get_model_config
 from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
 from backend.app.chat_rate_limit import ChatRateLimiter
+
+
+KST = ZoneInfo("Asia/Seoul")
 
 
 @dataclass(frozen=True)
@@ -368,7 +372,39 @@ class FoodInventoryCreateRequest(BaseModel):
         return self
 
 
+class FoodInventoryUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    quantity: Decimal | None = Field(default=None, ge=0, le=100000)
+    unit: str | None = Field(default=None, max_length=20)
+    purchased_on: date | None = None
+    expires_on: date | None = None
+
+    @field_validator("name", "unit", mode="before")
+    @classmethod
+    def normalize_inventory_text(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
+
+    @model_validator(mode="after")
+    def validate_inventory_update(self) -> "FoodInventoryUpdateRequest":
+        if not self.model_fields_set:
+            raise ValueError("At least one inventory field is required")
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be null")
+        if self.purchased_on and self.expires_on and self.expires_on < self.purchased_on:
+            raise ValueError("expires_on cannot be before purchased_on")
+        return self
+
+
 class GenerateDietRecommendationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class RegenerateDietMealRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
@@ -1663,6 +1699,93 @@ async def create_food_inventory_item(
     return rows[0]
 
 
+def inventory_freshness(
+    expires_on: date | None,
+    reference_date: date | None = None,
+) -> str:
+    if expires_on is None:
+        return "unknown"
+    today = reference_date or datetime.now(KST).date()
+    remaining_days = (expires_on - today).days
+    if remaining_days < 0:
+        return "expired"
+    if remaining_days <= 3:
+        return "expiring_soon"
+    return "fresh"
+
+
+async def update_food_inventory_item(
+    user_id: str,
+    inventory_id: str,
+    body: FoodInventoryUpdateRequest,
+    settings: Settings,
+) -> dict[str, Any]:
+    updates = body.model_dump(mode="json", exclude_unset=True)
+    if "name" in updates:
+        updates["custom_name"] = updates.pop("name")
+    if "expires_on" in body.model_fields_set:
+        updates["freshness_status"] = inventory_freshness(body.expires_on)
+    params = {
+        "user_food_inventory_id": f"eq.{inventory_id}",
+        "user_id": f"eq.{user_id}",
+        "is_available": "eq.true",
+        "select": (
+            "user_food_inventory_id,user_id,food_item_id,custom_name,quantity,"
+            "unit,purchased_on,expires_on,freshness_status,is_available,"
+            "created_at,updated_at"
+        ),
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.patch(
+            f"{settings.supabase_url}/rest/v1/user_food_inventory",
+            headers=service_headers(settings, return_representation=True),
+            params=params,
+            json=updates,
+        )
+    if response.status_code == status.HTTP_400_BAD_REQUEST:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid food inventory update",
+        )
+    if not response.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Supabase food inventory update failed",
+        )
+    rows = response.json()
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Food inventory item not found",
+        )
+    return rows[0]
+
+
+async def delete_food_inventory_item(
+    user_id: str,
+    inventory_id: str,
+    settings: Settings,
+) -> None:
+    params = {
+        "user_food_inventory_id": f"eq.{inventory_id}",
+        "user_id": f"eq.{user_id}",
+        "is_available": "eq.true",
+        "select": "user_food_inventory_id",
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.patch(
+            f"{settings.supabase_url}/rest/v1/user_food_inventory",
+            headers=service_headers(settings, return_representation=True),
+            params=params,
+            json={"is_available": False},
+        )
+    if not response.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Supabase food inventory deletion failed",
+        )
+
+
 def build_diet_recommendation_plan(
     inventory: list[dict[str, Any]],
     allergy_names: list[str] | None = None,
@@ -1825,9 +1948,10 @@ async def create_diet_recommendation(
     return response.json()
 
 
-async def fetch_latest_diet_recommendation(
+async def fetch_diet_recommendation(
     user_id: str,
     settings: Settings,
+    recommendation_date: date | None = None,
 ) -> dict[str, Any] | None:
     recommendation_params = {
         "select": (
@@ -1836,10 +1960,17 @@ async def fetch_latest_diet_recommendation(
             "recommendation_summary,ai_reason,status,created_at"
         ),
         "user_id": f"eq.{user_id}",
-        "status": "eq.active",
-        "order": "recommendation_date.desc,created_at.desc",
+        "order": (
+            "created_at.desc"
+            if recommendation_date
+            else "recommendation_date.desc,created_at.desc"
+        ),
         "limit": "1",
     }
+    if recommendation_date is None:
+        recommendation_params["status"] = "eq.active"
+    else:
+        recommendation_params["recommendation_date"] = f"eq.{recommendation_date.isoformat()}"
     async with httpx.AsyncClient(timeout=10) as client:
         recommendation_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_recommendations",
@@ -1907,6 +2038,177 @@ async def fetch_latest_diet_recommendation(
     }
 
 
+async def fetch_latest_diet_recommendation(
+    user_id: str,
+    settings: Settings,
+) -> dict[str, Any] | None:
+    return await fetch_diet_recommendation(user_id, settings)
+
+
+async def regenerate_diet_meal(
+    user_id: str,
+    diet_meal_id: str,
+    meal: dict[str, Any],
+    settings: Settings,
+) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.post(
+            f"{settings.supabase_url}/rest/v1/rpc/replace_diet_meal",
+            headers=service_headers(settings),
+            json={
+                "p_user_id": user_id,
+                "p_diet_meal_id": diet_meal_id,
+                "p_meal": meal,
+            },
+        )
+    if response.status_code == status.HTTP_400_BAD_REQUEST:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Diet meal cannot be regenerated",
+        )
+    if not response.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Supabase diet meal regeneration failed",
+        )
+    return response.json()
+
+
+async def fetch_diet_meal_context(
+    user_id: str,
+    diet_meal_id: str,
+    settings: Settings,
+) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=10) as client:
+        meal_response = await client.get(
+            f"{settings.supabase_url}/rest/v1/diet_meals",
+            headers=service_headers(settings),
+            params={
+                "select": (
+                    "diet_meal_id,diet_recommendation_id,meal_type,meal_order,"
+                    "recommended_calories,recommendation_note,status"
+                ),
+                "diet_meal_id": f"eq.{diet_meal_id}",
+                "limit": "1",
+            },
+        )
+    if not meal_response.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Supabase diet meal query failed",
+        )
+    meals = meal_response.json()
+    if not meals:
+        raise HTTPException(status_code=404, detail="Diet meal not found")
+    meal = meals[0]
+    async with httpx.AsyncClient(timeout=10) as client:
+        recommendation_response = await client.get(
+            f"{settings.supabase_url}/rest/v1/diet_recommendations",
+            headers=service_headers(settings),
+            params={
+                "select": "diet_recommendation_id,user_id,recommendation_date,status",
+                "diet_recommendation_id": f"eq.{meal['diet_recommendation_id']}",
+                "user_id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+    if not recommendation_response.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Supabase diet recommendation query failed",
+        )
+    recommendations = recommendation_response.json()
+    if not recommendations:
+        raise HTTPException(status_code=404, detail="Diet meal not found")
+    async with httpx.AsyncClient(timeout=10) as client:
+        food_response = await client.get(
+            f"{settings.supabase_url}/rest/v1/diet_meal_foods",
+            headers=service_headers(settings),
+            params={
+                "select": (
+                    "diet_meal_food_id,diet_meal_id,food_item_id,food_name,"
+                    "quantity,unit,calories,carbohydrates,protein,fat"
+                ),
+                "diet_meal_id": f"eq.{diet_meal_id}",
+                "order": "created_at.asc,diet_meal_food_id.asc",
+            },
+        )
+    if not food_response.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Supabase diet meal food query failed",
+        )
+    return {
+        "meal": {**meal, "foods": food_response.json()},
+        "recommendation": recommendations[0],
+    }
+
+
+def build_regenerated_meal(
+    current_meal: dict[str, Any],
+    inventory: list[dict[str, Any]],
+    allergy_names: list[str],
+) -> dict[str, Any]:
+    plan = build_diet_recommendation_plan(inventory, allergy_names)
+    meals = plan["meals"]
+    meal_type = current_meal["meal_type"]
+    current_foods = current_meal.get("foods") or []
+    current_representative = (
+        str(current_foods[0].get("food_name") or "").strip().casefold()
+        if current_foods
+        else ""
+    )
+    alternative = next(
+        (
+            meal.copy()
+            for meal in meals
+            if meal["meal_type"] != meal_type
+            and str(meal["foods"][0]["food_name"]).strip().casefold()
+            != current_representative
+        ),
+        None,
+    )
+    if alternative is None:
+        raise ValueError("No alternative meal is available")
+
+    target_calories = float(
+        current_meal.get("recommended_calories")
+        or next(
+            meal["recommended_calories"]
+            for meal in meals
+            if meal["meal_type"] == meal_type
+        )
+    )
+    source_calories = sum(
+        float(food.get("calories") or 0) for food in alternative["foods"]
+    )
+    if source_calories <= 0:
+        raise ValueError("Alternative meal calories must be positive")
+    ratio = target_calories / source_calories
+    scaled_foods: list[dict[str, Any]] = []
+    for food in alternative["foods"]:
+        scaled = food.copy()
+        scaled["quantity"] = round(float(food["quantity"]) * ratio, 2)
+        for nutrient in ("calories", "carbohydrates", "protein", "fat"):
+            value = food.get(nutrient)
+            scaled[nutrient] = (
+                round(float(value) * ratio, 2) if value is not None else None
+            )
+        scaled_foods.append(scaled)
+
+    alternative["meal_type"] = meal_type
+    alternative["meal_order"] = current_meal["meal_order"]
+    alternative["recommendation_note"] = (
+        f"{meal_type} 식단을 냉장고 재료와 알레르기에 맞춰 다시 추천"
+    )
+    alternative["foods"] = scaled_foods
+    alternative["recommended_calories"] = round(
+        sum(float(food.get("calories") or 0) for food in scaled_foods),
+        2,
+    )
+    return alternative
+
+
 async def record_recommended_meal(
     user_id: str,
     diet_meal_id: str,
@@ -1946,8 +2248,19 @@ async def fetch_meal_logs(
     to_date: date,
     settings: Settings,
 ) -> list[dict[str, Any]]:
-    start = f"{from_date.isoformat()}T00:00:00+00:00"
-    end = f"{(to_date + timedelta(days=1)).isoformat()}T00:00:00+00:00"
+    start = datetime(
+        from_date.year,
+        from_date.month,
+        from_date.day,
+        tzinfo=KST,
+    ).astimezone(UTC)
+    end_date = to_date + timedelta(days=1)
+    end = datetime(
+        end_date.year,
+        end_date.month,
+        end_date.day,
+        tzinfo=KST,
+    ).astimezone(UTC)
     params = {
         "select": (
             "meal_log_id,user_id,diet_meal_id,meal_type,source_type,eaten_at,"
@@ -1955,8 +2268,8 @@ async def fetch_meal_logs(
         ),
         "user_id": f"eq.{user_id}",
         "status": "eq.recorded",
-        "eaten_at": f"gte.{start}",
-        "and": f"(eaten_at.lt.{end})",
+        "eaten_at": f"gte.{start.isoformat()}",
+        "and": f"(eaten_at.lt.{end.isoformat()})",
         "order": "eaten_at.desc",
     }
     async with httpx.AsyncClient(timeout=10) as client:
@@ -1996,6 +2309,47 @@ async def fetch_meal_logs(
         for item in item_response.json():
             items_by_log[item["meal_log_id"]].append(item)
     return [{**log, "items": items_by_log[log["meal_log_id"]]} for log in logs]
+
+
+def build_daily_nutrition_summary(
+    target_date: date,
+    recommendation: dict[str, Any] | None,
+    logs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    target = (recommendation or {}).get("recommendation") or {}
+    consumed = {
+        "calories": Decimal("0"),
+        "carbohydrates": Decimal("0"),
+        "protein": Decimal("0"),
+        "fat": Decimal("0"),
+    }
+    has_unknown_items = False
+    for log in logs:
+        for item in log.get("items", []):
+            if any(item.get(key) is None for key in consumed):
+                has_unknown_items = True
+            for key in consumed:
+                value = item.get(key)
+                if value is not None:
+                    consumed[key] += Decimal(str(value))
+
+    def metric(key: str, target_key: str, unit: str) -> dict[str, Any]:
+        target_value = target.get(target_key)
+        return {
+            "consumed": float(consumed[key]),
+            "target": float(target_value) if target_value is not None else None,
+            "unit": unit,
+        }
+
+    return {
+        "date": target_date.isoformat(),
+        "has_recommendation": recommendation is not None,
+        "has_unknown_items": has_unknown_items,
+        "calories": metric("calories", "target_calories", "kcal"),
+        "carbohydrates": metric("carbohydrates", "target_carbohydrates", "g"),
+        "protein": metric("protein", "target_protein", "g"),
+        "fat": metric("fat", "target_fat", "g"),
+    }
 
 
 def build_exercise_session_analysis(result: dict[str, Any]) -> dict[str, Any]:
@@ -2515,6 +2869,49 @@ async def post_diet_inventory(
     return {"ok": True, "item": item}
 
 
+@app.patch("/api/diet/inventory/{inventory_id}")
+async def patch_diet_inventory(
+    inventory_id: UUID,
+    body: FoodInventoryUpdateRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    item = await update_food_inventory_item(
+        user.id,
+        str(inventory_id),
+        body,
+        settings,
+    )
+    return {"ok": True, "item": item}
+
+
+@app.delete(
+    "/api/diet/inventory/{inventory_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_diet_inventory(
+    inventory_id: UUID,
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    await delete_food_inventory_item(user.id, str(inventory_id), settings)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/api/diet/recommendations")
+async def get_diet_recommendation_by_date(
+    recommendation_date: Annotated[date, Query(alias="date")],
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    result = await fetch_diet_recommendation(
+        user.id,
+        settings,
+        recommendation_date,
+    )
+    return {"result": result}
+
+
 @app.get("/api/diet/recommendations/latest")
 async def get_latest_diet_recommendation(
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2522,6 +2919,27 @@ async def get_latest_diet_recommendation(
 ) -> dict[str, Any]:
     result = await fetch_latest_diet_recommendation(user.id, settings)
     return {"result": result}
+
+
+@app.get("/api/diet/nutrition-summary")
+async def get_diet_nutrition_summary(
+    target_date: Annotated[date, Query(alias="date")],
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    recommendation = await fetch_diet_recommendation(
+        user.id,
+        settings,
+        target_date,
+    )
+    logs = await fetch_meal_logs(user.id, target_date, target_date, settings)
+    return {
+        "summary": build_daily_nutrition_summary(
+            target_date,
+            recommendation,
+            logs,
+        )
+    }
 
 
 @app.post("/api/diet/recommendations/generate")
@@ -2547,6 +2965,54 @@ async def generate_diet_recommendation(
     await create_diet_recommendation(user.id, plan, settings)
     result = await fetch_latest_diet_recommendation(user.id, settings)
     return {"ok": True, "generator": "rules_v1", "result": result}
+
+
+@app.post("/api/diet/meals/{diet_meal_id}/regenerate")
+async def regenerate_recommended_diet_meal(
+    diet_meal_id: UUID,
+    body: RegenerateDietMealRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    context = await fetch_diet_meal_context(user.id, str(diet_meal_id), settings)
+    if (
+        context["recommendation"].get("status") != "active"
+        or context["meal"].get("status") != "recommended"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Diet meal cannot be regenerated in its current state",
+        )
+
+    inventory = await fetch_food_inventory(user.id, settings)
+    catalog = await fetch_allergy_catalog(settings)
+    selected = await fetch_user_allergies(user.id, settings)
+    catalog_names = {
+        row["allergy_type_id"]: row["name"] for row in catalog
+    }
+    allergy_names = [
+        row.get("custom_name") or catalog_names.get(row.get("allergy_type_id"))
+        for row in selected
+    ]
+    try:
+        replacement = build_regenerated_meal(
+            context["meal"],
+            inventory,
+            [name for name in allergy_names if name],
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No alternative diet meal is available",
+        ) from exc
+
+    meal = await regenerate_diet_meal(
+        user.id,
+        str(diet_meal_id),
+        replacement,
+        settings,
+    )
+    return {"ok": True, "generator": "rules_v1", "meal": meal}
 
 
 @app.post("/api/diet/meals/{diet_meal_id}/feedback")

@@ -92,8 +92,13 @@ python -m backend.tests.chat_live_integration \
 - `GET /api/exercise/summary`: 최근 7일과 누적 완료 운동 횟수·종목 수·시간·열량 조회
 - `GET /api/diet/inventory`: 본인의 사용 가능한 냉장고 재료 조회
 - `POST /api/diet/inventory`: 본인의 냉장고 재료·수량·구매일·유통기한 추가
+- `PATCH /api/diet/inventory/{inventory_id}`: 본인의 냉장고 재료 일부 필드 수정
+- `DELETE /api/diet/inventory/{inventory_id}`: 본인의 냉장고 재료를 멱등하게 소프트 삭제
 - `POST /api/diet/recommendations/generate`: 냉장고 재료와 알레르기를 반영해 오늘 식단 추천 생성
+- `GET /api/diet/recommendations?date=YYYY-MM-DD`: KST 날짜별 최신 식단 추천 조회
 - `GET /api/diet/recommendations/latest`: 최근 활성 식단과 끼니별 추천 음식 조회
+- `GET /api/diet/nutrition-summary?date=YYYY-MM-DD`: KST 날짜별 영양 목표와 실제 섭취량 조회
+- `POST /api/diet/meals/{diet_meal_id}/regenerate`: 추천 식단의 선택한 한 끼만 재추천
 - `POST /api/diet/meals/{diet_meal_id}/feedback`: 추천 식사를 먹음·변경·건너뜀으로 기록
 - `GET /api/diet/meal-logs?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`: 최대 367일 범위의 식사 기록 조회
 
@@ -115,4 +120,6 @@ python -m backend.tests.chat_live_integration \
 
 운동 목표 저장 RPC는 다른 종류의 기존 활성 목표를 `cancelled`로 전환해 이력을 보존하고, 동일 종류의 활성 목표는 갱신합니다. 외래키 없이 사용자 ID와 상태 인덱스, 백엔드의 JWT 사용자 검증으로 소유권을 관리합니다. 현재 운동 로그에는 신체 부위 기준값이 없으므로 진행 현황은 임의의 부위 값을 만들지 않고 `exercise_types.category` 기준 운동 카테고리 분포를 반환합니다.
 
-식단 추천은 냉장고 재료와 등록된 알레르기를 조회한 뒤 `create_diet_recommendation` RPC에서 추천·끼니·음식 항목을 한 트랜잭션으로 저장합니다. 추천 식사 기록도 `record_recommended_meal` RPC에서 식사 로그·음식 항목·피드백·추천 상태를 함께 처리합니다. 외래키는 사용하지 않으며 사용자 소유권 검증과 고유 인덱스로 중복 기록을 막습니다. 현재 추천의 `rules_v1`은 데이터 왕복 검증용으로, 의료적 식단 진단이나 처방을 제공하지 않습니다.
+식단 추천은 냉장고 재료와 등록된 알레르기를 조회한 뒤 `create_diet_recommendation` RPC에서 추천·끼니·음식 항목을 한 트랜잭션으로 저장합니다. 한 끼 재추천은 `replace_diet_meal` RPC가 기존 식사 ID와 순서를 유지하며 음식 항목을 원자적으로 교체합니다. 추천 식사 기록도 `record_recommended_meal` RPC에서 식사 로그·음식 항목·피드백·추천 상태를 함께 처리합니다. 외래키는 사용하지 않으며 사용자 소유권 검증과 고유 인덱스로 중복 기록을 막습니다. 현재 추천의 `rules_v1`은 데이터 왕복 검증용으로, 의료적 식단 진단이나 처방을 제공하지 않습니다.
+
+한 끼 재추천을 공유 서버에서 사용하려면 `supabase/migrations/20260916042556_replace_diet_meal.sql`을 대상 Supabase에 먼저 적용해야 합니다.

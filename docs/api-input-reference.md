@@ -1,6 +1,6 @@
 # Auto-Fit 전체 API 입력 필드 참조
 
-기준: 2026-09-10 로컬 FastAPI OpenAPI. 총 40개 operation. 코드 자동 추출이며 실제 서버 배포 상태를 보증하지 않는다.
+기준: 2026-09-16 로컬 FastAPI OpenAPI. 총 45개 operation. 코드 자동 추출이며 실제 서버 배포 상태를 보증하지 않는다.
 
 인증·호출 순서·응답 형태·추가 검증은 [프론트엔드 협업 안내](frontend-api-handoff.md), 원본은 [openapi.json](openapi.json)을 참고한다.
 
@@ -303,10 +303,54 @@ JSON 본문: 필수, 타입: **FoodInventoryCreateRequest**
 
 OpenAPI에 명시된 상태 코드: 201, 422. 런타임 인증·상태·DB 오류는 협업 안내 참고.
 
+## PATCH /api/diet/inventory/{inventory_id}
+
+| 위치 | 이름 | 필수 | 타입 | 조건 |
+|---|---|---|---|---|
+| path | inventory_id | 예 | string (uuid) | — |
+| header | authorization | 아니오 | string 또는 null | — |
+
+JSON 본문: 필수, 타입: **FoodInventoryUpdateRequest**
+
+OpenAPI에 명시된 상태 코드: 200, 422. 런타임 인증·상태·DB 오류는 협업 안내 참고.
+
+## DELETE /api/diet/inventory/{inventory_id}
+
+| 위치 | 이름 | 필수 | 타입 | 조건 |
+|---|---|---|---|---|
+| path | inventory_id | 예 | string (uuid) | — |
+| header | authorization | 아니오 | string 또는 null | — |
+
+요청 본문 없음.
+
+OpenAPI에 명시된 상태 코드: 204, 422. 런타임 인증·상태·DB 오류는 협업 안내 참고.
+
+## GET /api/diet/recommendations
+
+| 위치 | 이름 | 필수 | 타입 | 조건 |
+|---|---|---|---|---|
+| query | date | 예 | string (date) | — |
+| header | authorization | 아니오 | string 또는 null | — |
+
+요청 본문 없음.
+
+OpenAPI에 명시된 상태 코드: 200, 422. 런타임 인증·상태·DB 오류는 협업 안내 참고.
+
 ## GET /api/diet/recommendations/latest
 
 | 위치 | 이름 | 필수 | 타입 | 조건 |
 |---|---|---|---|---|
+| header | authorization | 아니오 | string 또는 null | — |
+
+요청 본문 없음.
+
+OpenAPI에 명시된 상태 코드: 200, 422. 런타임 인증·상태·DB 오류는 협업 안내 참고.
+
+## GET /api/diet/nutrition-summary
+
+| 위치 | 이름 | 필수 | 타입 | 조건 |
+|---|---|---|---|---|
+| query | date | 예 | string (date) | — |
 | header | authorization | 아니오 | string 또는 null | — |
 
 요청 본문 없음.
@@ -320,6 +364,17 @@ OpenAPI에 명시된 상태 코드: 200, 422. 런타임 인증·상태·DB 오�
 | header | authorization | 아니오 | string 또는 null | — |
 
 JSON 본문: 필수, 타입: **GenerateDietRecommendationRequest**
+
+OpenAPI에 명시된 상태 코드: 200, 422. 런타임 인증·상태·DB 오류는 협업 안내 참고.
+
+## POST /api/diet/meals/{diet_meal_id}/regenerate
+
+| 위치 | 이름 | 필수 | 타입 | 조건 |
+|---|---|---|---|---|
+| path | diet_meal_id | 예 | string (uuid) | — |
+| header | authorization | 아니오 | string 또는 null | — |
+
+JSON 본문: 필수, 타입: **RegenerateDietMealRequest**
 
 OpenAPI에 명시된 상태 코드: 200, 422. 런타임 인증·상태·DB 오류는 협업 안내 참고.
 
@@ -543,6 +598,19 @@ OpenAPI에 명시된 상태 코드: 201, 422. 런타임 인증·상태·DB 오�
 | purchased_on | 아니오 | string (date) 또는 null | — |
 | expires_on | 아니오 | string (date) 또는 null | — |
 
+### FoodInventoryUpdateRequest
+
+| 필드 | 필수 | 타입 | 조건 |
+|---|---|---|---|
+| name | 아니오 | string 또는 null | maxLength=100; minLength=1 |
+| quantity | 아니오 | number 또는 string 또는 null | maximum=100000; minimum=0 |
+| unit | 아니오 | string 또는 null | maxLength=20 |
+| purchased_on | 아니오 | string (date) 또는 null | — |
+| expires_on | 아니오 | string (date) 또는 null | — |
+
+본문에는 하나 이상의 필드가 필요하다. `name`을 명시적으로 `null`로 보낼 수 없으며,
+구매일과 유통기한 순서는 기존 값과 합친 최종 상태를 기준으로 검증한다.
+
 ### GenerateDietRecommendationRequest
 
 | 필드 | 필수 | 타입 | 조건 |
@@ -588,6 +656,10 @@ OpenAPI에 명시된 상태 코드: 201, 422. 런타임 인증·상태·DB 오�
 | gender | 아니오 | string 또는 null | — |
 | target_weight | 아니오 | number 또는 string 또는 null | — |
 | activity_level | 아니오 | string 또는 null | — |
+
+### RegenerateDietMealRequest
+
+필드 없는 빈 객체 `{}`만 허용한다.
 
 ### RoundtripRequest
 
