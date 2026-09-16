@@ -471,6 +471,11 @@ class DietMealFeedbackRequest(BaseModel):
         return self
 
 
+class DietMealFeedbackUpdateRequest(DietMealFeedbackRequest):
+    # Omission preserves the original consumption time on PATCH.
+    eaten_at: datetime | None = None
+
+
 class AuthenticatedUser(BaseModel):
     id: str
     email: str | None = None
@@ -2466,6 +2471,41 @@ def build_regenerated_meal(
     return alternative
 
 
+async def update_recommended_meal(
+    user_id: str,
+    diet_meal_id: str,
+    body: DietMealFeedbackUpdateRequest,
+    settings: Settings,
+) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+        response = await client.post(
+            f"{settings.supabase_url}/rest/v1/rpc/update_recommended_meal",
+            headers=service_headers(settings),
+            json={
+                "p_user_id": user_id,
+                "p_diet_meal_id": diet_meal_id,
+                "p_feedback_type": body.feedback_type,
+                "p_eaten_at": body.eaten_at.isoformat() if body.eaten_at else None,
+                "p_actual_items": [item.model_dump(mode="json") for item in body.actual_items],
+            },
+        )
+    if not response.is_success:
+        try:
+            error = response.json()
+        except ValueError:
+            error = {}
+        missing = (
+            response.status_code == 400
+            and isinstance(error, dict)
+            and error.get("code") == "P0002"
+        )
+        raise HTTPException(
+            status_code=404 if missing else 502,
+            detail="Diet meal feedback not found" if missing else "Supabase meal feedback update failed",
+        )
+    return response.json()
+
+
 async def record_recommended_meal(
     user_id: str,
     diet_meal_id: str,
@@ -3334,6 +3374,17 @@ async def post_diet_meal_feedback(
     result = await record_recommended_meal(
         user.id, str(diet_meal_id), body, settings
     )
+    return {"ok": True, "result": result}
+
+
+@app.patch("/api/diet/meals/{diet_meal_id}/feedback", tags=["Diet"])
+async def patch_diet_meal_feedback(
+    diet_meal_id: UUID,
+    body: DietMealFeedbackUpdateRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    result = await update_recommended_meal(user.id, str(diet_meal_id), body, settings)
     return {"ok": True, "result": result}
 
 

@@ -1930,6 +1930,57 @@ def test_record_meal_feedback_uses_authenticated_user(monkeypatch) -> None:
         main.app.dependency_overrides.clear()
 
 
+def test_patch_diet_feedback_contract(monkeypatch) -> None:
+    async def fake_user():
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def fake_update(user_id, meal_id, body, settings):
+        assert user_id == "authenticated-user"
+        assert meal_id == "11111111-1111-1111-1111-111111111111"
+        assert body.eaten_at is None
+        return {"feedback": {"feedback_type": body.feedback_type}, "meal_log": None}
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "update_recommended_meal", fake_update)
+    try:
+        client = TestClient(main.app)
+        url = "/api/diet/meals/11111111-1111-1111-1111-111111111111/feedback"
+        response = client.patch(url, json={"feedback_type": "skipped"})
+        assert response.status_code == 200
+        assert response.json()["result"]["feedback"]["feedback_type"] == "skipped"
+        for body in [{}, {"feedback_type": "different_food"},
+                     {"feedback_type": "invalid"},
+                     {"feedback_type": "eaten", "user_id": "other"},
+                     {"feedback_type": "skipped", "actual_items": [{"food_name": "밥", "quantity": 1, "unit": "g"}]}]:
+            assert client.patch(url, json=body).status_code == 422
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_patch_feedback_rpc_payload_and_missing(monkeypatch) -> None:
+    original = httpx.AsyncClient
+
+    def handler(request):
+        assert request.url.path == "/rest/v1/rpc/update_recommended_meal"
+        assert json.loads(request.content) == {
+            "p_user_id": "authenticated-user", "p_diet_meal_id": "meal-id",
+            "p_feedback_type": "skipped", "p_eaten_at": None, "p_actual_items": [],
+        }
+        return httpx.Response(400, json={"code": "P0002"})
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs:
+                        original(transport=httpx.MockTransport(handler), **kwargs))
+    import asyncio
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(main.update_recommended_meal(
+            "authenticated-user", "meal-id",
+            main.DietMealFeedbackUpdateRequest(feedback_type="skipped"), TEST_SETTINGS))
+    assert error.value.status_code == 404
+
+
 def test_fetch_meal_logs_uses_kst_date_boundaries(monkeypatch) -> None:
     original = httpx.AsyncClient
 
