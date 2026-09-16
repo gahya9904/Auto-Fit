@@ -1,4 +1,4 @@
-import { useMemo, type ComponentType } from 'react';
+import { useEffect, useMemo, type ComponentType } from 'react';
 import { useRouter } from 'expo-router';
 import {
   Dimensions,
@@ -20,9 +20,9 @@ import CalendarIcon from '@/assets/icons/deco/CalendarCheck.svg';
 import CalendarDotsIcon from '@/assets/icons/deco/CalendarDots.svg';
 import FireIcon from '@/assets/icons/deco/Fire.svg';
 import SneakerIcon from '@/assets/icons/deco/SneakerMove.svg';
+import StarFourIcon from '@/assets/icons/deco/StarFour_Fill.svg';
 import TargetIcon from '@/assets/icons/deco/Target.svg';
 import TrophyIcon from '@/assets/icons/deco/Trophy.svg';
-import StarFourIcon from '@/assets/icons/deco/StarFour_Fill.svg';
 import ChartIcon from '@/assets/icons/graph/ChartPieSlice.svg';
 import ClockIcon from '@/assets/icons/input/Clock.svg';
 import { ExerciseActionButton } from '@/src/components/exercise/ExerciseActionButton';
@@ -52,11 +52,22 @@ const heroCopy = {
   },
 } as const;
 
+type ExerciseSummaryItem = {
+  Icon: ComponentType<any>;
+  label: string;
+  unit: string | null;
+  value: string;
+};
+
+function hasNumber(value: number | null | undefined): value is number {
+  return typeof value === 'number';
+}
+
 export default function ExerciseScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const { status } = useExerciseRoutine();
+  const { homeMetrics, latestSession, refreshHome, status } = useExerciseRoutine();
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
   const heightProgress = Math.max(0, Math.min(1, (responsiveHeight - 740) / (917 - 740)));
   const verticalValue = (expanded: number, compact: number) =>
@@ -66,8 +77,7 @@ export default function ExerciseScreen() {
   const frameWidthScale = Math.min(1, windowWidth / 412);
   const dietCanvasTop = Math.max(0, insets.top + 8 - 38 * dietWidthScale);
   const titleTop =
-    (dietCanvasTop + verticalValue(38, 30) * dietWidthScale) /
-    Math.max(frameWidthScale, 0.01);
+    (dietCanvasTop + verticalValue(38, 30) * dietWidthScale) / Math.max(frameWidthScale, 0.01);
   const layout = {
     contentHeight: verticalValue(818, 743),
     heroBadgeTop: verticalValue(39, 25),
@@ -87,26 +97,80 @@ export default function ExerciseScreen() {
     summaryTitleTop: verticalValue(305, 276),
     titleTop,
   };
-  const hero = heroCopy[status];
-  const summary = useMemo(
-    () =>
-      status === 'completed'
-        ? [
-            { label: '칼로리', value: '320', unit: 'kcal', Icon: BmrIcon },
-            { label: '운동 시간', value: '60', unit: '분', Icon: CalendarIcon },
-            { label: '운동 종류', value: '5', unit: '가지', Icon: BarbellIcon },
-            { label: '목표 달성률', value: '92', unit: '%', Icon: TrophyIcon },
-          ]
-        : [
-            { label: '연속 기록', value: '2', unit: '일째', Icon: BmrIcon },
-            { label: '이번 주', value: '2회', unit: '완료', Icon: CalendarDotsIcon },
-            { label: '목표까지', value: '1회', unit: '남음', Icon: TargetIcon },
-          ],
-    [status],
-  );
+  useEffect(() => {
+    if (status !== null) return undefined;
+    const frame = requestAnimationFrame(() => {
+      void refreshHome();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [refreshHome, status]);
+
+  const heroStatus = status ?? 'not-created';
+  const hero = heroCopy[heroStatus];
+  const summary = useMemo(() => {
+    if (heroStatus === 'completed') {
+      return [
+        {
+          label: '칼로리',
+          value: hasNumber(latestSession?.calories) ? String(latestSession.calories) : '-',
+          unit: hasNumber(latestSession?.calories) ? 'kcal' : null,
+          Icon: BmrIcon,
+        },
+        {
+          label: '운동 시간',
+          value: hasNumber(latestSession?.durationMinutes)
+            ? String(latestSession.durationMinutes)
+            : '-',
+          unit: hasNumber(latestSession?.durationMinutes) ? '분' : null,
+          Icon: CalendarIcon,
+        },
+        {
+          label: '운동 종류',
+          value: hasNumber(latestSession?.itemCount) ? String(latestSession.itemCount) : '-',
+          unit: hasNumber(latestSession?.itemCount) ? '가지' : null,
+          Icon: BarbellIcon,
+        },
+        {
+          label: '목표 달성률',
+          value: hasNumber(homeMetrics.goalAchievementRate)
+            ? String(homeMetrics.goalAchievementRate)
+            : '-',
+          unit: hasNumber(homeMetrics.goalAchievementRate) ? '%' : null,
+          Icon: TrophyIcon,
+        },
+      ] satisfies ExerciseSummaryItem[];
+    }
+
+    return [
+      {
+        label: '연속 기록',
+        value: hasNumber(homeMetrics.currentWorkoutStreakDays)
+          ? String(homeMetrics.currentWorkoutStreakDays)
+          : '-',
+        unit: hasNumber(homeMetrics.currentWorkoutStreakDays) ? '일째' : null,
+        Icon: BmrIcon,
+      },
+      {
+        label: '이번 주',
+        value: hasNumber(homeMetrics.currentWeekWorkoutCount)
+          ? String(homeMetrics.currentWeekWorkoutCount)
+          : '-',
+        unit: hasNumber(homeMetrics.currentWeekWorkoutCount) ? '회 완료' : null,
+        Icon: CalendarDotsIcon,
+      },
+      {
+        label: '목표까지',
+        value: hasNumber(homeMetrics.remainingGoalWorkoutCount)
+          ? String(homeMetrics.remainingGoalWorkoutCount)
+          : '-',
+        unit: hasNumber(homeMetrics.remainingGoalWorkoutCount) ? '회 남음' : null,
+        Icon: TargetIcon,
+      },
+    ] satisfies ExerciseSummaryItem[];
+  }, [heroStatus, homeMetrics, latestSession]);
 
   const handleHeroAction = () => {
-    if (status === 'not-created') router.push('/exercise/condition');
+    if (heroStatus === 'not-created') router.push('/exercise/condition');
     else router.push('/exercise/summary');
   };
 
@@ -119,7 +183,7 @@ export default function ExerciseScreen() {
       <Text style={[styles.screenTitle, { top: layout.titleTop }]}>운동 추천</Text>
       <View style={[styles.heroCard, { height: layout.heroHeight, top: layout.heroTop }]}>
         <View style={[styles.heroBadge, { top: layout.heroBadgeTop }]}>
-          {status === 'not-created' ? (
+          {heroStatus === 'not-created' ? (
             <StarFourIcon color={colors.primary} fill={colors.primary} height={15} width={15} />
           ) : null}
           <Text style={styles.heroBadgeText}>{hero.badge}</Text>
@@ -127,7 +191,7 @@ export default function ExerciseScreen() {
         <Text style={[styles.heroTitle, { top: layout.heroTitleTop }]}>{hero.title}</Text>
         <Image
           resizeMode="contain"
-          source={heroImages[status]}
+          source={heroImages[heroStatus]}
           style={[styles.heroImage, { top: layout.heroImageTop }]}
         />
         <View style={styles.heroButton}>
@@ -145,7 +209,7 @@ export default function ExerciseScreen() {
         </View>
       </View>
       <Text style={[styles.sectionTitle, { top: layout.summaryTitleTop }]}>
-        {status === 'completed' ? '오늘의 요약' : '루틴 요약'}
+        {heroStatus === 'completed' ? '오늘의 요약' : '루틴 요약'}
       </Text>
       <View
         style={[
@@ -165,14 +229,14 @@ export default function ExerciseScreen() {
             <Text style={styles.summaryLabel}>{label}</Text>
             <Text style={styles.summaryValue}>
               {value}
-              <Text style={styles.summaryUnit}> {unit}</Text>
+              {unit ? <Text style={styles.summaryUnit}> {unit}</Text> : null}
             </Text>
           </View>
         ))}
       </View>
       <View style={[styles.recentHeading, { top: layout.recentHeadingTop }]}>
         <Text style={styles.sectionTitleInline}>최근 운동</Text>
-        <Text style={styles.recentDate}>8월 25일 (월)</Text>
+        <Text style={styles.recentDate}>{latestSession?.date?.slice(0, 10) ?? '-'}</Text>
       </View>
       <Pressable
         style={({ pressed }) => [
@@ -189,14 +253,26 @@ export default function ExerciseScreen() {
           <Image resizeMode="contain" source={recentExerciseImage} style={styles.recentImage} />
         </View>
         <View style={styles.recentBody}>
-          <Text style={styles.recentTitle}>등 · 이두</Text>
+          <Text style={styles.recentTitle}>-</Text>
           <View style={styles.recentFactors}>
-            <MetaItem Icon={ClockIcon} unit="분" value="60" />
-            <MetaItem Icon={BarbellIcon} unit="종목" value="5" />
-            <MetaItem Icon={FireIcon} unit="kcal" value="320" />
+            <MetaItem
+              Icon={ClockIcon}
+              unit={hasNumber(latestSession?.durationMinutes) ? '분' : null}
+              value={hasNumber(latestSession?.durationMinutes) ? String(latestSession.durationMinutes) : '-'}
+            />
+            <MetaItem
+              Icon={BarbellIcon}
+              unit={hasNumber(latestSession?.itemCount) ? '종목' : null}
+              value={hasNumber(latestSession?.itemCount) ? String(latestSession.itemCount) : '-'}
+            />
+            <MetaItem
+              Icon={FireIcon}
+              unit={hasNumber(latestSession?.calories) ? 'kcal' : null}
+              value={hasNumber(latestSession?.calories) ? String(latestSession.calories) : '-'}
+            />
           </View>
           <View style={styles.recentChip}>
-            <Text style={styles.recentChipText}>랫풀다운, 시티드 로우 외 3개</Text>
+            <Text style={styles.recentChipText}>-</Text>
           </View>
         </View>
         <RightIcon color={colors.textSecondary} height={20} width={20} />
@@ -216,7 +292,7 @@ function MetaItem({
   value,
 }: {
   Icon: ComponentType<any>;
-  unit: string;
+  unit: string | null;
   value: string;
 }) {
   return (
@@ -224,7 +300,7 @@ function MetaItem({
       <Icon color={colors.textSecondary} fill={colors.textSecondary} height={15} width={15} />
       <Text style={styles.metaValue}>
         {value}
-        <Text style={styles.metaUnit}>{unit}</Text>
+        {unit ? <Text style={styles.metaUnit}>{unit}</Text> : null}
       </Text>
     </View>
   );

@@ -1,5 +1,16 @@
+import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Dimensions, Image, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import {
+  Alert,
+  Dimensions,
+  Image,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BarbellIcon from '@/assets/icons/deco/Barbell.svg';
@@ -9,6 +20,7 @@ import PlayIcon from '@/assets/icons/feature/PlayCircle_Fill.svg';
 import ClockIcon from '@/assets/icons/input/Clock.svg';
 import CheckIcon from '@/assets/icons/system/CheckCircle_Fill.svg';
 import LightbulbIcon from '@/assets/icons/system/Lightbulb.svg';
+import { getExerciseApiErrorMessage } from '@/src/api/exercise';
 import { BackButton } from '@/src/components/common/BackButton';
 import { ExerciseActionButton } from '@/src/components/exercise/ExerciseActionButton';
 import { ExerciseScreenFrame } from '@/src/components/exercise/ExerciseScreenFrame';
@@ -16,7 +28,6 @@ import { useExerciseRoutine } from '@/src/features/exercise/ExerciseRoutineConte
 import {
   exerciseEquipmentLabels,
   exerciseLocationLabels,
-  mockExerciseRoutine,
 } from '@/src/features/exercise/exerciseData';
 import { colors, fontFamilies } from '@/src/theme';
 
@@ -32,18 +43,28 @@ export default function ExerciseSummaryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const { completeRoutine, condition, routine } = useExerciseRoutine();
-  const currentRoutine = routine ?? mockExerciseRoutine;
+  const { condition, refreshHome, routine, startRoutine } = useExerciseRoutine();
+  const [isStarting, setIsStarting] = useState(false);
+  useEffect(() => {
+    if (routine) return undefined;
+    const frame = requestAnimationFrame(() => {
+      void refreshHome();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [refreshHome, routine]);
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
-  const heightProgress = Math.max(0, Math.min(1, (responsiveHeight - minimumScreenHeight) / (referenceHeight - minimumScreenHeight)));
-  const verticalValue = (expanded: number, compact: number) => compact + (expanded - compact) * heightProgress;
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - minimumScreenHeight) / (referenceHeight - minimumScreenHeight)),
+  );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
   const availableWidth = windowWidth - insets.left - insets.right;
   const dietWidthScale = Math.min(1, availableWidth / 412);
   const frameWidthScale = Math.min(1, windowWidth / 412);
   const dietCanvasTop = Math.max(0, insets.top + 8 - 38 * dietWidthScale);
   const titleTop =
-    (dietCanvasTop + verticalValue(38, 30) * dietWidthScale) /
-    Math.max(frameWidthScale, 0.01);
+    (dietCanvasTop + verticalValue(38, 30) * dietWidthScale) / Math.max(frameWidthScale, 0.01);
   const secondaryCtaTop = verticalValue(expandedSecondaryCtaTop, compactSecondaryCtaTop);
   const layout = {
     conditionSummaryHeight: verticalValue(100, 90),
@@ -59,11 +80,21 @@ export default function ExerciseSummaryScreen() {
     workoutCardTop: verticalValue(500, 460),
   };
   const contentHeight = secondaryCtaTop + ctaHeight;
-  const backToCondition = () => router.replace('/exercise/condition');
-  const handleStartWorkout = () => {
-    // TODO: 실제 운동 수행 화면이 추가되면 해당 route로 이동하고 완료 시 completeRoutine을 호출합니다.
-    completeRoutine();
-    router.replace('/exercise');
+  const backToCondition = () => router.dismissTo('/exercise/condition');
+  const handleStartWorkout = async () => {
+    if (!routine || isStarting) return;
+    setIsStarting(true);
+    try {
+      await startRoutine();
+      // TODO: 실제 운동 수행 화면 구현 후에는 sessions/start 성공 시 세션/items를
+      // 수행 화면으로 전달하고, 실제 완료 API 성공 뒤 Home COMPLETED 상태로 이동한다.
+      requestAnimationFrame(() => router.replace('/exercise'));
+    } catch (error) {
+      console.error('Exercise session start failed:', error);
+      Alert.alert('운동 시작 실패', getExerciseApiErrorMessage(error));
+    } finally {
+      setIsStarting(false);
+    }
   };
 
   const summary = [
@@ -85,7 +116,7 @@ export default function ExerciseSummaryScreen() {
           : `${condition.equipment.length}종`,
       Icon: BarbellIcon,
     },
-    { label: '컨디션', value: condition.condition || '보통', Icon: HandHeartIcon },
+    { label: '컨디션', value: condition.condition || '미입력', Icon: HandHeartIcon },
     { label: '불편 부위', value: condition.discomfortArea || '없음', Icon: HandHeartIcon },
   ];
 
@@ -121,41 +152,62 @@ export default function ExerciseSummaryScreen() {
           },
         ]}
       >
-        <View style={[styles.programInner, { gap: layout.programInnerGap }]}>
-          <View style={styles.programOverview}>
-            <View style={[styles.programInfo, { gap: layout.programInfoGap }]}>
-              <View style={styles.aiBadge}>
-                <Text style={styles.aiBadgeText}>AI 추천 운동 프로그램</Text>
-              </View>
-              <Text style={styles.programTitle}>
-                {currentRoutine.title}
-                {`\n`}
-                <Text style={styles.programAccent}>{currentRoutine.subtitle}</Text>
-              </Text>
-              <Text numberOfLines={1} style={styles.programMeta}>
-                {condition.availableMinutes === null ? '시간 미선택' : `${condition.availableMinutes}분`} ·{' '}
-                {currentRoutine.exercises.length}개 운동 · 강도{' '}
-                {currentRoutine.intensity}
-              </Text>
-            </View>
-            <Image resizeMode="contain" source={exerciseImage} style={styles.programImage} />
-          </View>
-          <View style={styles.divider} />
-          <View style={[styles.reasonSection, { gap: layout.reasonSectionGap }]}>
-            <View style={styles.reasonTitleRow}>
-              <LightbulbIcon color={colors.primary} height={22} width={22} />
-              <Text style={styles.reasonTitle}>추천 이유</Text>
-            </View>
-            <View style={styles.reasonList}>
-              {currentRoutine.reasons.map((reason) => (
-                <View key={reason} style={styles.reasonRow}>
-                  <CheckIcon color={colors.primary} fill={colors.primary} height={15} width={15} />
-                  <Text style={styles.reasonText}>{reason}</Text>
+        {routine ? (
+          <View style={[styles.programInner, { gap: layout.programInnerGap }]}>
+            <View style={styles.programOverview}>
+              <View style={[styles.programInfo, { gap: layout.programInfoGap }]}>
+                <View style={styles.aiBadge}>
+                  <Text style={styles.aiBadgeText}>AI 추천 운동 프로그램</Text>
                 </View>
-              ))}
+                <Text style={styles.programTitle}>
+                  {routine.title}
+                  {routine.subtitle ? `\n` : null}
+                  {routine.subtitle ? (
+                    <Text style={styles.programAccent}>{routine.subtitle}</Text>
+                  ) : null}
+                </Text>
+                <Text numberOfLines={1} style={styles.programMeta}>
+                  {routine.totalDurationMinutes !== null
+                    ? `${routine.totalDurationMinutes}분`
+                    : condition.availableMinutes === null
+                      ? '시간 미선택'
+                      : `${condition.availableMinutes}분`}{' '}
+                  · {routine.exercises.length}개 운동
+                  {routine.intensity ? ` · 강도 ${routine.intensity}` : ''}
+                </Text>
+              </View>
+              <Image resizeMode="contain" source={exerciseImage} style={styles.programImage} />
+            </View>
+            <View style={styles.divider} />
+            <View style={[styles.reasonSection, { gap: layout.reasonSectionGap }]}>
+              <View style={styles.reasonTitleRow}>
+                <LightbulbIcon color={colors.primary} height={22} width={22} />
+                <Text style={styles.reasonTitle}>추천 이유</Text>
+              </View>
+              {routine.reasons.length > 0 ? (
+                <View style={styles.reasonList}>
+                  {routine.reasons.map((reason) => (
+                    <View key={reason} style={styles.reasonRow}>
+                      <CheckIcon
+                        color={colors.primary}
+                        fill={colors.primary}
+                        height={15}
+                        width={15}
+                      />
+                      <Text style={styles.reasonText}>{reason}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.emptyText}>추천 이유 정보가 없어요.</Text>
+              )}
             </View>
           </View>
-        </View>
+        ) : (
+          <View style={styles.emptyProgram}>
+            <Text style={styles.emptyText}>표시할 운동 추천 정보가 없어요.</Text>
+          </View>
+        )}
       </View>
 
       <View
@@ -169,13 +221,19 @@ export default function ExerciseSummaryScreen() {
             <BarbellIcon color={colors.primary} fill={colors.primary} height={23} width={23} />
             <Text style={styles.workoutTitle}>운동 리스트</Text>
           </View>
-          <Text style={styles.workoutCount}>{currentRoutine.exercises.length}개 운동</Text>
+          <Text style={styles.workoutCount}>
+            {routine ? `${routine.exercises.length}개 운동` : '-'}
+          </Text>
         </View>
-        <ScrollView nestedScrollEnabled showsVerticalScrollIndicator style={styles.workoutList}>
-          {currentRoutine.exercises.map((exercise, index) => (
+        <ScrollView
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+          style={styles.workoutList}
+        >
+          {routine?.exercises.map((exercise) => (
             <View key={exercise.id} style={styles.workoutRow}>
               <View style={styles.number}>
-                <Text style={styles.numberText}>{index + 1}</Text>
+                <Text style={styles.numberText}>{exercise.sequenceOrder ?? ''}</Text>
               </View>
               <View style={styles.workoutText}>
                 <Text style={styles.workoutName}>{exercise.name}</Text>
@@ -183,16 +241,22 @@ export default function ExerciseSummaryScreen() {
               </View>
             </View>
           ))}
+          {!routine || routine.exercises.length === 0 ? (
+            <Text style={styles.emptyText}>표시할 운동 목록이 없어요.</Text>
+          ) : null}
         </ScrollView>
       </View>
-      <View style={[styles.primaryCta, { top: layout.primaryCtaTop }]}>
+      <View
+        pointerEvents={isStarting ? 'none' : 'auto'}
+        style={[styles.primaryCta, { top: layout.primaryCtaTop }, isStarting && styles.ctaLoading]}
+      >
         <ExerciseActionButton
           borderRadius={10}
           gap={10}
           gradient
           icon={<PlayIcon color={colors.surface} fill={colors.surface} height={22} width={22} />}
           labelStyle={styles.ctaLabel}
-          onPress={handleStartWorkout}
+          onPress={() => void handleStartWorkout()}
           title="운동 시작하기"
         />
       </View>
@@ -259,7 +323,15 @@ const styles = StyleSheet.create({
     maxWidth: 64,
   },
   ctaLabel: { fontFamily: fontFamilies.pretendardMedium, fontSize: 20, lineHeight: 24 },
+  ctaLoading: { opacity: 0.7 },
   divider: { backgroundColor: colors.border, height: 1, width: '100%' },
+  emptyProgram: { alignItems: 'center', flex: 1, justifyContent: 'center' },
+  emptyText: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 13,
+    textAlign: 'center',
+  },
   number: {
     alignItems: 'center',
     backgroundColor: colors.primaryLight,

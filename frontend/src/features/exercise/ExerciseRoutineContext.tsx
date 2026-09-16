@@ -1,58 +1,565 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+
+import {
+  generateExerciseRecommendation,
+  getActiveExerciseGoal,
+  getExerciseProgress,
+  getExercisePreferences,
+  getExerciseSummary,
+  getLatestExerciseRecommendation,
+  getLatestExerciseSession,
+  getExerciseApiErrorMessage,
+  saveExerciseRecommendationContext,
+  startExerciseSession,
+  type ExerciseApiEquipment,
+} from '@/src/api/exercise';
+import { ApiError } from '@/src/api/client';
 
 import {
   initialExerciseCondition,
-  mockExerciseRoutine,
   type ExerciseCondition,
   type ExerciseDayStatus,
+  type ExerciseItem,
   type ExerciseRoutine,
 } from './exerciseData';
 
+type ApiRecord = Record<string, unknown>;
+type ExerciseLoadState = 'empty' | 'error' | 'loading' | 'ready';
+
+export type ExerciseSessionSummary = {
+  calories: number | null;
+  completed: boolean;
+  date: string | null;
+  durationMinutes: number | null;
+  itemCount: number | null;
+};
+
+export type ExerciseHomeMetrics = {
+  currentWorkoutStreakDays: number | null;
+  currentWeekWorkoutCount: number | null;
+  goalAchievementRate: number | null;
+  remainingGoalWorkoutCount: number | null;
+};
+
+export type StartedExerciseSession = {
+  items: unknown[];
+  session: ApiRecord;
+};
+
 interface ExerciseRoutineContextValue {
+  activeSession: StartedExerciseSession | null;
   condition: ExerciseCondition;
+  generateRoutine: (condition: ExerciseCondition) => Promise<void>;
+  homeError: string | null;
+  homeLoadState: ExerciseLoadState;
+  homeMetrics: ExerciseHomeMetrics;
+  latestSession: ExerciseSessionSummary | null;
+  refreshHome: () => Promise<void>;
   routine: ExerciseRoutine | null;
-  status: ExerciseDayStatus;
-  completedExerciseIds: string[];
-  generateRoutine: (condition: ExerciseCondition) => void;
-  completeRoutine: () => void;
   setCondition: (condition: ExerciseCondition) => void;
+  startRoutine: () => Promise<void>;
+  status: ExerciseDayStatus | null;
 }
 
 const ExerciseRoutineContext = createContext<ExerciseRoutineContextValue | null>(null);
 
-export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
-  const [condition, setCondition] = useState(initialExerciseCondition);
-  const [routine, setRoutine] = useState<ExerciseRoutine | null>(null);
-  const [status, setStatus] = useState<ExerciseDayStatus>('not-created');
-  const [completedExerciseIds, setCompletedExerciseIds] = useState<string[]>([]);
+function isRecord(value: unknown): value is ApiRecord {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
-  const generateRoutine = useCallback((nextCondition: ExerciseCondition) => {
-    setCondition(nextCondition);
-    setRoutine(mockExerciseRoutine);
-    setCompletedExerciseIds([]);
+function readRecord(record: ApiRecord, key: string) {
+  const value = record[key];
+  return isRecord(value) ? value : null;
+}
+
+function readString(record: ApiRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function readNumber(record: ApiRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
+      return Number(value);
+    }
+  }
+  return null;
+}
+
+function readStringArray(record: ApiRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value.filter(
+        (item): item is string => typeof item === 'string' && Boolean(item.trim()),
+      );
+    }
+  }
+  return [];
+}
+
+function getResult(response: unknown) {
+  if (!isRecord(response)) return null;
+  return readRecord(response, 'result');
+}
+
+function getResultValue(response: unknown) {
+  return isRecord(response) ? response.result : undefined;
+}
+
+function formatPrescription(item: Pick<
+  ExerciseItem,
+  | 'durationMinutes'
+  | 'executionType'
+  | 'repetitions'
+  | 'restSeconds'
+  | 'sets'
+  | 'targetDurationSeconds'
+  | 'targetWeightKg'
+>) {
+  const parts: string[] = [];
+  if (item.executionType === 'time_based') {
+    if (item.durationMinutes !== null) parts.push(`${item.durationMinutes}분`);
+    if (item.targetDurationSeconds !== null) parts.push(`목표 ${item.targetDurationSeconds}초`);
+  } else {
+    if (item.repetitions !== null) parts.push(`${item.repetitions}회`);
+    if (item.sets !== null) parts.push(`${item.sets}세트`);
+    if (item.targetWeightKg !== null) parts.push(`${item.targetWeightKg}kg`);
+    if (item.durationMinutes !== null) parts.push(`${item.durationMinutes}분`);
+  }
+  if (item.restSeconds !== null) parts.push(`휴식 ${item.restSeconds}초`);
+  return parts.join(' · ');
+}
+
+function mapExerciseItems(result: ApiRecord): ExerciseItem[] {
+  const items = Array.isArray(result.items) ? result.items : [];
+
+  return items
+    .flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const id = readString(item, ['exercise_item_id']);
+      const name = readString(item, ['exercise_name']);
+      if (!id || !name) return [];
+      const mappedItem: ExerciseItem = {
+        caloriesBurned: readNumber(item, ['calories_burned']),
+        demoVideoUrl: readString(item, ['demo_video_url']),
+        durationMinutes: readNumber(item, ['duration_minutes']),
+        executionType: readString(item, ['execution_type']),
+        id,
+        instruction: readString(item, ['instruction']),
+        intensity: readString(item, ['intensity']),
+        name,
+        prescription: '',
+        recommendationId: readString(item, ['exercise_recommendation_id']),
+        repetitions: readNumber(item, ['repetitions']),
+        restSeconds: readNumber(item, ['rest_seconds']),
+        sequenceOrder: readNumber(item, ['sequence_order']),
+        sets: readNumber(item, ['sets']),
+        targetDurationSeconds: readNumber(item, ['target_duration_seconds']),
+        targetWeightKg: readNumber(item, ['target_weight_kg']),
+        thumbnailUrl: readString(item, ['thumbnail_url']),
+      };
+      return [{ ...mappedItem, prescription: formatPrescription(mappedItem) }];
+    })
+    .sort((left, right) => {
+      if (left.sequenceOrder === null) return 1;
+      if (right.sequenceOrder === null) return -1;
+      return left.sequenceOrder - right.sequenceOrder;
+    });
+}
+
+function mapExerciseRoutine(response: unknown): ExerciseRoutine | null {
+  const result = getResult(response);
+  if (!result) return null;
+  const recommendation = readRecord(result, 'recommendation') ?? result;
+  const title = readString(recommendation, [
+    'recommendation_summary',
+    'title',
+    'name',
+    'recommendation_title',
+  ]);
+  if (!title) return null;
+  const aiReason = readString(recommendation, ['ai_reason']);
+
+  return {
+    estimatedCalories: readNumber(recommendation, [
+      'estimated_calories',
+      'estimated_kcal',
+      'calories',
+    ]),
+    exercises: mapExerciseItems(result),
+    id: readString(recommendation, ['exercise_recommendation_id', 'recommendation_id', 'id']),
+    intensity: readString(recommendation, ['intensity', 'intensity_level']) ?? '',
+    reasons: aiReason ? [aiReason] : readStringArray(recommendation, ['reasons', 'reason_list']),
+    subtitle: readString(recommendation, ['subtitle', 'sub_title']) ?? '',
+    totalDurationMinutes: readNumber(recommendation, ['total_duration_minutes']),
+    title,
+  };
+}
+
+function mapExerciseSession(response: unknown): ExerciseSessionSummary | null {
+  const result = getResult(response);
+  if (!result) return null;
+  const session = readRecord(result, 'session') ?? result;
+  const status = readString(session, ['status']);
+  const completedAt = readString(session, ['completed_at']);
+
+  return {
+    calories: readNumber(session, ['calories', 'total_calories', 'calories_burned']),
+    completed: session.completed === true || status === 'completed' || completedAt !== null,
+    date:
+      completedAt ??
+      readString(session, ['session_date', 'exercise_date', 'started_at', 'created_at']),
+    durationMinutes: readNumber(session, ['duration_minutes', 'total_duration_minutes']),
+    itemCount: readNumber(session, ['item_count', 'completed_item_count']),
+  };
+}
+
+function mapStartedExerciseSession(response: unknown): StartedExerciseSession | null {
+  const result = getResult(response);
+  if (!result) return null;
+  const session = readRecord(result, 'session');
+  if (!session) return null;
+  return { items: Array.isArray(result.items) ? result.items : [], session };
+}
+
+function toDateKey(value: string) {
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  return match?.[1] ?? null;
+}
+
+function getTodayDateKey() {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function addDaysToDateKey(value: string, amount: number) {
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setDate(date.getDate() + amount);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function getGoalId(goal: ApiRecord) {
+  return readString(goal, ['exercise_goal_id', 'goal_id', 'id']);
+}
+
+function hasMatchingGoalPeriod(activeGoal: ApiRecord | null, progress: ApiRecord | null) {
+  if (!activeGoal || !progress) return false;
+  const progressGoal = readRecord(progress, 'goal');
+  const activeGoalId = getGoalId(activeGoal);
+  const progressGoalId = progressGoal ? getGoalId(progressGoal) : null;
+  if (!progressGoal || !activeGoalId || activeGoalId !== progressGoalId) return false;
+
+  const startsOn = toDateKey(readString(activeGoal, ['starts_on']) ?? '');
+  const periodWeeks = readNumber(activeGoal, ['goal_period_weeks']);
+  const progressPeriod = readRecord(progress, 'period');
+  const progressFrom = progressPeriod ? toDateKey(readString(progressPeriod, ['from']) ?? '') : null;
+  const progressTo = progressPeriod ? toDateKey(readString(progressPeriod, ['to']) ?? '') : null;
+  if (!startsOn || periodWeeks === null || !progressFrom || !progressTo) return false;
+
+  const expectedTo = addDaysToDateKey(startsOn, periodWeeks * 7 - 1);
+  return progressFrom === startsOn && progressTo === expectedTo;
+}
+
+function getCurrentWeekWorkoutCount(progress: ApiRecord | null) {
+  if (!progress || !Array.isArray(progress.weekly_trend)) return null;
+  const today = getTodayDateKey();
+  const currentWeek = progress.weekly_trend.find((item) => {
+    if (!isRecord(item)) return false;
+    const weekStart = toDateKey(readString(item, ['week_start']) ?? '');
+    const weekEnd = weekStart ? addDaysToDateKey(weekStart, 7) : null;
+    return Boolean(weekStart && weekEnd && weekStart <= today && today < weekEnd);
+  });
+  return isRecord(currentWeek) ? readNumber(currentWeek, ['workout_count']) : null;
+}
+
+function mapExerciseHomeMetrics(
+  activeGoalResponse: unknown,
+  progressResponse: unknown,
+): ExerciseHomeMetrics {
+  const activeGoal = isRecord(activeGoalResponse) ? readRecord(activeGoalResponse, 'goal') : null;
+  const progress = isRecord(progressResponse) ? readRecord(progressResponse, 'progress') : null;
+  const progressSummary = progress ? readRecord(progress, 'summary') : null;
+  const achievements = progress ? readRecord(progress, 'achievements') : null;
+  const hasAlignedGoalPeriod = hasMatchingGoalPeriod(activeGoal, progress);
+  const targetWorkoutCount = progressSummary
+    ? readNumber(progressSummary, ['target_workout_count'])
+    : null;
+  const completedWorkoutCount = progressSummary ? readNumber(progressSummary, ['workout_count']) : null;
+  const goalAchievementRate = progressSummary
+    ? readNumber(progressSummary, ['goal_achievement_rate'])
+    : null;
+
+  return {
+    currentWorkoutStreakDays: achievements
+      ? readNumber(achievements, ['longest_workout_streak_days'])
+      : null,
+    currentWeekWorkoutCount: getCurrentWeekWorkoutCount(progress),
+    goalAchievementRate: hasAlignedGoalPeriod ? goalAchievementRate : null,
+    remainingGoalWorkoutCount:
+      hasAlignedGoalPeriod && targetWorkoutCount !== null && completedWorkoutCount !== null
+        ? Math.max(targetWorkoutCount - completedWorkoutCount, 0)
+        : null,
+  };
+}
+
+function mapEquipment(equipment: ExerciseCondition['equipment']): ExerciseApiEquipment[] {
+  return equipment.map((item) => (item === 'bodyweight' ? 'mat' : item));
+}
+
+function isMissingExerciseData(result: PromiseSettledResult<unknown>) {
+  return result.status === 'rejected' && result.reason instanceof ApiError && result.reason.status === 404;
+}
+
+export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
+  const [activeSession, setActiveSession] = useState<StartedExerciseSession | null>(null);
+  const [condition, setCondition] = useState(initialExerciseCondition);
+  const [homeError, setHomeError] = useState<string | null>(null);
+  const [homeLoadState, setHomeLoadState] = useState<ExerciseLoadState>('loading');
+  const [homeMetrics, setHomeMetrics] = useState<ExerciseHomeMetrics>({
+    currentWorkoutStreakDays: null,
+    currentWeekWorkoutCount: null,
+    goalAchievementRate: null,
+    remainingGoalWorkoutCount: null,
+  });
+  const [latestSession, setLatestSession] = useState<ExerciseSessionSummary | null>(null);
+  const [routine, setRoutine] = useState<ExerciseRoutine | null>(null);
+  const [status, setStatus] = useState<ExerciseDayStatus | null>(null);
+  const homeRequestInFlight = useRef(false);
+  const routineRequestInFlight = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+
+  const refreshHome = useCallback(async () => {
+    if (homeRequestInFlight.current) return;
+    homeRequestInFlight.current = true;
+    setHomeError(null);
+    setHomeLoadState('loading');
+
+    const [
+      recommendationResult,
+      sessionResult,
+      ,
+      activeGoalResult,
+      progressResult,
+    ] = await Promise.allSettled([
+      getLatestExerciseRecommendation(),
+      getLatestExerciseSession(),
+      getExerciseSummary(),
+      getActiveExerciseGoal(),
+      getExerciseProgress(),
+    ]);
+
+    homeRequestInFlight.current = false;
+    if (!mountedRef.current) return;
+
+    const recommendationMissing = isMissingExerciseData(recommendationResult);
+    const sessionMissing = isMissingExerciseData(sessionResult);
+    if (
+      (recommendationResult.status === 'rejected' && !recommendationMissing) ||
+      (sessionResult.status === 'rejected' && !sessionMissing)
+    ) {
+      const failedResult = [recommendationResult, sessionResult].find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      );
+      const error = failedResult?.reason;
+      console.error('Exercise home request failed:', error);
+      setHomeError(getExerciseApiErrorMessage(error));
+      setHomeLoadState('error');
+      return;
+    }
+
+    const recommendationResponse =
+      recommendationResult.status === 'fulfilled' ? recommendationResult.value : { result: null };
+    const recommendationResultValue = getResultValue(recommendationResponse);
+    const nextRoutine = mapExerciseRoutine(recommendationResponse);
+    const nextSession = mapExerciseSession(
+      sessionResult.status === 'fulfilled' ? sessionResult.value : { result: null },
+    );
+    const nextHomeMetrics = mapExerciseHomeMetrics(
+      activeGoalResult.status === 'fulfilled' ? activeGoalResult.value : null,
+      progressResult.status === 'fulfilled' ? progressResult.value : null,
+    );
+    setLatestSession(nextSession);
+    setHomeMetrics(nextHomeMetrics);
+
+    const todayDateKey = getTodayDateKey();
+    const sessionDate = nextSession?.date ? toDateKey(nextSession.date) : null;
+    const hasCompletedSessionToday =
+      nextSession?.completed === true && sessionDate === todayDateKey;
+
+    // 오늘 완료 세션은 추천 조회 결과와 관계없이 Home Hero에서 최우선입니다.
+    if (hasCompletedSessionToday) {
+      setRoutine(nextRoutine);
+      setStatus('completed');
+      setHomeLoadState('ready');
+      return;
+    }
+
+    if (recommendationResultValue === null) {
+      setRoutine(null);
+      setActiveSession(null);
+      setStatus('not-created');
+      setHomeLoadState('ready');
+      return;
+    }
+
+    const recommendationRecord = getResult(recommendationResponse);
+    const recommendationMetadata = recommendationRecord
+      ? (readRecord(recommendationRecord, 'recommendation') ?? recommendationRecord)
+      : null;
+    const recommendationDate =
+      nextRoutine && recommendationMetadata
+        ? toDateKey(
+            readString(recommendationMetadata, [
+              'recommendation_date',
+              'recommended_for',
+              'generated_at',
+              'created_at',
+            ]) ?? '',
+          )
+        : null;
+
+    if (!nextRoutine || !recommendationDate) {
+      setRoutine(null);
+      setStatus('not-created');
+      setHomeError('오늘의 운동 추천 정보를 표시할 수 없어요.');
+      setHomeLoadState('empty');
+      return;
+    }
+
+    setRoutine(nextRoutine);
+    if (recommendationDate !== todayDateKey) {
+      setStatus('not-created');
+      setHomeLoadState('ready');
+      return;
+    }
+
     setStatus('ready');
+    setHomeLoadState('ready');
   }, []);
 
-  const completeRoutine = useCallback(() => {
-    setRoutine((current) => {
-      const resolved = current ?? mockExerciseRoutine;
-      setCompletedExerciseIds(resolved.exercises.map(({ id }) => id));
-      return resolved;
-    });
-    setStatus('completed');
+  const generateRoutine = useCallback(async (nextCondition: ExerciseCondition) => {
+    if (routineRequestInFlight.current) return;
+    routineRequestInFlight.current = true;
+
+    try {
+      const availableMinutes = nextCondition.availableMinutes;
+      const location = nextCondition.location;
+      const conditionLevel = nextCondition.condition.trim();
+      if (availableMinutes === null || location === null || !conditionLevel) {
+        throw new Error('운동 조건을 모두 입력해 주세요.');
+      }
+
+      const preferencesResponse = await getExercisePreferences();
+      if (isRecord(preferencesResponse) && preferencesResponse.preferences === null) {
+        throw new Error('운동 목표와 경험을 먼저 설정해 주세요.');
+      }
+
+      await saveExerciseRecommendationContext({
+        availableEquipment: mapEquipment(nextCondition.equipment),
+        availableMinutes,
+        conditionLevel,
+        conditionNote: null,
+        discomfortAreas: nextCondition.discomfortArea.trim()
+          ? [nextCondition.discomfortArea.trim()]
+          : [],
+        location,
+      });
+      const generatedResponse = await generateExerciseRecommendation();
+      const generatedRoutine = mapExerciseRoutine(generatedResponse);
+      if (!generatedRoutine) {
+        throw new Error('생성된 운동 추천 정보를 표시할 수 없어요.');
+      }
+
+      if (!mountedRef.current) return;
+      setCondition(nextCondition);
+      setRoutine(generatedRoutine);
+      setStatus('ready');
+      setLatestSession(null);
+      setActiveSession(null);
+      setHomeError(null);
+      setHomeLoadState('ready');
+    } finally {
+      routineRequestInFlight.current = false;
+    }
+  }, []);
+
+  const startRoutine = useCallback(async () => {
+    if (routineRequestInFlight.current) return;
+    routineRequestInFlight.current = true;
+
+    try {
+      const response = await startExerciseSession();
+      const startedSession = mapStartedExerciseSession(response);
+      const nextSession = mapExerciseSession(response);
+      if (!startedSession || !nextSession) {
+        throw new Error('운동 세션 정보를 확인할 수 없어요.');
+      }
+      if (!mountedRef.current) return;
+      setActiveSession(startedSession);
+      setLatestSession(nextSession);
+      // TODO: 실제 운동 수행 화면이 구현되면 sessions/start 성공 뒤에는 수행 화면으로
+      // 이동하고, session complete 성공 시점에만 completed 상태로 변경한다.
+      setStatus('completed');
+    } finally {
+      routineRequestInFlight.current = false;
+    }
   }, []);
 
   const value = useMemo(
     () => ({
-      completedExerciseIds,
-      completeRoutine,
+      activeSession,
       condition,
       generateRoutine,
+      homeError,
+      homeLoadState,
+      homeMetrics,
+      latestSession,
+      refreshHome,
       routine,
       setCondition,
+      startRoutine,
       status,
     }),
-    [completedExerciseIds, completeRoutine, condition, generateRoutine, routine, status],
+    [
+      activeSession,
+      condition,
+      generateRoutine,
+      homeError,
+      homeLoadState,
+      homeMetrics,
+      latestSession,
+      refreshHome,
+      routine,
+      startRoutine,
+      status,
+    ],
   );
 
   return (
