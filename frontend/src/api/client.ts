@@ -13,15 +13,17 @@ export class ApiError extends Error {
   code?: string;
   detail?: unknown;
   fields?: unknown[];
+  responseBody?: unknown;
   status: number;
 
-  constructor(status: number, message: string, body?: ApiErrorBody) {
+  constructor(status: number, message: string, body?: ApiErrorBody, responseBody?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = typeof body?.code === 'string' ? body.code : undefined;
     this.detail = body?.detail;
     this.fields = Array.isArray(body?.fields) ? body.fields : undefined;
+    this.responseBody = responseBody;
   }
 }
 
@@ -116,6 +118,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       response.status,
       findMessage(body?.detail) ?? findMessage(payload) ?? `HTTP ${response.status}`,
       body,
+      payload,
     );
   }
 

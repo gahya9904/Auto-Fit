@@ -42,11 +42,13 @@ import {
 import { MealRecordSheets, type MealRecordDraft } from '@/src/components/diet/MealRecordSheets';
 import {
   createDietInventoryItem,
-  generateDietRecommendations,
+  deleteDietInventoryItem,
   getDietApiErrorMessage,
   getDietInventory,
   getDietMealLogs,
-  getLatestDietRecommendations,
+  getDietNutritionSummary,
+  getDietRecommendationsByDate,
+  regenerateDietMeal,
   submitDietMealFeedback,
   type DietActualItem,
 } from '@/src/api/diet';
@@ -76,6 +78,7 @@ type MealStatuses = Record<MealType, MealStatus>;
 
 type Meal = {
   dietMealId?: string;
+  recommendationStatus?: MealStatus;
   variantId: string;
   id: MealType;
   title: string;
@@ -381,8 +384,8 @@ const mealRecommendations: Record<MealType, Meal[]> = {
   ],
 };
 
-// TODO: The current diet API does not expose nutrition targets or daily intake totals.
-// Keep this display-only fixture until that API is available.
+// The nutrition-summary response is currently free-form in OpenAPI. Keep the existing fixture
+// until its confirmed fields can be mapped without inferring nutrition targets or totals.
 const nutritionGoals: NutritionGoal[] = [
   {
     label: '열량',
@@ -564,6 +567,7 @@ function mapRecommendationMeals(result: unknown): Meal[] {
         .filter(([name]) => Boolean(name)),
       kcal: Math.round(kcal),
       note: readString(apiMeal, ['note', 'description', 'comment']) ?? '',
+      recommendationStatus: recommendationStatusToMealStatus(readString(apiMeal, ['status'])),
       tags: readArray(apiMeal.tags).filter((tag): tag is string => typeof tag === 'string'),
       title: presentation.title,
       usedIngredients: readArray(apiMeal.used_ingredients ?? apiMeal.ingredients)
@@ -590,10 +594,20 @@ function ingredientIcon(name: string): FridgeIngredient['icon'] {
 function mapInventory(value: unknown): FridgeIngredient[] {
   return readArray(value).flatMap((entry) => {
     if (!isApiRecord(entry)) return [];
-    const id = readString(entry, ['food_inventory_id', 'inventory_id', 'id']);
-    const name = readString(entry, ['name', 'food_name', 'ingredient_name']);
+    const id = readString(entry, ['user_food_inventory_id', 'food_inventory_id', 'inventory_id', 'id']);
+    const name = readString(entry, ['custom_name', 'name', 'food_name', 'ingredient_name']);
     if (!id || !name) return [];
-    return [{ icon: ingredientIcon(name), id, name }];
+    return [
+      {
+        expiresOn: readString(entry, ['expires_on']) ?? null,
+        icon: ingredientIcon(name),
+        id,
+        name,
+        purchasedOn: readString(entry, ['purchased_on']) ?? null,
+        quantity: readNumber(entry, ['quantity']) ?? null,
+        unit: readString(entry, ['unit']) ?? null,
+      },
+    ];
   });
 }
 
@@ -602,6 +616,18 @@ function feedbackTypeToStatus(value: unknown): MealStatus | undefined {
   if (value === 'different_food') return 'modified';
   if (value === 'skipped') return 'skipped';
   return undefined;
+}
+
+function recommendationStatusToMealStatus(value: unknown): MealStatus {
+  switch (typeof value === 'string' ? value.trim().toLowerCase() : '') {
+    case 'completed':
+      return 'eaten';
+    case 'changed':
+      return 'modified';
+    case 'recommended':
+    default:
+      return 'recommended';
+  }
 }
 
 function mapLogDraft(log: ApiRecord, mealId: MealType): MealRecordDraft | undefined {
@@ -826,6 +852,7 @@ const MealCard = memo(function MealCard({
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousExpanded = useRef(expanded);
   const displayedStatus = status;
+  const feedbackAllowed = displayedStatus === 'recommended';
   const dimmed = displayedStatus === 'skipped';
   const accentColor = getMealAccentColor(meal, displayedStatus);
   const showsRecordedMeal = displayedStatus === 'modified' && recordedMeal !== undefined;
@@ -965,7 +992,7 @@ const MealCard = memo(function MealCard({
             event.stopPropagation();
             void chooseStatus('eaten');
           }}
-          disabled={feedbackPending}
+          disabled={!feedbackAllowed || feedbackPending}
           style={({ pressed }) => actionStyle('eaten', displayedStatus, pressed)}
         >
           <Check color="#2FAF96" height={15} width={15} />
@@ -973,10 +1000,10 @@ const MealCard = memo(function MealCard({
         </Pressable>
 
         <Pressable
-          disabled={displayedStatus === 'modified' || feedbackPending}
+          disabled={!feedbackAllowed || feedbackPending}
           onPress={(event) => {
             event.stopPropagation();
-            if (displayedStatus === 'modified') return;
+            if (!feedbackAllowed) return;
             onRecordOtherMeal(meal.id);
           }}
           style={({ pressed }) => actionStyle('modified', displayedStatus, pressed)}
@@ -990,7 +1017,7 @@ const MealCard = memo(function MealCard({
             event.stopPropagation();
             void chooseStatus('skipped');
           }}
-          disabled={feedbackPending}
+          disabled={!feedbackAllowed || feedbackPending}
           style={({ pressed }) => actionStyle('skipped', displayedStatus, pressed)}
         >
           <Prohibit color="#727272" height={15} width={15} />
@@ -1031,25 +1058,18 @@ const MealCard = memo(function MealCard({
               <Text style={styles.mealKcal}>{displayedKcal} kcal</Text>
             </View>
             <Pressable
-              accessibilityRole={
-                displayedStatus === 'recommended' || displayedStatus === 'modified'
-                  ? 'button'
-                  : undefined
-              }
+              accessibilityRole={displayedStatus === 'recommended' ? 'button' : undefined}
               disabled={
-                displayedStatus === 'eaten' ||
-                displayedStatus === 'skipped' ||
+                !feedbackAllowed ||
                 feedbackPending ||
-                (displayedStatus === 'recommended' && recommendationPending)
+                recommendationPending
               }
               hitSlop={6}
               onPress={(event) => {
                 event.stopPropagation();
-                if (displayedStatus === 'recommended') {
+                if (feedbackAllowed) {
                   onRequestAlternativeMeal(meal.id);
-                  return;
                 }
-                if (displayedStatus === 'modified') onRecordOtherMeal(meal.id);
               }}
               style={({ pressed }) => [
                 styles.statusPressable,
@@ -1134,7 +1154,7 @@ export default function DietScreen() {
   const [selectedDateOffset, setSelectedDateOffset] = useState(0);
   const [selectedDateKey, setSelectedDateKey] = useState(() => toDateKey(today));
   const [expandedMeals, setExpandedMeals] = useState<Set<MealType>>(() => new Set());
-  const [statusesByDate, setStatusesByDate] = useState<Record<string, MealStatuses>>({});
+  const [statusesByDate, setStatusesByDate] = useState<Record<string, Partial<MealStatuses>>>({});
   const [canvasHeight, setCanvasHeight] = useState(0);
   const [activeSheet, setActiveSheet] = useState<DietSheet>(null);
   const [recordingMealId, setRecordingMealId] = useState<MealType | null>(null);
@@ -1143,6 +1163,7 @@ export default function DietScreen() {
   const [recommendationLoading, setRecommendationLoading] = useState(true);
   const [inventoryLoading, setInventoryLoading] = useState(true);
   const [feedbackMealIds, setFeedbackMealIds] = useState<Set<MealType>>(() => new Set());
+  const [regeneratingMealIds, setRegeneratingMealIds] = useState<Set<MealType>>(() => new Set());
   const [mealRecordsByDate, setMealRecordsByDate] = useState<
     Record<string, Partial<Record<MealType, MealRecordDraft>>>
   >({});
@@ -1153,6 +1174,8 @@ export default function DietScreen() {
   const isMountedRef = useRef(true);
   const mealLogsRequestRef = useRef(0);
   const recommendationRequestRef = useRef(0);
+  const nutritionSummaryRequestRef = useRef(0);
+  const regenerateRequestMealIdsRef = useRef(new Set<MealType>());
 
   const availableWidth = windowWidth - insets.left - insets.right;
   const widthScale = Math.min(1, availableWidth / referenceWidth);
@@ -1174,12 +1197,20 @@ export default function DietScreen() {
     16;
 
   const indicator = useCustomScrollIndicator({ showInitially: true });
-  const selectedStatuses = statusesByDate[selectedDateKey] ?? defaultMealStatuses;
+  const visibleMeals = recommendedMeals;
+  const recommendationStatuses = visibleMeals.reduce<MealStatuses>(
+    (currentStatuses, meal) => ({
+      ...currentStatuses,
+      [meal.id]: meal.recommendationStatus ?? currentStatuses[meal.id],
+    }),
+    { ...defaultMealStatuses },
+  );
+  const selectedStatuses: MealStatuses = {
+    ...recommendationStatuses,
+    ...(statusesByDate[selectedDateKey] ?? {}),
+  };
   const selectedDate = addDays(today, selectedDateOffset);
   const selectedDateCopy = getDateCopy(selectedDate, selectedDateOffset);
-  const todayKey = toDateKey(today);
-  const showsLatestRecommendation = selectedDateKey === todayKey;
-  const visibleMeals = showsLatestRecommendation ? recommendedMeals : [];
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1232,7 +1263,7 @@ export default function DietScreen() {
           .filter((meal): meal is Meal & { dietMealId: string } => Boolean(meal.dietMealId))
           .map((meal) => [meal.dietMealId, meal]),
       );
-      const nextStatuses: MealStatuses = { ...defaultMealStatuses };
+      const nextStatuses: Partial<MealStatuses> = {};
       const nextRecords: Partial<Record<MealType, MealRecordDraft>> = {};
 
       readArray(response.logs).forEach((entry) => {
@@ -1265,24 +1296,21 @@ export default function DietScreen() {
     }
   }, []);
 
-  const loadRecommendations = useCallback(async (forceGenerate = false) => {
+  const loadRecommendations = useCallback(async (dateKey: string) => {
     const requestId = ++recommendationRequestRef.current;
     if (isMountedRef.current) {
       setRecommendationError(null);
       setRecommendationLoading(true);
+      setRecommendedMeals([]);
     }
 
     try {
-      const latest = forceGenerate
-        ? await generateDietRecommendations()
-        : await getLatestDietRecommendations();
-      const response =
-        !forceGenerate && latest.result === null ? await generateDietRecommendations() : latest;
+      const response = await getDietRecommendationsByDate(dateKey);
+      if (__DEV__) {
+        console.log('[Diet] recommendations by date response:', JSON.stringify(response, null, 2));
+      }
       const mappedMeals = mapRecommendationMeals(response.result);
 
-      if (mappedMeals.length === 0) {
-        throw new Error('추천 식단 데이터를 표시할 수 없어요. 잠시 후 다시 시도해 주세요.');
-      }
       if (!isMountedRef.current || requestId !== recommendationRequestRef.current) return false;
 
       setRecommendedMeals(mappedMeals);
@@ -1291,12 +1319,25 @@ export default function DietScreen() {
       if (!isMountedRef.current || requestId !== recommendationRequestRef.current) return false;
       const message = getDietApiErrorMessage(error);
       setRecommendationError(message);
-      if (forceGenerate) Alert.alert('새 식단 추천을 만들지 못했어요', message);
+      Alert.alert('식단 추천을 불러오지 못했어요', message);
       return false;
     } finally {
       if (isMountedRef.current && requestId === recommendationRequestRef.current) {
         setRecommendationLoading(false);
       }
+    }
+  }, []);
+
+  const loadNutritionSummary = useCallback(async (dateKey: string) => {
+    const requestId = ++nutritionSummaryRequestRef.current;
+    try {
+      const response = await getDietNutritionSummary(dateKey);
+      if (__DEV__) {
+        console.log('[Diet] nutrition summary response:', JSON.stringify(response, null, 2));
+      }
+    } catch (error) {
+      if (!isMountedRef.current || requestId !== nutritionSummaryRequestRef.current) return;
+      if (__DEV__) console.error('[Diet] nutrition summary request failed:', error);
     }
   }, []);
 
@@ -1317,25 +1358,20 @@ export default function DietScreen() {
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      void loadRecommendations();
+      void loadRecommendations(selectedDateKey);
+      void loadNutritionSummary(selectedDateKey);
       void loadInventory();
     });
     return () => cancelAnimationFrame(frame);
-  }, [loadInventory, loadRecommendations]);
+  }, [loadInventory, loadNutritionSummary, loadRecommendations, selectedDateKey]);
 
   useEffect(() => {
-    if (showsLatestRecommendation && recommendationLoading) return;
+    if (recommendationLoading) return;
     const frame = requestAnimationFrame(() => {
-      void restoreMealLogs(selectedDateKey, showsLatestRecommendation ? recommendedMeals : []);
+      void restoreMealLogs(selectedDateKey, recommendedMeals);
     });
     return () => cancelAnimationFrame(frame);
-  }, [
-    recommendedMeals,
-    recommendationLoading,
-    restoreMealLogs,
-    selectedDateKey,
-    showsLatestRecommendation,
-  ]);
+  }, [recommendedMeals, recommendationLoading, restoreMealLogs, selectedDateKey]);
 
   const collapseMeal = useCallback((mealId: MealType) => {
     setExpandedMeals((current) => {
@@ -1367,18 +1403,14 @@ export default function DietScreen() {
       setFeedbackMealIds((current) => new Set(current).add(mealId));
       try {
         await submitDietMealFeedback(dietMealId, {
-          actualItems: [],
-          eatenAt: status === 'eaten' ? new Date().toISOString() : null,
+          ...(status === 'eaten' ? { eatenAt: new Date().toISOString() } : {}),
           feedbackType: status,
         });
         if (!isMountedRef.current) return false;
 
         setStatusesByDate((current) => ({
           ...current,
-          [dateKey]: {
-            ...(current[dateKey] ?? defaultMealStatuses),
-            [mealId]: status,
-          },
+          [dateKey]: { ...(current[dateKey] ?? {}), [mealId]: status },
         }));
         return true;
       } catch (error) {
@@ -1400,17 +1432,63 @@ export default function DietScreen() {
     [recommendedMeals, selectedDateKey],
   );
 
-  const requestAlternativeMeal = useCallback(() => {
+  const regenerateMeal = useCallback(
+    async (mealId: MealType) => {
+      const currentMeal = recommendedMeals.find((meal) => meal.id === mealId);
+      const dietMealId = currentMeal?.dietMealId;
+      if (!dietMealId || regenerateRequestMealIdsRef.current.has(mealId)) return;
+
+      regenerateRequestMealIdsRef.current.add(mealId);
+      setRegeneratingMealIds((current) => new Set(current).add(mealId));
+      try {
+        const response = await regenerateDietMeal(dietMealId);
+        if (__DEV__) {
+          console.log('[Diet] regenerate meal response:', JSON.stringify(response, null, 2));
+        }
+        if (!isMountedRef.current) return;
+
+        const regeneratedMeal = mapRecommendationMeals(response.result).find(
+          (meal) => meal.id === mealId,
+        );
+        if (regeneratedMeal) {
+          setRecommendedMeals((current) =>
+            current.map((meal) => (meal.id === mealId ? regeneratedMeal : meal)),
+          );
+          return;
+        }
+
+        // The regenerate response schema is free-form. Re-read the selected date using the
+        // established recommendation mapper rather than constructing a meal client-side.
+        await loadRecommendations(selectedDateKey);
+      } catch (error) {
+        if (isMountedRef.current) {
+          Alert.alert('식단을 다시 추천하지 못했어요', getDietApiErrorMessage(error));
+        }
+      } finally {
+        regenerateRequestMealIdsRef.current.delete(mealId);
+        if (isMountedRef.current) {
+          setRegeneratingMealIds((current) => {
+            const next = new Set(current);
+            next.delete(mealId);
+            return next;
+          });
+        }
+      }
+    },
+    [loadRecommendations, recommendedMeals, selectedDateKey],
+  );
+
+  const requestAlternativeMeal = useCallback((mealId: MealType) => {
     if (recommendationLoading) return;
     Alert.alert(
-      '새 식단 추천을 만들까요?',
-      '현재 백엔드는 끼니 하나가 아닌 하루 전체 추천을 새로 생성합니다.',
+      '다른 식단을 추천받을까요?',
+      '선택한 끼니만 새로운 식단으로 바꿔드려요.',
       [
         { style: 'cancel', text: '취소' },
-        { onPress: () => void loadRecommendations(true), text: '새로 추천받기' },
+        { onPress: () => void regenerateMeal(mealId), text: '새로 추천받기' },
       ],
     );
-  }, [loadRecommendations, recommendationLoading]);
+  }, [regenerateMeal, recommendationLoading]);
 
   const completeMealRecord = useCallback(
     async (draft: MealRecordDraft) => {
@@ -1463,10 +1541,7 @@ export default function DietScreen() {
         }));
         setStatusesByDate((current) => ({
           ...current,
-          [dateKey]: {
-            ...(current[dateKey] ?? defaultMealStatuses),
-            [mealId]: 'modified',
-          },
+          [dateKey]: { ...(current[dateKey] ?? {}), [mealId]: 'modified' },
         }));
         setRecordingMealId(null);
         collapseMeal(mealId);
@@ -1500,9 +1575,9 @@ export default function DietScreen() {
           quantity: null,
           unit: null,
         });
+        const addedItem = mapInventory([response.item])[0];
         if (!isMountedRef.current) return false;
 
-        const addedItem = mapInventory([response.item])[0];
         if (addedItem) {
           setFridgeIngredients((current) => [...current, addedItem]);
         } else {
@@ -1512,6 +1587,28 @@ export default function DietScreen() {
       } catch (error) {
         if (isMountedRef.current) {
           Alert.alert('재료를 추가하지 못했어요', getDietApiErrorMessage(error));
+        }
+        return false;
+      }
+    },
+    [loadInventory],
+  );
+
+  const deleteInventoryIngredients = useCallback(
+    async (inventoryIds: string[]) => {
+      try {
+        for (const inventoryId of inventoryIds) {
+          await deleteDietInventoryItem(inventoryId);
+        }
+        if (!isMountedRef.current) return false;
+
+        const deletedIds = new Set(inventoryIds);
+        setFridgeIngredients((current) => current.filter((item) => !deletedIds.has(item.id)));
+        return true;
+      } catch (error) {
+        if (isMountedRef.current) {
+          Alert.alert('재료를 삭제하지 못했어요', getDietApiErrorMessage(error));
+          await loadInventory();
         }
         return false;
       }
@@ -1651,27 +1748,21 @@ export default function DietScreen() {
 
               <Text style={styles.mealSectionTitle}>오늘의 추천 식단</Text>
               <View style={styles.mealList}>
-                {recommendationLoading && showsLatestRecommendation ? (
+                {recommendationLoading ? (
                   <Text style={styles.mealLoadMessage}>식단 추천을 불러오는 중이에요.</Text>
                 ) : null}
-                {recommendationError && showsLatestRecommendation ? (
+                {recommendationError ? (
                   <Pressable
                     accessibilityRole="button"
-                    onPress={() => void loadRecommendations()}
+                    onPress={() => void loadRecommendations(selectedDateKey)}
                     style={({ pressed }) => [styles.mealErrorCard, pressed && styles.pressed]}
                   >
                     <Text style={styles.mealErrorText}>{recommendationError}</Text>
                     <Text style={styles.mealRetryText}>다시 시도</Text>
                   </Pressable>
                 ) : null}
-                {!recommendationLoading && !recommendationError && !showsLatestRecommendation ? (
-                  <Text style={styles.mealLoadMessage}>
-                    선택한 날짜의 추천 식단은 현재 제공되지 않아요.
-                  </Text>
-                ) : null}
                 {!recommendationLoading &&
                 !recommendationError &&
-                showsLatestRecommendation &&
                 visibleMeals.length === 0 ? (
                   <Text style={styles.mealLoadMessage}>표시할 추천 식단이 없어요.</Text>
                 ) : null}
@@ -1688,7 +1779,7 @@ export default function DietScreen() {
                     onStatusChange={submitFeedback}
                     onToggle={toggleMeal}
                     onTransitionChange={handleMealTransitionChange}
-                    recommendationPending={recommendationLoading}
+                    recommendationPending={regeneratingMealIds.has(meal.id)}
                     status={selectedStatuses[meal.id]}
                   />
                 ))}
@@ -1703,7 +1794,7 @@ export default function DietScreen() {
         ingredients={fridgeIngredients}
         onActiveSheetChange={setActiveSheet}
         onIngredientAdd={addInventoryIngredient}
-        onIngredientsChange={setFridgeIngredients}
+        onIngredientDelete={deleteInventoryIngredients}
       />
       <MealRecordSheets
         initialDraft={

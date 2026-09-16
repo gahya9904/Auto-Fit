@@ -35,9 +35,13 @@ export type DietSheet = null | 'fridge' | 'addIngredient';
 export type IngredientIcon = 'meat' | 'egg' | 'bean' | 'fruit' | 'vegetable';
 
 export type FridgeIngredient = {
+  expiresOn: string | null;
   id: string;
   name: string;
   icon: IngredientIcon;
+  purchasedOn: string | null;
+  quantity: number | string | null;
+  unit: string | null;
 };
 
 type FridgeManagerSheetsProps = {
@@ -45,7 +49,7 @@ type FridgeManagerSheetsProps = {
   ingredients: FridgeIngredient[];
   onActiveSheetChange: (sheet: DietSheet) => void;
   onIngredientAdd: (name: string) => Promise<boolean>;
-  onIngredientsChange: (ingredients: FridgeIngredient[]) => void;
+  onIngredientDelete: (ids: string[]) => Promise<boolean>;
 };
 
 const iconByType = {
@@ -177,7 +181,7 @@ export function FridgeManagerSheets({
   ingredients,
   onActiveSheetChange,
   onIngredientAdd,
-  onIngredientsChange,
+  onIngredientDelete,
 }: FridgeManagerSheetsProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -185,6 +189,7 @@ export function FridgeManagerSheets({
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [ingredientName, setIngredientName] = useState('');
   const [isAddingIngredient, setIsAddingIngredient] = useState(false);
+  const [isDeletingIngredients, setIsDeletingIngredients] = useState(false);
   const [keyboardContentInset, setKeyboardContentInset] = useState(0);
   const [closingSheet, setClosingSheet] = useState<Exclude<DietSheet, null>>('fridge');
   const [keyboardOffset] = useState(() => new Animated.Value(0));
@@ -285,13 +290,22 @@ export function FridgeManagerSheets({
     });
   };
 
-  const confirmDelete = () => {
-    const selectedIds = selectedIngredientIds;
-    // TODO: The current API contract has no inventory delete endpoint.
-    // Keep the existing local-only removal UI until the server API is added.
-    onIngredientsChange(ingredients.filter((item) => !selectedIds.has(item.id)));
-    setSelectedIngredientIds(new Set());
-    setDeleteDialogVisible(false);
+  const confirmDelete = async () => {
+    if (isDeletingIngredients) return;
+
+    const selectedIds = [...selectedIngredientIds];
+    if (selectedIds.length === 0) return;
+
+    setIsDeletingIngredients(true);
+    try {
+      const didDelete = await onIngredientDelete(selectedIds);
+      if (!didDelete) return;
+
+      setSelectedIngredientIds(new Set());
+      setDeleteDialogVisible(false);
+    } finally {
+      setIsDeletingIngredients(false);
+    }
   };
 
   const openAddIngredient = () => {

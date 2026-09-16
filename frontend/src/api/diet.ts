@@ -22,9 +22,17 @@ export type CreateInventoryItemInput = {
   unit: string | null;
 };
 
+export type UpdateInventoryItemInput = {
+  expiresOn: string | null;
+  name: string | null;
+  purchasedOn: string | null;
+  quantity: number | string | null;
+  unit: string | null;
+};
+
 export type DietFeedbackInput = {
-  actualItems: DietActualItem[];
-  eatenAt: string | null;
+  actualItems?: DietActualItem[];
+  eatenAt?: string;
   feedbackType: DietFeedbackType;
 };
 
@@ -65,8 +73,40 @@ export function createDietInventoryItem(input: CreateInventoryItemInput) {
   });
 }
 
+export function updateDietInventoryItem(inventoryId: string, input: UpdateInventoryItemInput) {
+  return apiRequest<{ item?: unknown; ok?: unknown }>(
+    `/api/diet/inventory/${encodeURIComponent(inventoryId)}`,
+    {
+      body: JSON.stringify({
+        expires_on: input.expiresOn,
+        name: input.name,
+        purchased_on: input.purchasedOn,
+        quantity: input.quantity,
+        unit: input.unit,
+      }),
+      method: 'PATCH',
+    },
+  );
+}
+
+export function deleteDietInventoryItem(inventoryId: string) {
+  return apiRequest<void>(`/api/diet/inventory/${encodeURIComponent(inventoryId)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function getLatestDietRecommendations() {
   return apiRequest<DietRecommendationResponse>('/api/diet/recommendations/latest');
+}
+
+export function getDietRecommendationsByDate(date: string) {
+  const params = new URLSearchParams({ date });
+  return apiRequest<DietRecommendationResponse>(`/api/diet/recommendations?${params.toString()}`);
+}
+
+export function getDietNutritionSummary(date: string) {
+  const params = new URLSearchParams({ date });
+  return apiRequest<ApiObject>(`/api/diet/nutrition-summary?${params.toString()}`);
 }
 
 export function generateDietRecommendations() {
@@ -77,14 +117,59 @@ export function generateDietRecommendations() {
 }
 
 export function submitDietMealFeedback(dietMealId: string, input: DietFeedbackInput) {
+  const requestBody = {
+    feedback_type: input.feedbackType,
+    ...(input.eatenAt ? { eaten_at: input.eatenAt } : {}),
+    ...(input.actualItems && input.actualItems.length > 0
+      ? { actual_items: input.actualItems }
+      : {}),
+  };
+
+  if (__DEV__) {
+    console.log('[Diet feedback] request:', {
+      actual_items: requestBody.actual_items,
+      diet_meal_id: dietMealId,
+      eaten_at: requestBody.eaten_at,
+      feedback_type: requestBody.feedback_type,
+      request_body: requestBody,
+    });
+  }
+
   return apiRequest<DietFeedbackResponse>(
     `/api/diet/meals/${encodeURIComponent(dietMealId)}/feedback`,
     {
-      body: JSON.stringify({
-        actual_items: input.actualItems,
-        eaten_at: input.eatenAt,
-        feedback_type: input.feedbackType,
-      }),
+      body: JSON.stringify(requestBody),
+      method: 'POST',
+    },
+  ).catch((error: unknown) => {
+    if (__DEV__) {
+      if (error instanceof ApiError) {
+        console.error('[Diet feedback] failure:', {
+          detail: error.detail ?? null,
+          error: error.code ?? null,
+          http_status: error.status,
+          message: error.message,
+          response_body: error.responseBody ?? null,
+        });
+      } else {
+        console.error('[Diet feedback] failure:', {
+          detail: null,
+          error: null,
+          http_status: null,
+          message: error instanceof Error ? error.message : String(error),
+          response_body: null,
+        });
+      }
+    }
+    throw error;
+  });
+}
+
+export function regenerateDietMeal(dietMealId: string) {
+  return apiRequest<DietRecommendationResponse>(
+    `/api/diet/meals/${encodeURIComponent(dietMealId)}/regenerate`,
+    {
+      body: JSON.stringify({}),
       method: 'POST',
     },
   );
