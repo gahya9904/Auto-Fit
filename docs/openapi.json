@@ -2990,7 +2990,8 @@
               "muscle_gain",
               "endurance",
               "maintenance",
-              "rehabilitation"
+              "rehabilitation",
+              "other"
             ],
             "title": "Goal Type"
           },
@@ -3002,6 +3003,18 @@
               "advanced"
             ],
             "title": "Experience Level"
+          },
+          "custom_goal": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Goal"
           }
         },
         "additionalProperties": false,
@@ -3533,6 +3546,7 @@
             "title": "Message"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "message"

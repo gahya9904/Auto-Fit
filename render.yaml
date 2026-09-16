@@ -8,7 +8,7 @@ services:
     branch: backend
     autoDeployTrigger: "off"
     buildCommand: pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT --no-server-header
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
@@ -21,3 +21,11 @@ services:
         sync: false
       - key: FRONTEND_ORIGIN
         sync: false
+      - key: BACKEND_ALLOWED_HOSTS
+        value: auto-fit-api-dev.onrender.com,localhost,127.0.0.1
+      - key: MAX_REQUEST_BODY_BYTES
+        value: "1048576"
+      - key: API_DOCS_ENABLED
+        value: "false"
+      - key: ENABLE_TEST_ENDPOINTS
+        value: "false"

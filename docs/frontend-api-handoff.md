@@ -62,15 +62,34 @@ POST라고 모두 201은 아니다. 코드가 지정한 성공 코드를 표에 
 | Method | 경로 | 입력 | 성공 응답 주요 경로 | 코드 |
 |---|---|---|---|---|
 | GET | `/api/exercise/preferences` | 없음 | `preferences` (없으면 null) | 200 |
-| PUT | `/api/exercise/preferences` | `goal_type, experience_level` | `ok, preferences` | 200 |
+| PUT | `/api/exercise/preferences` | `goal_type, experience_level, custom_goal?` | `ok, preferences` | 200 |
 | GET | `/api/exercise/recommendation-contexts/latest` | 없음 | `context` (없으면 null) | 200 |
 | POST | `/api/exercise/recommendation-contexts` | ExerciseRecommendationContextRequest | `ok, context` | 200 |
 | GET | `/api/exercise/recommendations/latest` | 없음 | `result` (없으면 null) | 200 |
 | POST | `/api/exercise/recommendations/generate` | `{}` | `ok, generator, result` | 200 |
 
 추천 전 preferences와 새 context를 저장한다. 누락되면 409다.
-goal_type: weight_loss/muscle_gain/endurance/maintenance/rehabilitation.
+goal_type: weight_loss/muscle_gain/endurance/maintenance/rehabilitation/other.
 experience_level: beginner/intermediate/advanced.
+
+회원가입의 ‘기타’ 목표는 아래처럼 저장한다. `custom_goal`은 `other`일 때 필수이며,
+앞뒤 공백을 제거한 값이 비어 있으면 422다. 입력 최대 길이는 200자다.
+일반 목표로 변경하면 `custom_goal`은 null로 초기화된다. 기존 두 필드 요청은 유지된다.
+GET/PUT 응답의 `preferences.custom_goal`에서 입력 목표를 읽을 수 있다.
+
+```json
+{
+  "goal_type": "other",
+  "experience_level": "beginner",
+  "custom_goal": "등산을 위한 기초 체력 만들기"
+}
+```
+
+현재 규칙 기반 추천은 기타 입력 내용을 추천 요약에 표시하고 기본 걷기 루틴을 제공한다.
+자유입력의 의미를 분석한 맞춤 처방은 제공하지 않는다.
+배포 순서: `add_custom_exercise_goal` DB 마이그레이션 적용 → 백엔드 배포 → 기타 UI 연동.
+마이그레이션은 기존 데이터·RLS·권한을 유지한다. 롤백 시 기타 데이터가 있는 동안은
+기존 API로 되돌리지 않는다. 데이터를 백업하고 기존 목표로 전환한 뒤에만 컬럼/제약을 되돌린다.
 
 ```json
 {
@@ -323,7 +342,7 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 
 ## 11. 검증 상태와 담당
 
-전체 자동 테스트 280개 통과 기록. 발표 시나리오 로컬 API 흐름 검증을 포함한다. 챗봇 저장/건강 점수는 실제 Supabase 연동 24개 검증 완료.
+전체 자동 테스트 296개 통과 기록. 발표 시나리오 로컬 API 흐름 검증을 포함한다. 챗봇 저장/건강 점수는 실제 Supabase 연동 24개 검증 완료.
 이번 식단 확장은 로컬 API 테스트와 PGlite 기반 `replace_diet_meal` RPC 검증 8개를 통과했다.
 신규 마이그레이션은 원격 Supabase에 아직 적용하지 않았으므로 공유 서버 배포 전 적용이 필요하다.
 신규 챗봇 식사·운동은 모의 HTTP 검증 완료, 실제 DB 통합은 남아 있다.

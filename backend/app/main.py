@@ -16,9 +16,10 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.app.chat_health_scores import (
     build_score_answer,
@@ -32,6 +33,14 @@ from backend.app.chat_model import get_model_config
 from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
 from backend.app.chat_rate_limit import ChatRateLimiter
+from backend.app.security import (
+    BlockedPathMiddleware,
+    RequestBodyLimitMiddleware,
+    SecurityHeadersMiddleware,
+    environment_flag,
+    parse_allowed_hosts,
+    parse_request_body_limit,
+)
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -59,6 +68,8 @@ def get_settings() -> Settings:
 
 
 class RoundtripRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     message: str = Field(min_length=1, max_length=200)
 
 
@@ -175,8 +186,25 @@ class ExercisePreferencesRequest(BaseModel):
         "endurance",
         "maintenance",
         "rehabilitation",
+        "other",
     ]
     experience_level: Literal["beginner", "intermediate", "advanced"]
+    custom_goal: str | None = Field(default=None, max_length=200)
+
+    @field_validator("custom_goal")
+    @classmethod
+    def normalize_custom_goal(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def validate_custom_goal(self) -> "ExercisePreferencesRequest":
+        if self.goal_type == "other" and self.custom_goal is None:
+            raise ValueError("custom_goal is required for other goals")
+        if self.goal_type != "other":
+            self.custom_goal = None
+        return self
 
 
 class ExerciseRecommendationContextRequest(BaseModel):
@@ -462,7 +490,7 @@ async def get_current_user(
         "Authorization": f"Bearer {token}",
     }
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/auth/v1/user",
             headers=headers,
@@ -498,7 +526,7 @@ async def fetch_profile(user_id: str, settings: Settings) -> dict[str, Any]:
         "limit": "1",
     }
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/profiles",
             headers=service_headers(settings),
@@ -533,7 +561,7 @@ async def update_profile(
         "user_id": f"eq.{user_id}",
     }
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.patch(
             f"{settings.supabase_url}/rest/v1/profiles",
             headers=service_headers(settings, return_representation=True),
@@ -562,7 +590,7 @@ async def fetch_allergy_catalog(settings: Settings) -> list[dict[str, Any]]:
         "is_active": "eq.true",
         "order": "name.asc",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/allergy_types",
             headers=service_headers(settings),
@@ -586,7 +614,7 @@ async def fetch_user_allergies(
         "user_id": f"eq.{user_id}",
         "order": "created_at.asc",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/user_allergies",
             headers=service_headers(settings),
@@ -611,7 +639,7 @@ async def replace_user_allergies(
         "p_allergy_type_ids": [str(value) for value in selection.allergy_type_ids],
         "p_custom_names": selection.custom_names,
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/rpc/replace_user_allergies",
             headers=service_headers(settings),
@@ -634,13 +662,13 @@ async def fetch_exercise_preferences(
 ) -> dict[str, Any] | None:
     params = {
         "select": (
-            "user_exercise_profile_id,user_id,goal_type,experience_level,"
+            "user_exercise_profile_id,user_id,goal_type,experience_level,custom_goal,"
             "created_at,updated_at"
         ),
         "user_id": f"eq.{user_id}",
         "limit": "1",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/user_exercise_profiles",
             headers=service_headers(settings),
@@ -666,12 +694,12 @@ async def upsert_exercise_preferences(
     params = {
         "on_conflict": "user_id",
         "select": (
-            "user_exercise_profile_id,user_id,goal_type,experience_level,"
+            "user_exercise_profile_id,user_id,goal_type,experience_level,custom_goal,"
             "created_at,updated_at"
         ),
     }
     payload = {"user_id": user_id, **preferences.model_dump()}
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/user_exercise_profiles",
             headers=headers,
@@ -707,7 +735,7 @@ async def fetch_latest_exercise_context(
         "order": "created_at.desc",
         "limit": "1",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_recommendation_contexts",
             headers=service_headers(settings),
@@ -736,7 +764,7 @@ async def create_exercise_context(
         ),
     }
     payload = {"user_id": user_id, **context.model_dump()}
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/exercise_recommendation_contexts",
             headers=service_headers(settings, return_representation=True),
@@ -773,7 +801,7 @@ async def fetch_latest_unlinked_exercise_context(
         "order": "created_at.desc",
         "limit": "1",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_recommendation_contexts",
             headers=service_headers(settings),
@@ -889,6 +917,7 @@ def build_exercise_recommendation_plan(
         "endurance": "체력 향상",
         "maintenance": "건강 유지",
         "rehabilitation": "컨디셔닝 / 기능 회복",
+        "other": preferences.get("custom_goal") or "기타",
     }
     return {
         "recommendation": {
@@ -900,6 +929,8 @@ def build_exercise_recommendation_plan(
             "ai_reason": (
                 "기본 프로필의 활동 수준, 운동 목표, 경험 수준, 사용 가능 시간과 "
                 "장비, 현재 컨디션 및 불편 부위를 반영한 규칙 기반 테스트 추천입니다."
+                + (" 기타 목표는 입력 내용을 표시하고 기본 걷기 루틴을 제공합니다."
+                   if goal == "other" else "")
             ),
         },
         "items": items,
@@ -918,7 +949,7 @@ async def create_exercise_recommendation(
         "p_recommendation": plan["recommendation"],
         "p_items": plan["items"],
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/rpc/create_exercise_recommendation",
             headers=service_headers(settings),
@@ -976,7 +1007,7 @@ async def fetch_latest_exercise_recommendation(
         "order": "recommendation_date.desc,created_at.desc",
         "limit": "1",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         recommendation_response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_recommendations",
             headers=service_headers(settings),
@@ -1003,7 +1034,7 @@ async def fetch_latest_exercise_recommendation(
         "exercise_recommendation_id": f"eq.{recommendation['exercise_recommendation_id']}",
         "order": "sequence_order.asc",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         item_response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_items",
             headers=service_headers(settings),
@@ -1023,7 +1054,7 @@ async def call_exercise_session_rpc(
     payload: dict[str, Any],
     settings: Settings,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/rpc/{name}",
             headers=service_headers(settings),
@@ -1053,7 +1084,7 @@ async def fetch_latest_exercise_session(
         "order": "started_at.desc",
         "limit": "1",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         session_response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_sessions",
             headers=service_headers(settings),
@@ -1080,7 +1111,7 @@ async def fetch_latest_exercise_session(
         "exercise_session_id": f"eq.{session['exercise_session_id']}",
         "order": "performed_at.asc",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         log_response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_logs",
             headers=service_headers(settings),
@@ -1109,7 +1140,7 @@ async def fetch_exercise_discomfort_logs(
         "exercise_session_id": f"eq.{session_id}",
         "order": "occurred_at.desc",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_discomfort_logs",
             headers=service_headers(settings),
@@ -1158,7 +1189,7 @@ async def fetch_exercise_session_feedback(
         "exercise_session_id": f"eq.{session_id}",
         "limit": "1",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_session_feedback",
             headers=service_headers(settings),
@@ -1200,7 +1231,7 @@ async def fetch_exercise_session_result(
         "exercise_session_id": f"eq.{session_id}",
         "order": "performed_at.asc",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         session_response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_sessions",
             headers=service_headers(settings),
@@ -1247,7 +1278,7 @@ async def fetch_active_exercise_goal(
         "order": "starts_on.desc,updated_at.desc",
         "limit": "1",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_goals",
             headers=service_headers(settings),
@@ -1271,7 +1302,7 @@ async def save_active_exercise_goal(
         "p_user_id": user_id,
         **{f"p_{key}": value for key, value in body.model_dump(mode="json").items()},
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/rpc/save_exercise_goal",
             headers=service_headers(settings),
@@ -1329,7 +1360,7 @@ async def fetch_exercise_history(
         ),
         "user_id": f"eq.{user_id}",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         session_response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_sessions",
             headers=service_headers(settings),
@@ -1381,7 +1412,7 @@ async def fetch_completed_exercise_sessions(
 ) -> list[dict[str, Any]]:
     page_size = 1000
     sessions: list[dict[str, Any]] = []
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         while True:
             response = await client.get(
                 f"{settings.supabase_url}/rest/v1/exercise_sessions",
@@ -1470,7 +1501,7 @@ async def fetch_exercise_category_map(
     )
     if not item_ids:
         return {}
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         item_response = await client.get(
             f"{settings.supabase_url}/rest/v1/exercise_items",
             headers=service_headers(settings),
@@ -1632,7 +1663,7 @@ async def fetch_food_inventory(
         "is_available": "eq.true",
         "order": "expires_on.asc.nullslast,created_at.asc",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/user_food_inventory",
             headers=service_headers(settings),
@@ -1678,7 +1709,7 @@ async def create_food_inventory_item(
             "created_at,updated_at"
         )
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/user_food_inventory",
             headers=service_headers(settings, return_representation=True),
@@ -1735,7 +1766,7 @@ async def update_food_inventory_item(
             "created_at,updated_at"
         ),
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.patch(
             f"{settings.supabase_url}/rest/v1/user_food_inventory",
             headers=service_headers(settings, return_representation=True),
@@ -1772,7 +1803,7 @@ async def delete_food_inventory_item(
         "is_available": "eq.true",
         "select": "user_food_inventory_id",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.patch(
             f"{settings.supabase_url}/rest/v1/user_food_inventory",
             headers=service_headers(settings, return_representation=True),
@@ -1930,7 +1961,7 @@ async def create_diet_recommendation(
     plan: dict[str, Any],
     settings: Settings,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/rpc/create_diet_recommendation",
             headers=service_headers(settings),
@@ -1971,7 +2002,7 @@ async def fetch_diet_recommendation(
         recommendation_params["status"] = "eq.active"
     else:
         recommendation_params["recommendation_date"] = f"eq.{recommendation_date.isoformat()}"
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         recommendation_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_recommendations",
             headers=service_headers(settings),
@@ -1994,7 +2025,7 @@ async def fetch_diet_recommendation(
         "diet_recommendation_id": f"eq.{recommendation['diet_recommendation_id']}",
         "order": "meal_order.asc",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         meal_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_meals",
             headers=service_headers(settings),
@@ -2009,7 +2040,7 @@ async def fetch_diet_recommendation(
     meal_ids = [row["diet_meal_id"] for row in meals]
     foods_by_meal: dict[str, list[dict[str, Any]]] = defaultdict(list)
     if meal_ids:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
             food_response = await client.get(
                 f"{settings.supabase_url}/rest/v1/diet_meal_foods",
                 headers=service_headers(settings),
@@ -2051,7 +2082,7 @@ async def regenerate_diet_meal(
     meal: dict[str, Any],
     settings: Settings,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/rpc/replace_diet_meal",
             headers=service_headers(settings),
@@ -2079,7 +2110,7 @@ async def fetch_diet_meal_context(
     diet_meal_id: str,
     settings: Settings,
 ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         meal_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_meals",
             headers=service_headers(settings),
@@ -2101,7 +2132,7 @@ async def fetch_diet_meal_context(
     if not meals:
         raise HTTPException(status_code=404, detail="Diet meal not found")
     meal = meals[0]
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         recommendation_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_recommendations",
             headers=service_headers(settings),
@@ -2120,7 +2151,7 @@ async def fetch_diet_meal_context(
     recommendations = recommendation_response.json()
     if not recommendations:
         raise HTTPException(status_code=404, detail="Diet meal not found")
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         food_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_meal_foods",
             headers=service_headers(settings),
@@ -2224,7 +2255,7 @@ async def record_recommended_meal(
             item.model_dump(mode="json") for item in body.actual_items
         ],
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.post(
             f"{settings.supabase_url}/rest/v1/rpc/record_recommended_meal",
             headers=service_headers(settings),
@@ -2272,7 +2303,7 @@ async def fetch_meal_logs(
         "and": f"(eaten_at.lt.{end.isoformat()})",
         "order": "eaten_at.desc",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/meal_logs",
             headers=service_headers(settings),
@@ -2287,7 +2318,7 @@ async def fetch_meal_logs(
     log_ids = [row["meal_log_id"] for row in logs]
     items_by_log: dict[str, list[dict[str, Any]]] = defaultdict(list)
     if log_ids:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
             item_response = await client.get(
                 f"{settings.supabase_url}/rest/v1/meal_log_items",
                 headers=service_headers(settings),
@@ -2426,7 +2457,15 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Auto-Fit API", version="0.1.0", lifespan=lifespan)
+api_docs_enabled = environment_flag(os.getenv("API_DOCS_ENABLED"), default=True)
+app = FastAPI(
+    title="Auto-Fit API",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/docs" if api_docs_enabled else None,
+    redoc_url="/redoc" if api_docs_enabled else None,
+    openapi_url="/openapi.json" if api_docs_enabled else None,
+)
 
 
 @app.exception_handler(HTTPException)
@@ -2440,13 +2479,17 @@ async def chat_http_error(request, exc):
 
 @app.exception_handler(RequestValidationError)
 async def chat_validation_error(request, exc):
+    # Never echo question text, tokens, health data, or arbitrary input.
+    fields = [".".join(map(str, error["loc"])) for error in exc.errors()]
     if request.url.path.startswith("/api/chats"):
-        # Do not echo question text, tokens, or arbitrary input in validation errors.
         return JSONResponse(status_code=422, content={"detail": {
             "code": "VALIDATION_ERROR", "message": "입력값을 확인해 주세요.",
-            "fields": [".".join(map(str, error["loc"])) for error in exc.errors()],
+            "fields": fields,
         }})
-    return await request_validation_exception_handler(request, exc)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": {"message": "Invalid request", "fields": fields}},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -2458,6 +2501,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_bytes=parse_request_body_limit(os.getenv("MAX_REQUEST_BODY_BYTES")),
+)
+test_endpoints_enabled = environment_flag(os.getenv("ENABLE_TEST_ENDPOINTS"), default=True)
+app.add_middleware(
+    BlockedPathMiddleware,
+    prefixes=() if test_endpoints_enabled else ("/api/test",),
+)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=parse_allowed_hosts(os.getenv("BACKEND_ALLOWED_HOSTS")),
+)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 @app.get("/health")

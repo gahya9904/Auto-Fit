@@ -199,7 +199,7 @@ GET /api/diet/nutrition-summary?date=2026-09-16
 |---|---|
 | FastAPI 5개 operation 및 입력 검증 | 완료 |
 | `replace_diet_meal` Supabase 마이그레이션 | 저장소 작성 완료, 원격 미적용 |
-| 백엔드 회귀 테스트 | 280개 통과 |
+| 백엔드 회귀 테스트 | 원격 선행 변경 병합 후 296개 통과 |
 | RPC 격리·권한·원자성 검증 | PGlite 기반 8개 통과 |
 | OpenAPI·입력 참조·프론트 인수인계 문서 | 반영 완료 |
 | 공유 서버 배포 및 실제 Supabase 통합 확인 | 미진행 |

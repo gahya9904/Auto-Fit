@@ -28,7 +28,7 @@ def needs_safety_guidance(content):
 
 async def load_exercise_types(url, headers):
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
             r = await client.get(url+'/rest/v1/exercise_types', headers=headers,
                 params={'select':'name,category', 'is_active':'eq.true', 'order':'name.asc,exercise_type_id.asc', 'limit':'101'})
     except httpx.HTTPError:

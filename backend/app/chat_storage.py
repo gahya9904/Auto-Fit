@@ -58,7 +58,7 @@ class ChatStore:
 
     async def request(self, method, path, *, params=None, body=None):
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
                 response = await client.request(
                     method, f"{self.url}/rest/v1/{path}",
                     headers={**self.headers, "Prefer": "return=representation"},
