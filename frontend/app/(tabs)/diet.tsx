@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -50,7 +50,9 @@ import {
   getDietRecommendationsByDate,
   regenerateDietMeal,
   submitDietMealFeedback,
+  updateDietMealFeedback,
   type DietActualItem,
+  type DietFeedbackInput,
 } from '@/src/api/diet';
 import {
   BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
@@ -852,7 +854,6 @@ const MealCard = memo(function MealCard({
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousExpanded = useRef(expanded);
   const displayedStatus = status;
-  const feedbackAllowed = displayedStatus === 'recommended';
   const dimmed = displayedStatus === 'skipped';
   const accentColor = getMealAccentColor(meal, displayedStatus);
   const showsRecordedMeal = displayedStatus === 'modified' && recordedMeal !== undefined;
@@ -992,7 +993,7 @@ const MealCard = memo(function MealCard({
             event.stopPropagation();
             void chooseStatus('eaten');
           }}
-          disabled={!feedbackAllowed || feedbackPending}
+          disabled={feedbackPending}
           style={({ pressed }) => actionStyle('eaten', displayedStatus, pressed)}
         >
           <Check color="#2FAF96" height={15} width={15} />
@@ -1000,10 +1001,9 @@ const MealCard = memo(function MealCard({
         </Pressable>
 
         <Pressable
-          disabled={!feedbackAllowed || feedbackPending}
+          disabled={feedbackPending}
           onPress={(event) => {
             event.stopPropagation();
-            if (!feedbackAllowed) return;
             onRecordOtherMeal(meal.id);
           }}
           style={({ pressed }) => actionStyle('modified', displayedStatus, pressed)}
@@ -1017,7 +1017,7 @@ const MealCard = memo(function MealCard({
             event.stopPropagation();
             void chooseStatus('skipped');
           }}
-          disabled={!feedbackAllowed || feedbackPending}
+          disabled={feedbackPending}
           style={({ pressed }) => actionStyle('skipped', displayedStatus, pressed)}
         >
           <Prohibit color="#727272" height={15} width={15} />
@@ -1058,18 +1058,25 @@ const MealCard = memo(function MealCard({
               <Text style={styles.mealKcal}>{displayedKcal} kcal</Text>
             </View>
             <Pressable
-              accessibilityRole={displayedStatus === 'recommended' ? 'button' : undefined}
+              accessibilityRole={
+                displayedStatus === 'recommended' || displayedStatus === 'modified'
+                  ? 'button'
+                  : undefined
+              }
               disabled={
-                !feedbackAllowed ||
+                displayedStatus === 'eaten' ||
+                displayedStatus === 'skipped' ||
                 feedbackPending ||
-                recommendationPending
+                (displayedStatus === 'recommended' && recommendationPending)
               }
               hitSlop={6}
               onPress={(event) => {
                 event.stopPropagation();
-                if (feedbackAllowed) {
+                if (displayedStatus === 'recommended') {
                   onRequestAlternativeMeal(meal.id);
+                  return;
                 }
+                if (displayedStatus === 'modified') onRecordOtherMeal(meal.id);
               }}
               style={({ pressed }) => [
                 styles.statusPressable,
@@ -1198,17 +1205,24 @@ export default function DietScreen() {
 
   const indicator = useCustomScrollIndicator({ showInitially: true });
   const visibleMeals = recommendedMeals;
-  const recommendationStatuses = visibleMeals.reduce<MealStatuses>(
-    (currentStatuses, meal) => ({
-      ...currentStatuses,
-      [meal.id]: meal.recommendationStatus ?? currentStatuses[meal.id],
-    }),
-    { ...defaultMealStatuses },
+  const recommendationStatuses = useMemo(
+    () =>
+      visibleMeals.reduce<MealStatuses>(
+        (currentStatuses, meal) => ({
+          ...currentStatuses,
+          [meal.id]: meal.recommendationStatus ?? currentStatuses[meal.id],
+        }),
+        { ...defaultMealStatuses },
+      ),
+    [visibleMeals],
   );
-  const selectedStatuses: MealStatuses = {
-    ...recommendationStatuses,
-    ...(statusesByDate[selectedDateKey] ?? {}),
-  };
+  const selectedStatuses = useMemo<MealStatuses>(
+    () => ({
+      ...recommendationStatuses,
+      ...(statusesByDate[selectedDateKey] ?? {}),
+    }),
+    [recommendationStatuses, selectedDateKey, statusesByDate],
+  );
   const selectedDate = addDays(today, selectedDateOffset);
   const selectedDateCopy = getDateCopy(selectedDate, selectedDateOffset);
 
@@ -1386,6 +1400,14 @@ export default function DietScreen() {
     setRecordingMealId(mealId);
   }, []);
 
+  const saveDietMealFeedback = useCallback(
+    (dietMealId: string, input: DietFeedbackInput, hasExistingFeedback: boolean) =>
+      hasExistingFeedback
+        ? updateDietMealFeedback(dietMealId, input)
+        : submitDietMealFeedback(dietMealId, input),
+    [],
+  );
+
   const submitFeedback = useCallback(
     async (mealId: MealType, status: Extract<MealStatus, 'eaten' | 'skipped'>) => {
       const meal = recommendedMeals.find((candidate) => candidate.id === mealId);
@@ -1399,19 +1421,46 @@ export default function DietScreen() {
       }
 
       const dateKey = selectedDateKey;
+      const hasExistingFeedback = selectedStatuses[mealId] !== 'recommended';
       feedbackRequestMealIdsRef.current.add(mealId);
       setFeedbackMealIds((current) => new Set(current).add(mealId));
       try {
-        await submitDietMealFeedback(dietMealId, {
-          ...(status === 'eaten' ? { eatenAt: new Date().toISOString() } : {}),
+        if (__DEV__) {
+          console.log('[Diet feedback] routing:', {
+            current_status: selectedStatuses[mealId],
+            diet_meal_id: dietMealId,
+            feedback_type: status,
+            has_existing_feedback: hasExistingFeedback,
+            reason: hasExistingFeedback
+              ? 'current_status_is_not_recommended'
+              : 'current_status_is_recommended',
+          });
+        }
+        await saveDietMealFeedback(dietMealId, {
+          ...(status === 'eaten'
+            ? {
+                ...(hasExistingFeedback ? { actualItems: [] } : {}),
+                eatenAt: new Date().toISOString(),
+              }
+            : hasExistingFeedback
+              ? { actualItems: [], eatenAt: null }
+              : {}),
           feedbackType: status,
-        });
+        }, hasExistingFeedback);
         if (!isMountedRef.current) return false;
 
         setStatusesByDate((current) => ({
           ...current,
           [dateKey]: { ...(current[dateKey] ?? {}), [mealId]: status },
         }));
+        setMealRecordsByDate((current) => {
+          const dateRecords = current[dateKey];
+          if (!dateRecords?.[mealId]) return current;
+
+          const nextDateRecords = { ...dateRecords };
+          delete nextDateRecords[mealId];
+          return { ...current, [dateKey]: nextDateRecords };
+        });
         return true;
       } catch (error) {
         if (isMountedRef.current) {
@@ -1429,7 +1478,7 @@ export default function DietScreen() {
         }
       }
     },
-    [recommendedMeals, selectedDateKey],
+    [recommendedMeals, saveDietMealFeedback, selectedDateKey, selectedStatuses],
   );
 
   const regenerateMeal = useCallback(
@@ -1522,14 +1571,26 @@ export default function DietScreen() {
       }
 
       const dateKey = selectedDateKey;
+      const hasExistingFeedback = selectedStatuses[mealId] !== 'recommended';
       feedbackRequestMealIdsRef.current.add(mealId);
       setFeedbackMealIds((current) => new Set(current).add(mealId));
       try {
-        await submitDietMealFeedback(dietMealId, {
+        if (__DEV__) {
+          console.log('[Diet feedback] routing:', {
+            current_status: selectedStatuses[mealId],
+            diet_meal_id: dietMealId,
+            feedback_type: 'different_food',
+            has_existing_feedback: hasExistingFeedback,
+            reason: hasExistingFeedback
+              ? 'current_status_is_not_recommended'
+              : 'current_status_is_recommended',
+          });
+        }
+        await saveDietMealFeedback(dietMealId, {
           actualItems,
           eatenAt: new Date().toISOString(),
           feedbackType: 'different_food',
-        });
+        }, hasExistingFeedback);
         if (!isMountedRef.current) return false;
 
         setMealRecordsByDate((current) => ({
@@ -1562,7 +1623,7 @@ export default function DietScreen() {
         }
       }
     },
-    [collapseMeal, recommendedMeals, selectedDateKey],
+    [collapseMeal, recommendedMeals, saveDietMealFeedback, selectedDateKey, selectedStatuses],
   );
 
   const addInventoryIngredient = useCallback(

@@ -32,7 +32,7 @@ export type UpdateInventoryItemInput = {
 
 export type DietFeedbackInput = {
   actualItems?: DietActualItem[];
-  eatenAt?: string;
+  eatenAt?: string | null;
   feedbackType: DietFeedbackType;
 };
 
@@ -116,13 +116,15 @@ export function generateDietRecommendations() {
   });
 }
 
-export function submitDietMealFeedback(dietMealId: string, input: DietFeedbackInput) {
+function requestDietMealFeedback(
+  dietMealId: string,
+  input: DietFeedbackInput,
+  method: 'PATCH' | 'POST',
+) {
   const requestBody = {
     feedback_type: input.feedbackType,
-    ...(input.eatenAt ? { eaten_at: input.eatenAt } : {}),
-    ...(input.actualItems && input.actualItems.length > 0
-      ? { actual_items: input.actualItems }
-      : {}),
+    ...(input.eatenAt !== undefined ? { eaten_at: input.eatenAt } : {}),
+    ...(input.actualItems !== undefined ? { actual_items: input.actualItems } : {}),
   };
 
   if (__DEV__) {
@@ -131,6 +133,7 @@ export function submitDietMealFeedback(dietMealId: string, input: DietFeedbackIn
       diet_meal_id: dietMealId,
       eaten_at: requestBody.eaten_at,
       feedback_type: requestBody.feedback_type,
+      method,
       request_body: requestBody,
     });
   }
@@ -139,7 +142,7 @@ export function submitDietMealFeedback(dietMealId: string, input: DietFeedbackIn
     `/api/diet/meals/${encodeURIComponent(dietMealId)}/feedback`,
     {
       body: JSON.stringify(requestBody),
-      method: 'POST',
+      method,
     },
   ).catch((error: unknown) => {
     if (__DEV__) {
@@ -163,6 +166,14 @@ export function submitDietMealFeedback(dietMealId: string, input: DietFeedbackIn
     }
     throw error;
   });
+}
+
+export function submitDietMealFeedback(dietMealId: string, input: DietFeedbackInput) {
+  return requestDietMealFeedback(dietMealId, input, 'POST');
+}
+
+export function updateDietMealFeedback(dietMealId: string, input: DietFeedbackInput) {
+  return requestDietMealFeedback(dietMealId, input, 'PATCH');
 }
 
 export function regenerateDietMeal(dietMealId: string) {
