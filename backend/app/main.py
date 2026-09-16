@@ -2907,7 +2907,7 @@ async def get_exercise_summary(
     return {"summary": build_exercise_summary(sessions)}
 
 
-@app.get("/api/diet/inventory")
+@app.get("/api/diet/inventory", tags=["Diet"])
 async def get_diet_inventory(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -2916,7 +2916,11 @@ async def get_diet_inventory(
     return {"count": len(inventory), "inventory": inventory}
 
 
-@app.post("/api/diet/inventory", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/api/diet/inventory",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Diet"],
+)
 async def post_diet_inventory(
     body: FoodInventoryCreateRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2926,7 +2930,7 @@ async def post_diet_inventory(
     return {"ok": True, "item": item}
 
 
-@app.patch("/api/diet/inventory/{inventory_id}")
+@app.patch("/api/diet/inventory/{inventory_id}", tags=["Diet"])
 async def patch_diet_inventory(
     inventory_id: UUID,
     body: FoodInventoryUpdateRequest,
@@ -2945,6 +2949,7 @@ async def patch_diet_inventory(
 @app.delete(
     "/api/diet/inventory/{inventory_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Diet"],
 )
 async def delete_diet_inventory(
     inventory_id: UUID,
@@ -2955,7 +2960,7 @@ async def delete_diet_inventory(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.get("/api/diet/recommendations")
+@app.get("/api/diet/recommendations", tags=["Diet"])
 async def get_diet_recommendation_by_date(
     recommendation_date: Annotated[date, Query(alias="date")],
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2969,7 +2974,7 @@ async def get_diet_recommendation_by_date(
     return {"result": result}
 
 
-@app.get("/api/diet/recommendations/latest")
+@app.get("/api/diet/recommendations/latest", tags=["Diet"])
 async def get_latest_diet_recommendation(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -2978,7 +2983,7 @@ async def get_latest_diet_recommendation(
     return {"result": result}
 
 
-@app.get("/api/diet/nutrition-summary")
+@app.get("/api/diet/nutrition-summary", tags=["Diet"])
 async def get_diet_nutrition_summary(
     target_date: Annotated[date, Query(alias="date")],
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2999,7 +3004,7 @@ async def get_diet_nutrition_summary(
     }
 
 
-@app.post("/api/diet/recommendations/generate")
+@app.post("/api/diet/recommendations/generate", tags=["Diet"])
 async def generate_diet_recommendation(
     body: GenerateDietRecommendationRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -3024,7 +3029,7 @@ async def generate_diet_recommendation(
     return {"ok": True, "generator": "rules_v1", "result": result}
 
 
-@app.post("/api/diet/meals/{diet_meal_id}/regenerate")
+@app.post("/api/diet/meals/{diet_meal_id}/regenerate", tags=["Diet"])
 async def regenerate_recommended_diet_meal(
     diet_meal_id: UUID,
     body: RegenerateDietMealRequest,
@@ -3072,7 +3077,7 @@ async def regenerate_recommended_diet_meal(
     return {"ok": True, "generator": "rules_v1", "meal": meal}
 
 
-@app.post("/api/diet/meals/{diet_meal_id}/feedback")
+@app.post("/api/diet/meals/{diet_meal_id}/feedback", tags=["Diet"])
 async def post_diet_meal_feedback(
     diet_meal_id: UUID,
     body: DietMealFeedbackRequest,
@@ -3085,7 +3090,7 @@ async def post_diet_meal_feedback(
     return {"ok": True, "result": result}
 
 
-@app.get("/api/diet/meal-logs")
+@app.get("/api/diet/meal-logs", tags=["Diet"])
 async def get_diet_meal_logs(
     from_date: date,
     to_date: date,
