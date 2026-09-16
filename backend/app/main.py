@@ -2528,12 +2528,49 @@ async def record_recommended_meal(
             json=payload,
         )
     if not response.is_success:
+        try:
+            error = response.json()
+        except ValueError:
+            error = {}
+        if not isinstance(error, dict):
+            error = {}
+        code = error.get("code")
+        message = error.get("message")
+        duplicate = (
+            response.status_code == 400
+            and code == "P0001"
+            and message == "meal feedback already recorded"
+        ) or (
+            response.status_code == 409
+            and code == "23505"
+            and isinstance(message, str)
+            and '"uk_diet_feedback_user_meal"' in message
+        )
+        if duplicate:
+            # Support clients that POST again when changing an existing feedback.
+            # Only an explicitly supplied timestamp should replace the original.
+            update_body = DietMealFeedbackUpdateRequest(
+                feedback_type=body.feedback_type,
+                eaten_at=body.eaten_at if "eaten_at" in body.model_fields_set else None,
+                actual_items=body.actual_items,
+            )
+            return await update_recommended_meal(
+                user_id, diet_meal_id, update_body, settings
+            )
+        if response.status_code == 400 and code == "P0001":
+            if message == "diet meal not found for user":
+                raise HTTPException(status_code=404, detail="Diet meal not found")
+            if message in {
+                "user_id and diet_meal_id are required",
+                "invalid feedback_type",
+                "eaten_at is required",
+                "actual_items must be an array",
+                "different_food requires actual_items",
+                "actual food name and positive quantity are required",
+            }:
+                raise HTTPException(status_code=422, detail=message)
         raise HTTPException(
-            status_code=(
-                status.HTTP_409_CONFLICT
-                if response.status_code == status.HTTP_400_BAD_REQUEST
-                else status.HTTP_502_BAD_GATEWAY
-            ),
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Supabase recommended meal recording failed",
         )
     return response.json()
