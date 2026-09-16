@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auto-Fit 식단 API 화면 검증</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f8f7;
+      --surface: #ffffff;
+      --surface-muted: #eef5f3;
+      --text: #182421;
+      --muted: #5d6d69;
+      --border: #cad7d4;
+      --primary: #087d68;
+      --primary-dark: #056454;
+      --danger: #a52a36;
+      --focus: #0a806b;
+      --radius: 0.75rem;
+      font-family: Inter, Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--text); background: var(--bg); }
+    button, input { font: inherit; }
+    button { min-height: 2.75rem; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: 0.5rem; color: var(--text); background: var(--surface); cursor: pointer; }
+    button:hover { border-color: var(--primary); }
+    button:focus-visible, input:focus-visible { outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent); outline-offset: 2px; }
+    button:disabled { cursor: wait; opacity: 0.6; }
+    .primary { border-color: var(--primary); color: #fff; background: var(--primary); }
+    .primary:hover { background: var(--primary-dark); }
+    .danger { color: var(--danger); }
+    .shell { width: min(72rem, calc(100% - 2rem)); margin: 0 auto; padding: 2rem 0 4rem; }
+    header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 0.375rem; font-size: clamp(1.75rem, 4vw, 2.25rem); }
+    h2 { margin-bottom: 1rem; font-size: 1.25rem; }
+    h3 { margin-bottom: 0.5rem; font-size: 1rem; }
+    .muted { color: var(--muted); }
+    .panel { margin-bottom: 1rem; padding: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+    .field { display: grid; min-width: 0; gap: 0.375rem; color: var(--muted); font-size: 0.875rem; }
+    .field input { width: 100%; min-height: 2.75rem; padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; color: var(--text); background: var(--surface); }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    .wide { grid-column: 1 / -1; }
+    .notice { min-height: 2.75rem; margin-bottom: 1rem; padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 0.5rem; color: var(--muted); background: var(--surface-muted); }
+    .notice[data-kind="error"] { border-color: #e2aab0; color: #7d1f29; background: #fff1f2; }
+    .date-bar { display: grid; grid-template-columns: auto minmax(10rem, 1fr) auto; gap: 0.5rem; align-items: end; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+    .metric { padding: 1rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface-muted); }
+    .metric strong { display: block; margin-top: 0.25rem; font-size: 1.15rem; }
+    .list { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+    .inventory-row { display: grid; grid-template-columns: 2fr 0.8fr 0.8fr 1.2fr 1.2fr auto; gap: 0.5rem; align-items: end; padding: 0.875rem; border: 1px solid var(--border); border-radius: 0.5rem; }
+    .meals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+    .meal { padding: 1rem; border: 1px solid var(--border); border-radius: 0.5rem; }
+    .meal ul { margin: 0 0 1rem; padding-left: 1.25rem; color: var(--muted); }
+    .empty { padding: 1.5rem; border: 1px dashed var(--border); border-radius: 0.5rem; color: var(--muted); text-align: center; }
+    [hidden] { display: none !important; }
+    @media (max-width: 48rem) {
+      header { display: grid; }
+      .metrics, .meals, .grid { grid-template-columns: 1fr; }
+      .inventory-row { grid-template-columns: 1fr 1fr; }
+      .inventory-row .name { grid-column: 1 / -1; }
+      .inventory-row .row-actions { grid-column: 1 / -1; }
+    }
+    @media (max-width: 22rem) {
+      .shell { width: min(100% - 1rem, 72rem); padding-top: 1rem; }
+      .panel { padding: 1rem; }
+      .date-bar { grid-template-columns: 1fr 1fr; }
+      .date-bar .field { grid-column: 1 / -1; grid-row: 1; }
+      .inventory-row { grid-template-columns: 1fr; }
+      .inventory-row .name,
+      .inventory-row .row-actions { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <h1>식단 화면 API 검증</h1>
+        <p class="muted">냉장고 재료, 날짜별 추천, 한 끼 재추천, 영양 섭취량을 실제 개발 API로 확인합니다.</p>
+      </div>
+      <button id="logout" type="button" hidden>로그아웃</button>
+    </header>
+
+    <div id="notice" class="notice" role="status" aria-live="polite">로그인 후 테스트를 시작하세요.</div>
+
+    <section id="login-panel" class="panel" aria-labelledby="login-title">
+      <h2 id="login-title">테스트 계정 로그인</h2>
+      <form id="login-form" class="grid">
+        <label class="field">이메일<input id="email" type="email" autocomplete="username" required></label>
+        <label class="field">비밀번호<input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary wide" type="submit">로그인</button>
+      </form>
+    </section>
+
+    <div id="app" hidden>
+      <section class="panel" aria-labelledby="date-title">
+        <h2 id="date-title">조회 날짜</h2>
+        <div class="date-bar">
+          <button id="previous-date" type="button" aria-label="이전 날짜">이전</button>
+          <label class="field">날짜<input id="selected-date" type="date" required></label>
+          <button id="next-date" type="button" aria-label="다음 날짜">다음</button>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="nutrition-title">
+        <div class="actions">
+          <h2 id="nutrition-title">오늘의 영양 현황</h2>
+          <button id="refresh-dashboard" type="button">새로고침</button>
+        </div>
+        <div id="nutrition-empty" class="empty">이 날짜에는 영양 목표가 없습니다.</div>
+        <div id="nutrition-metrics" class="metrics" hidden></div>
+      </section>
+
+      <section class="panel" aria-labelledby="inventory-title">
+        <h2 id="inventory-title">냉장고 재료</h2>
+        <form id="inventory-form" class="grid">
+          <label class="field">재료명<input id="new-name" maxlength="100" value="두부" required></label>
+          <label class="field">수량<input id="new-quantity" type="number" min="0" max="100000" step="0.1" value="1"></label>
+          <label class="field">단위<input id="new-unit" maxlength="20" value="모"></label>
+          <label class="field">구매일<input id="new-purchased-on" type="date"></label>
+          <label class="field">유통기한<input id="new-expires-on" type="date"></label>
+          <button class="primary" type="submit">재료 추가</button>
+        </form>
+        <div id="inventory-empty" class="empty" hidden>등록된 냉장고 재료가 없습니다.</div>
+        <ul id="inventory-list" class="list" aria-label="냉장고 재료 목록"></ul>
+      </section>
+
+      <section class="panel" aria-labelledby="recommendation-title">
+        <div class="actions">
+          <h2 id="recommendation-title">추천 식단</h2>
+          <button id="generate-recommendation" class="primary" type="button">오늘 식단 생성</button>
+        </div>
+        <div id="recommendation-empty" class="empty">이 날짜에 생성된 추천 식단이 없습니다.</div>
+        <div id="meal-list" class="meals" aria-label="추천 끼니 목록" hidden></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const SUPABASE_URL = 'https://eeeqibyssajykrhvecbv.supabase.co';
+    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Z02d5opC1lPtOlUJMWsxcg_ZD_8O31x';
+    const ALLOWED_API_BASES = new Set([
+      'http://localhost:8000',
+      'https://auto-fit-api-dev.onrender.com'
+    ]);
+    const requestedApiBase = new URLSearchParams(location.search).get('api_base');
+    const API_BASE = ALLOWED_API_BASES.has(requestedApiBase)
+      ? requestedApiBase
+      : 'https://auto-fit-api-dev.onrender.com';
+    const mealNames = { breakfast: '아침', lunch: '점심', dinner: '저녁', snack: '간식' };
+    let accessToken = null;
+    let currentRecommendation = null;
+    let busyCount = 0;
+
+    const notice = document.querySelector('#notice');
+    const app = document.querySelector('#app');
+    const loginPanel = document.querySelector('#login-panel');
+    const logoutButton = document.querySelector('#logout');
+    const dateInput = document.querySelector('#selected-date');
+    const inventoryList = document.querySelector('#inventory-list');
+    const inventoryEmpty = document.querySelector('#inventory-empty');
+    const mealList = document.querySelector('#meal-list');
+    const recommendationEmpty = document.querySelector('#recommendation-empty');
+    const nutritionMetrics = document.querySelector('#nutrition-metrics');
+    const nutritionEmpty = document.querySelector('#nutrition-empty');
+
+    function localDate(value = new Date()) {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function setNotice(message, kind = 'info') {
+      notice.textContent = message;
+      notice.dataset.kind = kind;
+      notice.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    }
+
+    function setBusy(active) {
+      busyCount += active ? 1 : -1;
+      busyCount = Math.max(0, busyCount);
+      document.querySelectorAll('#app button').forEach((button) => {
+        button.disabled = busyCount > 0;
+      });
+    }
+
+    async function api(path, options = {}) {
+      if (!accessToken) throw new Error('로그인이 필요합니다.');
+      const response = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(options.headers ?? {})
+        }
+      });
+      if (response.status === 204) return null;
+      const payload = await response.json();
+      if (!response.ok) {
+        const detail = typeof payload.detail === 'string'
+          ? payload.detail
+          : JSON.stringify(payload.detail ?? payload);
+        throw new Error(detail);
+      }
+      return payload;
+    }
+
+    async function withUiState(label, operation) {
+      setBusy(true);
+      setNotice(label);
+      try {
+        await operation();
+        setNotice('화면을 최신 데이터로 갱신했습니다.');
+      } catch (error) {
+        setNotice(`오류: ${error.message}`, 'error');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function createField(labelText, value, type = 'text') {
+      const label = document.createElement('label');
+      label.className = 'field';
+      label.append(document.createTextNode(labelText));
+      const input = document.createElement('input');
+      input.type = type;
+      input.value = value ?? '';
+      label.append(input);
+      return { label, input };
+    }
+
+    function renderInventory(items) {
+      inventoryList.replaceChildren();
+      inventoryEmpty.hidden = items.length > 0;
+      items.forEach((item) => {
+        const row = document.createElement('li');
+        row.className = 'inventory-row';
+        row.dataset.inventoryId = item.user_food_inventory_id;
+        const name = createField('재료명', item.custom_name ?? '');
+        name.label.classList.add('name');
+        const quantity = createField('수량', item.quantity ?? '', 'number');
+        quantity.input.step = '0.1';
+        const unit = createField('단위', item.unit ?? '');
+        const purchased = createField('구매일', item.purchased_on ?? '', 'date');
+        const expires = createField('유통기한', item.expires_on ?? '', 'date');
+        const actions = document.createElement('div');
+        actions.className = 'actions row-actions';
+        const save = document.createElement('button');
+        save.type = 'button';
+        save.textContent = '수정 저장';
+        save.addEventListener('click', () => withUiState('재료 수정 중…', async () => {
+          await api(`/api/diet/inventory/${item.user_food_inventory_id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              name: name.input.value,
+              quantity: quantity.input.value === '' ? null : Number(quantity.input.value),
+              unit: unit.input.value || null,
+              purchased_on: purchased.input.value || null,
+              expires_on: expires.input.value || null
+            })
+          });
+          await loadInventory();
+        }));
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'danger';
+        remove.textContent = '삭제';
+        remove.addEventListener('click', () => withUiState('재료 삭제 중…', async () => {
+          await api(`/api/diet/inventory/${item.user_food_inventory_id}`, { method: 'DELETE' });
+          await loadInventory();
+        }));
+        actions.append(save, remove);
+        row.append(name.label, quantity.label, unit.label, purchased.label, expires.label, actions);
+        inventoryList.append(row);
+      });
+    }
+
+    function renderRecommendation(result) {
+      currentRecommendation = result;
+      recommendationEmpty.hidden = Boolean(result);
+      mealList.hidden = !result;
+      mealList.replaceChildren();
+      if (!result) return;
+      result.meals.forEach((meal) => {
+        const card = document.createElement('article');
+        card.className = 'meal';
+        card.dataset.mealId = meal.diet_meal_id;
+        const title = document.createElement('h3');
+        title.textContent = `${mealNames[meal.meal_type] ?? meal.meal_type} · ${meal.recommended_calories ?? '-'} kcal`;
+        const foods = document.createElement('ul');
+        meal.foods.forEach((food) => {
+          const row = document.createElement('li');
+          row.textContent = `${food.food_name} ${food.quantity ?? ''}${food.unit ?? ''}`;
+          foods.append(row);
+        });
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        if (meal.status === 'recommended') {
+          const regenerate = document.createElement('button');
+          regenerate.type = 'button';
+          regenerate.textContent = '다른 식단';
+          regenerate.addEventListener('click', () => withUiState('한 끼 재추천 중…', async () => {
+            const payload = await api(`/api/diet/meals/${meal.diet_meal_id}/regenerate`, {
+              method: 'POST', body: JSON.stringify({})
+            });
+            currentRecommendation.meals = currentRecommendation.meals.map((current) =>
+              current.diet_meal_id === meal.diet_meal_id ? payload.meal : current
+            );
+            renderRecommendation(currentRecommendation);
+          }));
+          const eaten = document.createElement('button');
+          eaten.type = 'button';
+          eaten.className = 'primary';
+          eaten.textContent = '먹었어요';
+          eaten.addEventListener('click', () => withUiState('식사 기록 중…', async () => {
+            await api(`/api/diet/meals/${meal.diet_meal_id}/feedback`, {
+              method: 'POST', body: JSON.stringify({ feedback_type: 'eaten', actual_items: [] })
+            });
+            await Promise.all([loadRecommendation(), loadNutrition()]);
+          }));
+          actions.append(regenerate, eaten);
+        } else {
+          const state = document.createElement('span');
+          state.className = 'muted';
+          state.textContent = `기록 상태: ${meal.status}`;
+          actions.append(state);
+        }
+        card.append(title, foods, actions);
+        mealList.append(card);
+      });
+    }
+
+    function renderNutrition(summary) {
+      const metrics = [
+        ['칼로리', summary.calories],
+        ['탄수화물', summary.carbohydrates],
+        ['단백질', summary.protein],
+        ['지방', summary.fat]
+      ];
+      nutritionMetrics.replaceChildren();
+      const hasData = summary.has_recommendation
+        || metrics.some(([, metric]) => Number(metric.consumed) > 0);
+      nutritionEmpty.hidden = hasData;
+      nutritionMetrics.hidden = !hasData;
+      if (!hasData) return;
+      metrics.forEach(([label, metric]) => {
+        const item = document.createElement('div');
+        item.className = 'metric';
+        const name = document.createElement('span');
+        name.textContent = label;
+        const value = document.createElement('strong');
+        value.dataset.metric = label;
+        value.textContent = `${metric.consumed} / ${metric.target ?? '-'} ${metric.unit}`;
+        item.append(name, value);
+        nutritionMetrics.append(item);
+      });
+    }
+
+    async function loadInventory() {
+      const payload = await api('/api/diet/inventory');
+      renderInventory(payload.inventory);
+    }
+
+    async function loadRecommendation() {
+      const query = new URLSearchParams({ date: dateInput.value });
+      const payload = await api(`/api/diet/recommendations?${query}`);
+      renderRecommendation(payload.result);
+    }
+
+    async function loadNutrition() {
+      const query = new URLSearchParams({ date: dateInput.value });
+      const payload = await api(`/api/diet/nutrition-summary?${query}`);
+      renderNutrition(payload.summary);
+    }
+
+    async function refreshDashboard() {
+      await Promise.all([loadInventory(), loadRecommendation(), loadNutrition()]);
+    }
+
+    document.querySelector('#login-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      setNotice('로그인 중…');
+      try {
+        const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+          method: 'POST',
+          headers: { apikey: SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.querySelector('#email').value,
+            password: document.querySelector('#password').value
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.msg ?? payload.error_description ?? '로그인 실패');
+        accessToken = payload.access_token;
+        loginPanel.hidden = true;
+        app.hidden = false;
+        logoutButton.hidden = false;
+        await refreshDashboard();
+        setNotice('로그인하고 식단 데이터를 불러왔습니다.');
+      } catch (error) {
+        setNotice(`오류: ${error.message}`, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    logoutButton.addEventListener('click', async () => {
+      if (accessToken) {
+        await fetch(`${SUPABASE_URL}/auth/v1/logout?scope=local`, {
+          method: 'POST',
+          headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${accessToken}` }
+        }).catch(() => null);
+      }
+      accessToken = null;
+      app.hidden = true;
+      logoutButton.hidden = true;
+      loginPanel.hidden = false;
+      setNotice('로그아웃했습니다.');
+    });
+
+    document.querySelector('#inventory-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      withUiState('재료 추가 중…', async () => {
+        await api('/api/diet/inventory', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: document.querySelector('#new-name').value,
+            quantity: document.querySelector('#new-quantity').value === ''
+              ? null : Number(document.querySelector('#new-quantity').value),
+            unit: document.querySelector('#new-unit').value || null,
+            purchased_on: document.querySelector('#new-purchased-on').value || null,
+            expires_on: document.querySelector('#new-expires-on').value || null
+          })
+        });
+        await loadInventory();
+      });
+    });
+
+    document.querySelector('#generate-recommendation').addEventListener('click', () => {
+      withUiState('오늘 식단 생성 중…', async () => {
+        const payload = await api('/api/diet/recommendations/generate', {
+          method: 'POST', body: JSON.stringify({})
+        });
+        dateInput.value = payload.result.recommendation.recommendation_date;
+        renderRecommendation(payload.result);
+        await loadNutrition();
+      });
+    });
+
+    document.querySelector('#refresh-dashboard').addEventListener('click', () => {
+      withUiState('식단 화면 새로고침 중…', refreshDashboard);
+    });
+
+    dateInput.addEventListener('change', () => {
+      withUiState('선택 날짜 조회 중…', async () => {
+        await Promise.all([loadRecommendation(), loadNutrition()]);
+      });
+    });
+
+    function moveDate(offset) {
+      const value = new Date(`${dateInput.value}T12:00:00`);
+      value.setDate(value.getDate() + offset);
+      dateInput.value = localDate(value);
+      dateInput.dispatchEvent(new Event('change'));
+    }
+    document.querySelector('#previous-date').addEventListener('click', () => moveDate(-1));
+    document.querySelector('#next-date').addEventListener('click', () => moveDate(1));
+
+    dateInput.value = localDate();
+    document.querySelector('#new-purchased-on').value = dateInput.value;
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + 7);
+    document.querySelector('#new-expires-on').value = localDate(expiry);
+  </script>
+</body>
+</html>

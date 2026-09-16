@@ -6,7 +6,7 @@ from backend.tests.test_main import TEST_SETTINGS
 
 
 @pytest.mark.parametrize("origin", ["http://localhost:3000", "http://localhost:8081"])
-@pytest.mark.parametrize("method", ["GET", "POST", "PATCH"])
+@pytest.mark.parametrize("method", ["GET", "POST", "PATCH", "DELETE"])
 def test_approved_frontend_preflight(origin, method):
     response = TestClient(app).options("/api/chats", headers={
         "Origin": origin, "Access-Control-Request-Method": method,
