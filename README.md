@@ -122,4 +122,4 @@ python -m backend.tests.chat_live_integration \
 
 식단 추천은 냉장고 재료와 등록된 알레르기를 조회한 뒤 `create_diet_recommendation` RPC에서 추천·끼니·음식 항목을 한 트랜잭션으로 저장합니다. 한 끼 재추천은 `replace_diet_meal` RPC가 기존 식사 ID와 순서를 유지하며 음식 항목을 원자적으로 교체합니다. 추천 식사 기록도 `record_recommended_meal` RPC에서 식사 로그·음식 항목·피드백·추천 상태를 함께 처리합니다. 외래키는 사용하지 않으며 사용자 소유권 검증과 고유 인덱스로 중복 기록을 막습니다. 현재 추천의 `rules_v1`은 데이터 왕복 검증용으로, 의료적 식단 진단이나 처방을 제공하지 않습니다.
 
-한 끼 재추천을 공유 서버에서 사용하려면 `supabase/migrations/20260916042556_replace_diet_meal.sql`을 대상 Supabase에 먼저 적용해야 합니다.
+한 끼 재추천을 배포할 때는 `supabase/migrations/20260916042556_replace_diet_meal.sql`이 대상 Supabase에 적용되어 있어야 합니다. 연결된 개발 Supabase에는 적용 완료했습니다.
