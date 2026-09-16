@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -44,6 +44,7 @@ type FridgeManagerSheetsProps = {
   activeSheet: DietSheet;
   ingredients: FridgeIngredient[];
   onActiveSheetChange: (sheet: DietSheet) => void;
+  onIngredientAdd: (name: string) => Promise<boolean>;
   onIngredientsChange: (ingredients: FridgeIngredient[]) => void;
 };
 
@@ -175,6 +176,7 @@ export function FridgeManagerSheets({
   activeSheet,
   ingredients,
   onActiveSheetChange,
+  onIngredientAdd,
   onIngredientsChange,
 }: FridgeManagerSheetsProps) {
   const insets = useSafeAreaInsets();
@@ -182,10 +184,10 @@ export function FridgeManagerSheets({
   const [selectedIngredientIds, setSelectedIngredientIds] = useState<Set<string>>(() => new Set());
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [ingredientName, setIngredientName] = useState('');
+  const [isAddingIngredient, setIsAddingIngredient] = useState(false);
   const [keyboardContentInset, setKeyboardContentInset] = useState(0);
   const [closingSheet, setClosingSheet] = useState<Exclude<DietSheet, null>>('fridge');
   const [keyboardOffset] = useState(() => new Animated.Value(0));
-  const nextIngredientId = useRef(1);
   const renderedSheet = activeSheet ?? closingSheet;
 
   const selectedCount = selectedIngredientIds.size;
@@ -285,6 +287,8 @@ export function FridgeManagerSheets({
 
   const confirmDelete = () => {
     const selectedIds = selectedIngredientIds;
+    // TODO: The current API contract has no inventory delete endpoint.
+    // Keep the existing local-only removal UI until the server API is added.
     onIngredientsChange(ingredients.filter((item) => !selectedIds.has(item.id)));
     setSelectedIngredientIds(new Set());
     setDeleteDialogVisible(false);
@@ -298,22 +302,22 @@ export function FridgeManagerSheets({
     onActiveSheetChange('addIngredient');
   };
 
-  const addIngredient = () => {
+  const addIngredient = async () => {
     const nextName = ingredientName.trim();
-    if (!nextName) return;
+    if (!nextName || isAddingIngredient) return;
 
-    onIngredientsChange([
-      ...ingredients,
-      {
-        id: `custom-${Date.now()}-${nextIngredientId.current++}`,
-        icon: 'vegetable',
-        name: nextName,
-      },
-    ]);
-    setIngredientName('');
-    setKeyboardContentInset(0);
-    Keyboard.dismiss();
-    onActiveSheetChange('fridge');
+    setIsAddingIngredient(true);
+    try {
+      const didAdd = await onIngredientAdd(nextName);
+      if (!didAdd) return;
+
+      setIngredientName('');
+      setKeyboardContentInset(0);
+      Keyboard.dismiss();
+      onActiveSheetChange('fridge');
+    } finally {
+      setIsAddingIngredient(false);
+    }
   };
 
   return (
@@ -444,7 +448,7 @@ export function FridgeManagerSheets({
                   accessibilityLabel="재료명"
                   autoFocus
                   onChangeText={setIngredientName}
-                  onSubmitEditing={addIngredient}
+                  onSubmitEditing={() => void addIngredient()}
                   placeholder="재료명을 입력해주세요"
                   placeholderTextColor={colors.textDisabled}
                   returnKeyType="done"
@@ -454,8 +458,13 @@ export function FridgeManagerSheets({
               </View>
               <Pressable
                 accessibilityRole="button"
-                onPress={addIngredient}
-                style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+                disabled={isAddingIngredient}
+                onPress={() => void addIngredient()}
+                style={({ pressed }) => [
+                  styles.addButton,
+                  isAddingIngredient && styles.addButtonDisabled,
+                  pressed && !isAddingIngredient && styles.pressed,
+                ]}
               >
                 <Text style={styles.addButtonLabel}>재료 추가</Text>
               </Pressable>
@@ -687,6 +696,7 @@ const styles = StyleSheet.create({
     height: 48,
     justifyContent: 'center',
   },
+  addButtonDisabled: { opacity: 0.55 },
   addButtonLabel: {
     color: colors.surface,
     fontFamily: fontFamilies.pretendardBold,

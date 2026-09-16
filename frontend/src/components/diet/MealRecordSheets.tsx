@@ -70,7 +70,7 @@ type Props = {
   mealId: string | null;
   initialDraft?: MealRecordDraft;
   onClose: () => void;
-  onComplete: (draft: MealRecordDraft) => void;
+  onComplete: (draft: MealRecordDraft) => Promise<boolean>;
 };
 
 const timeOptions = ['11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00'];
@@ -390,6 +390,7 @@ export function MealRecordSheets({ visible, mealId, initialDraft, onClose, onCom
   const [manualMode, setManualMode] = useState(false);
   const [manualNutrition, setManualNutrition] = useState<Partial<Record<NutrientKey, number>>>({});
   const [editingNutrient, setEditingNutrient] = useState<NutrientKey | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [keyboardOffset] = useState(() => new Animated.Value(0));
 
@@ -425,6 +426,7 @@ export function MealRecordSheets({ visible, mealId, initialDraft, onClose, onCom
       setSelectedFood(null);
       setManualMode(false);
       setManualNutrition({});
+      setIsSubmitting(false);
     });
     return () => cancelAnimationFrame(frame);
   }, [initialDraft, mealId, visible]);
@@ -655,17 +657,22 @@ export function MealRecordSheets({ visible, mealId, initialDraft, onClose, onCom
     returnToRecord();
   };
 
-  const completeRecord = () => {
-    if (!draft) return;
+  const completeRecord = async () => {
+    if (!draft || isSubmitting) return;
     Keyboard.dismiss();
     setKeyboardInset(0);
     const analysis = analyzeRecordedMealMock(draft.foods);
-    onComplete(
-      cloneDraft({
-        ...draft,
-        ...analysis,
-      }),
-    );
+    setIsSubmitting(true);
+    try {
+      await onComplete(
+        cloneDraft({
+          ...draft,
+          ...analysis,
+        }),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const renderRecord = () => (
@@ -814,9 +821,9 @@ export function MealRecordSheets({ visible, mealId, initialDraft, onClose, onCom
         ) : null}
       </View>
       <PrimaryButton
-        disabled={!draft || draft.foods.length === 0}
+        disabled={!draft || draft.foods.length === 0 || isSubmitting}
         label="기록하기"
-        onPress={completeRecord}
+        onPress={() => void completeRecord()}
       />
     </View>
   );
