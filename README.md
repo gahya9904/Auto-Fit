@@ -61,6 +61,15 @@ python -m backend.tests.chat_live_integration \
   --presentation
 ```
 
+배포된 식단 API의 인증·소유권·DB 왕복은 전용 합성 사용자 테스트로 확인합니다. 테스트
+사용자와 생성 데이터는 종료 시 자동 정리됩니다.
+
+```bash
+backend/.venv/bin/python -m backend.tests.diet_live_integration \
+  --project eeeqibyssajykrhvecbv \
+  --api-base https://auto-fit-api-dev.onrender.com
+```
+
 ## API
 
 - `GET /health`: FastAPI 실행 상태 확인
