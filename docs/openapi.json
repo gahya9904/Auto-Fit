@@ -261,6 +261,9 @@
     },
     "/health": {
       "get": {
+        "tags": [
+          "System"
+        ],
         "summary": "Health",
         "operationId": "health_health_get",
         "responses": {
@@ -283,6 +286,9 @@
     },
     "/api/test/roundtrip": {
       "post": {
+        "tags": [
+          "System"
+        ],
         "summary": "Roundtrip",
         "operationId": "roundtrip_api_test_roundtrip_post",
         "parameters": [
@@ -341,6 +347,9 @@
     },
     "/api/profile": {
       "get": {
+        "tags": [
+          "Profile"
+        ],
         "summary": "Get Profile",
         "operationId": "get_profile_api_profile_get",
         "parameters": [
@@ -387,6 +396,9 @@
         }
       },
       "patch": {
+        "tags": [
+          "Profile"
+        ],
         "summary": "Save Profile",
         "operationId": "save_profile_api_profile_patch",
         "parameters": [
@@ -445,6 +457,9 @@
     },
     "/api/allergies": {
       "get": {
+        "tags": [
+          "Profile"
+        ],
         "summary": "Get Allergies",
         "operationId": "get_allergies_api_allergies_get",
         "parameters": [
@@ -491,6 +506,9 @@
         }
       },
       "put": {
+        "tags": [
+          "Profile"
+        ],
         "summary": "Save Allergies",
         "operationId": "save_allergies_api_allergies_put",
         "parameters": [
@@ -549,6 +567,9 @@
     },
     "/api/onboarding/complete": {
       "post": {
+        "tags": [
+          "Profile"
+        ],
         "summary": "Complete Onboarding",
         "operationId": "complete_onboarding_api_onboarding_complete_post",
         "parameters": [
@@ -607,6 +628,9 @@
     },
     "/api/exercise/preferences": {
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Exercise Preferences",
         "operationId": "get_exercise_preferences_api_exercise_preferences_get",
         "parameters": [
@@ -653,6 +677,9 @@
         }
       },
       "put": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Save Exercise Preferences",
         "operationId": "save_exercise_preferences_api_exercise_preferences_put",
         "parameters": [
@@ -711,6 +738,9 @@
     },
     "/api/exercise/recommendation-contexts/latest": {
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Latest Exercise Recommendation Context",
         "operationId": "get_latest_exercise_recommendation_context_api_exercise_recommendation_contexts_latest_get",
         "parameters": [
@@ -759,6 +789,9 @@
     },
     "/api/exercise/recommendation-contexts": {
       "post": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Save Exercise Recommendation Context",
         "operationId": "save_exercise_recommendation_context_api_exercise_recommendation_contexts_post",
         "parameters": [
@@ -817,6 +850,9 @@
     },
     "/api/exercise/recommendations/latest": {
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Latest Exercise Recommendation",
         "operationId": "get_latest_exercise_recommendation_api_exercise_recommendations_latest_get",
         "parameters": [
@@ -865,6 +901,9 @@
     },
     "/api/exercise/recommendations/generate": {
       "post": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Generate Exercise Recommendation",
         "operationId": "generate_exercise_recommendation_api_exercise_recommendations_generate_post",
         "parameters": [
@@ -923,6 +962,9 @@
     },
     "/api/exercise/sessions/start": {
       "post": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Start Exercise Session",
         "operationId": "start_exercise_session_api_exercise_sessions_start_post",
         "parameters": [
@@ -981,6 +1023,9 @@
     },
     "/api/exercise/sessions/{session_id}/items/{item_id}": {
       "post": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Record Exercise Item Result",
         "operationId": "record_exercise_item_result_api_exercise_sessions__session_id__items__item_id__post",
         "parameters": [
@@ -1059,6 +1104,9 @@
     },
     "/api/exercise/sessions/{session_id}/complete": {
       "post": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Complete Exercise Session",
         "operationId": "complete_exercise_session_api_exercise_sessions__session_id__complete_post",
         "parameters": [
@@ -1127,6 +1175,9 @@
     },
     "/api/exercise/sessions/latest": {
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Latest Exercise Session",
         "operationId": "get_latest_exercise_session_api_exercise_sessions_latest_get",
         "parameters": [
@@ -1175,6 +1226,9 @@
     },
     "/api/exercise/sessions/{session_id}/discomfort": {
       "post": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Record Exercise Discomfort",
         "operationId": "record_exercise_discomfort_api_exercise_sessions__session_id__discomfort_post",
         "parameters": [
@@ -1241,6 +1295,9 @@
         }
       },
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Exercise Discomfort",
         "operationId": "get_exercise_discomfort_api_exercise_sessions__session_id__discomfort_get",
         "parameters": [
@@ -1299,6 +1356,9 @@
     },
     "/api/exercise/sessions/{session_id}/feedback": {
       "put": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Put Exercise Session Feedback",
         "operationId": "put_exercise_session_feedback_api_exercise_sessions__session_id__feedback_put",
         "parameters": [
@@ -1365,6 +1425,9 @@
         }
       },
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Exercise Session Feedback",
         "operationId": "get_exercise_session_feedback_api_exercise_sessions__session_id__feedback_get",
         "parameters": [
@@ -1423,6 +1486,9 @@
     },
     "/api/exercise/sessions/{session_id}/analysis": {
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Exercise Session Analysis",
         "operationId": "get_exercise_session_analysis_api_exercise_sessions__session_id__analysis_get",
         "parameters": [
@@ -1481,6 +1547,9 @@
     },
     "/api/exercise/goals/active": {
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Active Exercise Goal",
         "operationId": "get_active_exercise_goal_api_exercise_goals_active_get",
         "parameters": [
@@ -1527,6 +1596,9 @@
         }
       },
       "put": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Put Active Exercise Goal",
         "operationId": "put_active_exercise_goal_api_exercise_goals_active_put",
         "parameters": [
@@ -1585,6 +1657,9 @@
     },
     "/api/exercise/history": {
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Exercise History",
         "operationId": "get_exercise_history_api_exercise_history_get",
         "parameters": [
@@ -1653,6 +1728,9 @@
     },
     "/api/exercise/progress": {
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Exercise Progress",
         "operationId": "get_exercise_progress_api_exercise_progress_get",
         "parameters": [
@@ -1716,6 +1794,9 @@
     },
     "/api/exercise/summary": {
       "get": {
+        "tags": [
+          "Exercise"
+        ],
         "summary": "Get Exercise Summary",
         "operationId": "get_exercise_summary_api_exercise_summary_get",
         "parameters": [
@@ -2442,6 +2523,9 @@
     },
     "/api/chats/health-score-preview": {
       "post": {
+        "tags": [
+          "Chat"
+        ],
         "summary": "Preview Health Score Answer",
         "operationId": "preview_health_score_answer_api_chats_health_score_preview_post",
         "parameters": [
@@ -2500,6 +2584,9 @@
     },
     "/api/chats/answer-preview": {
       "post": {
+        "tags": [
+          "Chat"
+        ],
         "summary": "Preview Chat Answer",
         "operationId": "preview_chat_answer_api_chats_answer_preview_post",
         "parameters": [
@@ -2558,6 +2645,9 @@
     },
     "/api/chats": {
       "post": {
+        "tags": [
+          "Chat"
+        ],
         "summary": "Create Chat",
         "operationId": "create_chat_api_chats_post",
         "parameters": [
@@ -2617,6 +2707,9 @@
         }
       },
       "get": {
+        "tags": [
+          "Chat"
+        ],
         "summary": "List Chats",
         "operationId": "list_chats_api_chats_get",
         "parameters": [
@@ -2710,6 +2803,9 @@
     },
     "/api/chats/{chat_id}": {
       "patch": {
+        "tags": [
+          "Chat"
+        ],
         "summary": "Update Chat",
         "operationId": "update_chat_api_chats__chat_id__patch",
         "parameters": [
@@ -2774,6 +2870,9 @@
     },
     "/api/chats/{chat_id}/messages": {
       "get": {
+        "tags": [
+          "Chat"
+        ],
         "summary": "List Chat Messages",
         "operationId": "list_chat_messages_api_chats__chat_id__messages_get",
         "parameters": [
@@ -2855,6 +2954,9 @@
         }
       },
       "post": {
+        "tags": [
+          "Chat"
+        ],
         "summary": "Send Chat Message",
         "operationId": "send_chat_message_api_chats__chat_id__messages_post",
         "parameters": [
@@ -3961,5 +4063,31 @@
         "title": "ValidationError"
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "name": "Profile",
+      "description": "프로필, 알레르기 및 온보딩"
+    },
+    {
+      "name": "health-documents",
+      "description": "건강검진·인바디 파일 업로드, 수동 결과 수정 및 확정 저장 (자동 OCR 미지원)"
+    },
+    {
+      "name": "Exercise",
+      "description": "운동 선호도, 추천, 세션, 목표 및 진행 현황"
+    },
+    {
+      "name": "Diet",
+      "description": "식재료, 식단 추천, 영양 요약 및 식사 기록"
+    },
+    {
+      "name": "Chat",
+      "description": "건강 상담 채팅 및 답변·점수 미리보기"
+    },
+    {
+      "name": "System",
+      "description": "서버 상태 및 개발용 연동 테스트"
+    }
+  ]
 }

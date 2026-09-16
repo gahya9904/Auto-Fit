@@ -2687,6 +2687,14 @@ api_docs_enabled = environment_flag(os.getenv("API_DOCS_ENABLED"), default=True)
 app = FastAPI(
     title="Auto-Fit API",
     version="0.1.0",
+    openapi_tags=[
+        {"name": "Profile", "description": "프로필, 알레르기 및 온보딩"},
+        {"name": "health-documents", "description": "건강검진·인바디 파일 업로드, 수동 결과 수정 및 확정 저장 (자동 OCR 미지원)"},
+        {"name": "Exercise", "description": "운동 선호도, 추천, 세션, 목표 및 진행 현황"},
+        {"name": "Diet", "description": "식재료, 식단 추천, 영양 요약 및 식사 기록"},
+        {"name": "Chat", "description": "건강 상담 채팅 및 답변·점수 미리보기"},
+        {"name": "System", "description": "서버 상태 및 개발용 연동 테스트"},
+    ],
     lifespan=lifespan,
     docs_url="/docs" if api_docs_enabled else None,
     redoc_url="/redoc" if api_docs_enabled else None,
@@ -2749,12 +2757,12 @@ app.include_router(
 )
 
 
-@app.get("/health")
+@app.get("/health", tags=["System"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/test/roundtrip")
+@app.post("/api/test/roundtrip", tags=["System"])
 async def roundtrip(
     body: RoundtripRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2770,7 +2778,7 @@ async def roundtrip(
     }
 
 
-@app.get("/api/profile")
+@app.get("/api/profile", tags=["Profile"])
 async def get_profile(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -2785,7 +2793,7 @@ async def get_profile(
     }
 
 
-@app.patch("/api/profile")
+@app.patch("/api/profile", tags=["Profile"])
 async def save_profile(
     body: ProfileUpdateRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2796,7 +2804,7 @@ async def save_profile(
     return {"ok": True, "profile": profile}
 
 
-@app.get("/api/allergies")
+@app.get("/api/allergies", tags=["Profile"])
 async def get_allergies(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -2806,7 +2814,7 @@ async def get_allergies(
     return {"catalog": catalog, "selected": selected}
 
 
-@app.put("/api/allergies")
+@app.put("/api/allergies", tags=["Profile"])
 async def save_allergies(
     body: AllergySelectionRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2816,7 +2824,7 @@ async def save_allergies(
     return {"ok": True, "selected": selected}
 
 
-@app.post("/api/onboarding/complete")
+@app.post("/api/onboarding/complete", tags=["Profile"])
 async def complete_onboarding(
     body: CompleteOnboardingRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2850,7 +2858,7 @@ async def complete_onboarding(
     }
 
 
-@app.get("/api/exercise/preferences")
+@app.get("/api/exercise/preferences", tags=["Exercise"])
 async def get_exercise_preferences(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -2859,7 +2867,7 @@ async def get_exercise_preferences(
     return {"preferences": preferences}
 
 
-@app.put("/api/exercise/preferences")
+@app.put("/api/exercise/preferences", tags=["Exercise"])
 async def save_exercise_preferences(
     body: ExercisePreferencesRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2869,7 +2877,7 @@ async def save_exercise_preferences(
     return {"ok": True, "preferences": preferences}
 
 
-@app.get("/api/exercise/recommendation-contexts/latest")
+@app.get("/api/exercise/recommendation-contexts/latest", tags=["Exercise"])
 async def get_latest_exercise_recommendation_context(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -2878,7 +2886,7 @@ async def get_latest_exercise_recommendation_context(
     return {"context": context}
 
 
-@app.post("/api/exercise/recommendation-contexts")
+@app.post("/api/exercise/recommendation-contexts", tags=["Exercise"])
 async def save_exercise_recommendation_context(
     body: ExerciseRecommendationContextRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2888,7 +2896,7 @@ async def save_exercise_recommendation_context(
     return {"ok": True, "context": context}
 
 
-@app.get("/api/exercise/recommendations/latest")
+@app.get("/api/exercise/recommendations/latest", tags=["Exercise"])
 async def get_latest_exercise_recommendation(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -2897,7 +2905,7 @@ async def get_latest_exercise_recommendation(
     return {"result": result}
 
 
-@app.post("/api/exercise/recommendations/generate")
+@app.post("/api/exercise/recommendations/generate", tags=["Exercise"])
 async def generate_exercise_recommendation(
     body: GenerateExerciseRecommendationRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2917,7 +2925,7 @@ async def generate_exercise_recommendation(
     return {"ok": True, "generator": "rules_v1", "result": outcome["result"]}
 
 
-@app.post("/api/exercise/sessions/start")
+@app.post("/api/exercise/sessions/start", tags=["Exercise"])
 async def start_exercise_session(
     body: StartExerciseSessionRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -2940,7 +2948,7 @@ async def start_exercise_session(
     return {"ok": True, "result": result}
 
 
-@app.post("/api/exercise/sessions/{session_id}/items/{item_id}")
+@app.post("/api/exercise/sessions/{session_id}/items/{item_id}", tags=["Exercise"])
 async def record_exercise_item_result(
     session_id: UUID,
     item_id: UUID,
@@ -2964,7 +2972,7 @@ async def record_exercise_item_result(
     return {"ok": True, "result": result}
 
 
-@app.post("/api/exercise/sessions/{session_id}/complete")
+@app.post("/api/exercise/sessions/{session_id}/complete", tags=["Exercise"])
 async def complete_exercise_session(
     session_id: UUID,
     body: CompleteExerciseSessionRequest,
@@ -2979,7 +2987,7 @@ async def complete_exercise_session(
     return {"ok": True, "result": result}
 
 
-@app.get("/api/exercise/sessions/latest")
+@app.get("/api/exercise/sessions/latest", tags=["Exercise"])
 async def get_latest_exercise_session(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -2988,7 +2996,7 @@ async def get_latest_exercise_session(
     return {"result": result}
 
 
-@app.post("/api/exercise/sessions/{session_id}/discomfort")
+@app.post("/api/exercise/sessions/{session_id}/discomfort", tags=["Exercise"])
 async def record_exercise_discomfort(
     session_id: UUID,
     body: ExerciseDiscomfortRequest,
@@ -3012,7 +3020,7 @@ async def record_exercise_discomfort(
     return {"ok": True, "result": result}
 
 
-@app.get("/api/exercise/sessions/{session_id}/discomfort")
+@app.get("/api/exercise/sessions/{session_id}/discomfort", tags=["Exercise"])
 async def get_exercise_discomfort(
     session_id: UUID,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -3022,7 +3030,7 @@ async def get_exercise_discomfort(
     return {"logs": logs}
 
 
-@app.put("/api/exercise/sessions/{session_id}/feedback")
+@app.put("/api/exercise/sessions/{session_id}/feedback", tags=["Exercise"])
 async def put_exercise_session_feedback(
     session_id: UUID,
     body: ExerciseSessionFeedbackRequest,
@@ -3035,7 +3043,7 @@ async def put_exercise_session_feedback(
     return {"ok": True, "feedback": feedback}
 
 
-@app.get("/api/exercise/sessions/{session_id}/feedback")
+@app.get("/api/exercise/sessions/{session_id}/feedback", tags=["Exercise"])
 async def get_exercise_session_feedback(
     session_id: UUID,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -3047,7 +3055,7 @@ async def get_exercise_session_feedback(
     return {"feedback": feedback}
 
 
-@app.get("/api/exercise/sessions/{session_id}/analysis")
+@app.get("/api/exercise/sessions/{session_id}/analysis", tags=["Exercise"])
 async def get_exercise_session_analysis(
     session_id: UUID,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -3069,7 +3077,7 @@ async def get_exercise_session_analysis(
     return {"analysis": analysis, "result": result}
 
 
-@app.get("/api/exercise/goals/active")
+@app.get("/api/exercise/goals/active", tags=["Exercise"])
 async def get_active_exercise_goal(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -3078,7 +3086,7 @@ async def get_active_exercise_goal(
     return {"goal": goal}
 
 
-@app.put("/api/exercise/goals/active")
+@app.put("/api/exercise/goals/active", tags=["Exercise"])
 async def put_active_exercise_goal(
     body: ExerciseGoalRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -3088,7 +3096,7 @@ async def put_active_exercise_goal(
     return {"ok": True, "goal": goal}
 
 
-@app.get("/api/exercise/history")
+@app.get("/api/exercise/history", tags=["Exercise"])
 async def get_exercise_history(
     from_date: date,
     to_date: date,
@@ -3113,7 +3121,7 @@ async def get_exercise_history(
     }
 
 
-@app.get("/api/exercise/progress")
+@app.get("/api/exercise/progress", tags=["Exercise"])
 async def get_exercise_progress(
     period: Literal["week", "month", "three_months"] = Query(default="month"),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -3130,7 +3138,7 @@ async def get_exercise_progress(
     }
 
 
-@app.get("/api/exercise/summary")
+@app.get("/api/exercise/summary", tags=["Exercise"])
 async def get_exercise_summary(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -3366,7 +3374,7 @@ async def get_chat_access(limiter: ChatRateLimiter = Depends(get_chat_limiter)):
     return limiter
 
 
-@app.post("/api/chats/health-score-preview")
+@app.post("/api/chats/health-score-preview", tags=["Chat"])
 async def preview_health_score_answer(
     body: HealthScorePreviewRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -3384,7 +3392,7 @@ async def preview_health_score_answer(
     return {"answer": build_score_answer(rows, body.mode, body.explain, items)}
 
 
-@app.post("/api/chats/answer-preview")
+@app.post("/api/chats/answer-preview", tags=["Chat"])
 async def preview_chat_answer(
     body: ChatAnswerPreviewRequest,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -3427,12 +3435,12 @@ def get_chat_store(
     return ChatStore(settings.supabase_url, service_headers(settings), user.id)
 
 
-@app.post("/api/chats", status_code=201)
+@app.post("/api/chats", status_code=201, tags=["Chat"])
 async def create_chat(body: CreateChatRequest | None = None, store: ChatStore = Depends(get_chat_store)):
     return await store.create(body.title if body else None)
 
 
-@app.get("/api/chats")
+@app.get("/api/chats", tags=["Chat"])
 async def list_chats(
     status: Literal["active", "archived"] | None = None,
     limit: int = Query(default=20, ge=1, le=50),
@@ -3442,12 +3450,12 @@ async def list_chats(
     return await store.list_chats(status, limit, cursor)
 
 
-@app.patch("/api/chats/{chat_id}")
+@app.patch("/api/chats/{chat_id}", tags=["Chat"])
 async def update_chat(chat_id: UUID, body: UpdateChatRequest, store: ChatStore = Depends(get_chat_store)):
     return await store.update(str(chat_id), body.model_dump(exclude_unset=True))
 
 
-@app.get("/api/chats/{chat_id}/messages")
+@app.get("/api/chats/{chat_id}/messages", tags=["Chat"])
 async def list_chat_messages(
     chat_id: UUID, limit: int = Query(default=30, ge=1, le=100),
     before: str | None = Query(default=None, max_length=1000),
@@ -3456,7 +3464,7 @@ async def list_chat_messages(
     return await store.messages(str(chat_id), limit, before)
 
 
-@app.post("/api/chats/{chat_id}/messages", status_code=201)
+@app.post("/api/chats/{chat_id}/messages", status_code=201, tags=["Chat"])
 async def send_chat_message(
     chat_id: UUID, body: ChatMessageRequest, response: Response,
     store: ChatStore = Depends(get_chat_store),
