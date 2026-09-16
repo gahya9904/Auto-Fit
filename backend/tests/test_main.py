@@ -1515,6 +1515,85 @@ def test_build_diet_plan_reflects_inventory_and_excludes_allergens() -> None:
     assert "알레르기 제외 식재료" in result["recommendation"]["ai_reason"]
 
 
+def test_extract_menu_tags_normalizes_food_names() -> None:
+    tags = set(main.extract_menu_tags(["현미 밥", "구운 닭가슴살", "브로콜리"]))
+
+    assert {"현미밥", "닭가슴살", "채소"} <= tags
+    assert "재료:현미밥" in tags
+    assert "재료:구운닭가슴살" in tags
+
+
+def test_build_menu_image_key_is_order_independent() -> None:
+    first = main.build_menu_image_key(["닭가슴살", "현미밥", "채소"])
+    second = main.build_menu_image_key(["채소", "닭가슴살", "현미밥"])
+
+    assert first == second
+    assert first.startswith("foods:")
+
+
+def test_select_cached_menu_image_uses_food_composition() -> None:
+    images = [
+        {
+            "image_key": "catalog:01",
+            "food_tags": ["닭가슴살", "현미밥", "도시락"],
+            "storage_path": "menus/01.png",
+            "generation_status": "completed",
+        },
+        {
+            "image_key": "catalog:07",
+            "food_tags": ["두부", "채소", "도시락"],
+            "storage_path": "menus/07.png",
+            "generation_status": "completed",
+        },
+    ]
+
+    selected = main.select_cached_menu_image(
+        main.extract_menu_tags(["두부구이", "브로콜리"]), images
+    )
+
+    assert selected is not None
+    assert selected["image_key"] == "catalog:07"
+
+
+def test_assign_menu_images_marks_cache_miss_pending(monkeypatch) -> None:
+    original = httpx.AsyncClient
+    claimed_payload = None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal claimed_payload
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        assert request.url.path == "/rest/v1/rpc/claim_menu_image"
+        claimed_payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "image_key": claimed_payload["p_image_key"],
+                "menu_name": claimed_payload["p_menu_name"],
+                "food_tags": claimed_payload["p_food_tags"],
+                "storage_path": None,
+                "source_type": "generated",
+                "generation_status": "pending",
+            },
+        )
+
+    monkeypatch.setattr(
+        main.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    meals = [{"foods": [{"food_name": "새로운 건강식"}]}]
+
+    main.asyncio.run(main.assign_menu_images(meals, TEST_SETTINGS))
+
+    assert claimed_payload is not None
+    assert claimed_payload["p_food_tags"] == ["재료:새로운건강식"]
+    assert meals[0]["menu_image_key"].startswith("foods:")
+    assert meals[0]["image_storage_path"] is None
+    assert meals[0]["image_generation_status"] == "pending"
+    assert meals[0]["image_generation_required"] is True
+
+
 def test_fetch_diet_recommendation_filters_user_and_date(monkeypatch) -> None:
     original = httpx.AsyncClient
 
@@ -1607,6 +1686,12 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
         }
         return {"diet_recommendation_id": "recommendation-1"}
 
+    async def fake_assign(meals, settings):
+        assert settings == TEST_SETTINGS
+        for meal in meals:
+            meal["menu_image_key"] = "catalog:test"
+            meal["image_storage_path"] = "menus/test.png"
+
     async def fake_latest(user_id, settings):
         return {"recommendation": {"diet_recommendation_id": "recommendation-1"}}
 
@@ -1615,6 +1700,7 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
     monkeypatch.setattr(main, "fetch_food_inventory", fake_inventory)
     monkeypatch.setattr(main, "fetch_allergy_catalog", fake_catalog)
     monkeypatch.setattr(main, "fetch_user_allergies", fake_allergies)
+    monkeypatch.setattr(main, "assign_menu_images", fake_assign)
     monkeypatch.setattr(main, "create_diet_recommendation", fake_create)
     monkeypatch.setattr(main, "fetch_latest_diet_recommendation", fake_latest)
     try:
@@ -1676,7 +1762,11 @@ def test_regenerate_diet_meal_calls_owner_scoped_rpc(monkeypatch) -> None:
         }
         return httpx.Response(
             200,
-            json={"diet_meal_id": "meal-1", "foods": replacement["foods"]},
+            json={
+                "diet_meal_id": "meal-1",
+                "image_storage_path": "menus/07.png",
+                "foods": replacement["foods"],
+            },
         )
 
     monkeypatch.setattr(
@@ -1698,6 +1788,10 @@ def test_regenerate_diet_meal_calls_owner_scoped_rpc(monkeypatch) -> None:
     )
 
     assert result["diet_meal_id"] == "meal-1"
+    assert result["image_url"] == (
+        "https://example.supabase.co/storage/v1/object/public/"
+        "menu-images/menus/07.png"
+    )
 
 
 def test_regenerate_recommended_diet_meal_uses_authenticated_user(
@@ -1741,12 +1835,21 @@ def test_regenerate_recommended_diet_meal_uses_authenticated_user(
         assert replacement["foods"][0]["food_name"] != "현미밥"
         return {"diet_meal_id": received_id, **replacement}
 
+    async def fake_assign(meals, settings):
+        assert settings == TEST_SETTINGS
+        meals[0]["menu_image_key"] = "catalog:05"
+        meals[0]["image_storage_path"] = "menus/05.png"
+        meals[0]["image_source"] = "seeded"
+        meals[0]["image_generation_status"] = "completed"
+        meals[0]["image_generation_required"] = False
+
     main.app.dependency_overrides[main.get_current_user] = fake_user
     main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
     monkeypatch.setattr(main, "fetch_diet_meal_context", fake_context)
     monkeypatch.setattr(main, "fetch_food_inventory", fake_inventory)
     monkeypatch.setattr(main, "fetch_allergy_catalog", fake_catalog)
     monkeypatch.setattr(main, "fetch_user_allergies", fake_allergies)
+    monkeypatch.setattr(main, "assign_menu_images", fake_assign)
     monkeypatch.setattr(main, "regenerate_diet_meal", fake_regenerate)
     try:
         response = TestClient(main.app).post(

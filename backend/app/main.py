@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import asyncio
+import hashlib
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -1956,6 +1957,168 @@ def build_diet_recommendation_plan(
     }
 
 
+MENU_TAG_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("닭가슴살", ("닭가슴살",)),
+    ("닭다리살", ("닭다리살",)),
+    ("닭고기", ("닭볶음탕", "닭개장",)),
+    ("연어", ("연어",)),
+    ("흰살생선", ("흰살생선",)),
+    ("고등어", ("고등어",)),
+    ("새우", ("새우",)),
+    ("소고기", ("소고기", "불고기")),
+    ("돼지고기", ("돼지고기", "제육", "수육")),
+    ("두부", ("순두부", "두부",)),
+    ("달걀", ("달걀", "계란")),
+    ("그릭요거트", ("그릭요거트",)),
+    ("리코타치즈", ("리코타치즈",)),
+    ("병아리콩", ("병아리콩",)),
+    ("단백질쉐이크", ("단백질 쉐이크", "단백질쉐이크")),
+    ("현미밥", ("현미밥", "현미 밥")),
+    ("잡곡밥", ("잡곡밥", "잡곡 밥")),
+    ("볶음밥", ("볶음밥",)),
+    ("비빔밥", ("비빔밥",)),
+    ("고구마", ("고구마",)),
+    ("통밀빵", ("통밀", "토스트", "샌드위치")),
+    ("파스타", ("파스타",)),
+    ("메밀면", ("메밀면",)),
+    ("또띠아", ("또띠아",)),
+    ("오트밀", ("오트밀",)),
+    ("채소", ("채소", "브로콜리", "시금치", "샐러드")),
+    ("샐러드", ("샐러드",)),
+    ("아보카도", ("아보카도",)),
+    ("버섯", ("버섯",)),
+    ("과일", ("과일", "바나나", "블루베리", "키위")),
+    ("견과", ("호두", "아몬드", "견과")),
+    ("찌개", ("찌개",)),
+    ("국", ("미역국", "닭개장")),
+    ("포케", ("포케",)),
+    ("덮밥", ("덮밥",)),
+    ("랩", (" 랩",)),
+    ("볼", (" 볼",)),
+    ("정식", ("정식",)),
+    ("도시락", ("도시락",)),
+)
+
+MENU_PROTEIN_TAGS = {
+    "닭가슴살", "닭다리살", "닭고기", "연어", "흰살생선", "고등어",
+    "새우", "소고기", "돼지고기", "두부", "달걀", "그릭요거트",
+    "리코타치즈", "병아리콩", "단백질쉐이크",
+}
+MENU_CARB_TAGS = {
+    "현미밥", "잡곡밥", "볶음밥", "비빔밥", "고구마", "통밀빵",
+    "파스타", "메밀면", "또띠아", "오트밀",
+}
+
+
+def extract_menu_tags(food_names: list[str]) -> list[str]:
+    combined = " ".join(name.strip().casefold() for name in food_names if name.strip())
+    canonical_tags = {
+        tag
+        for tag, aliases in MENU_TAG_ALIASES
+        if any(alias.casefold() in combined for alias in aliases)
+    }
+    ingredient_tags = {
+        f"재료:{normalized}"
+        for name in food_names
+        if (normalized := "".join(character for character in name.casefold() if character.isalnum()))
+    }
+    return sorted(canonical_tags | ingredient_tags)
+
+
+def build_menu_image_key(food_tags: list[str]) -> str:
+    signature = "|".join(sorted(set(food_tags)))
+    digest = hashlib.sha256(signature.encode("utf-8")).hexdigest()[:24]
+    return f"foods:{digest}"
+
+
+def select_cached_menu_image(
+    food_tags: list[str],
+    images: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    requested = set(food_tags)
+    requested_proteins = requested & MENU_PROTEIN_TAGS
+    requested_carbs = requested & MENU_CARB_TAGS
+    ranked: list[tuple[int, str, dict[str, Any]]] = []
+    for image in images:
+        if image.get("generation_status") != "completed" or not image.get("storage_path"):
+            continue
+        candidate = set(image.get("food_tags") or [])
+        candidate_proteins = candidate & MENU_PROTEIN_TAGS
+        candidate_carbs = candidate & MENU_CARB_TAGS
+        if requested_proteins and candidate_proteins and not (requested_proteins & candidate_proteins):
+            continue
+        if requested_carbs and candidate_carbs and not (requested_carbs & candidate_carbs):
+            continue
+        overlap = requested & candidate
+        score = sum(
+            40 if tag in MENU_PROTEIN_TAGS else 30 if tag in MENU_CARB_TAGS else 10
+            for tag in overlap
+        )
+        if score >= 50:
+            ranked.append((score, str(image.get("image_key") or ""), image))
+    return max(ranked, default=(0, "", None), key=lambda item: (item[0], item[1]))[2]
+
+
+async def assign_menu_images(
+    meals: list[dict[str, Any]],
+    settings: Settings,
+) -> None:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+        response = await client.get(
+            f"{settings.supabase_url}/rest/v1/menu_images",
+            headers=service_headers(settings),
+            params={
+                "select": (
+                    "image_key,menu_name,food_tags,storage_path,source_type,"
+                    "generation_status"
+                ),
+                "limit": "500",
+            },
+        )
+    if not response.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Supabase menu image catalog query failed",
+        )
+    catalog = response.json()
+    by_key = {image["image_key"]: image for image in catalog}
+
+    for meal in meals:
+        food_names = [
+            str(food.get("food_name") or "") for food in meal.get("foods") or []
+        ]
+        food_tags = extract_menu_tags(food_names)
+        image_key = build_menu_image_key(food_tags)
+        image = by_key.get(image_key) or select_cached_menu_image(food_tags, catalog)
+        if image is None:
+            async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+                claim_response = await client.post(
+                    f"{settings.supabase_url}/rest/v1/rpc/claim_menu_image",
+                    headers=service_headers(settings),
+                    json={
+                        "p_image_key": image_key,
+                        "p_menu_name": ", ".join(food_names),
+                        "p_food_tags": food_tags,
+                    },
+                )
+            if not claim_response.is_success:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Supabase menu image claim failed",
+                )
+            image = claim_response.json()
+            catalog.append(image)
+            by_key[image_key] = image
+        meal["menu_image_key"] = image["image_key"]
+        meal["image_storage_path"] = image.get("storage_path")
+        meal["image_source"] = image.get("source_type")
+        meal["image_generation_status"] = image.get("generation_status")
+        meal["image_generation_required"] = bool(
+            image.get("generation_status") != "completed"
+            or not image.get("storage_path")
+        )
+
+
 async def create_diet_recommendation(
     user_id: str,
     plan: dict[str, Any],
@@ -2020,7 +2183,8 @@ async def fetch_diet_recommendation(
     meal_params = {
         "select": (
             "diet_meal_id,diet_recommendation_id,meal_type,meal_order,"
-            "recommended_calories,recommendation_note,status,created_at"
+            "recommended_calories,recommendation_note,image_storage_path,"
+            "menu_image_key,status,created_at"
         ),
         "diet_recommendation_id": f"eq.{recommendation['diet_recommendation_id']}",
         "order": "meal_order.asc",
@@ -2060,6 +2224,58 @@ async def fetch_diet_recommendation(
             )
         for food in food_response.json():
             foods_by_meal[food["diet_meal_id"]].append(food)
+    menu_image_keys = sorted(
+        {meal["menu_image_key"] for meal in meals if meal.get("menu_image_key")}
+    )
+    cached_images: dict[str, dict[str, Any]] = {}
+    if menu_image_keys:
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+            image_response = await client.get(
+                f"{settings.supabase_url}/rest/v1/menu_images",
+                headers=service_headers(settings),
+                params={
+                    "select": "image_key,storage_path,source_type,generation_status",
+                    "image_key": f"in.({','.join(menu_image_keys)})",
+                },
+            )
+        if not image_response.is_success:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Supabase menu image cache query failed",
+            )
+        cached_images = {
+            image["image_key"]: image for image in image_response.json()
+        }
+
+    for meal in meals:
+        image_key = meal.get("menu_image_key")
+        cached_image = cached_images.get(image_key) if image_key else None
+        image_storage_path = (
+            cached_image.get("storage_path")
+            if cached_image
+            else meal.get("image_storage_path")
+        )
+        meal["image_storage_path"] = image_storage_path
+        meal["image_url"] = (
+            f"{settings.supabase_url}/storage/v1/object/public/menu-images/"
+            f"{image_storage_path}"
+            if image_storage_path
+            else None
+        )
+        meal["image_source"] = (
+            cached_image.get("source_type") if cached_image else None
+        )
+        meal["image_generation_status"] = (
+            cached_image.get("generation_status") if cached_image else None
+        )
+        meal["image_generation_required"] = bool(
+            image_key
+            and (
+                not cached_image
+                or cached_image.get("generation_status") != "completed"
+                or not image_storage_path
+            )
+        )
     return {
         "recommendation": recommendation,
         "meals": [
@@ -2102,7 +2318,15 @@ async def regenerate_diet_meal(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Supabase diet meal regeneration failed",
         )
-    return response.json()
+    regenerated = response.json()
+    image_storage_path = regenerated.get("image_storage_path")
+    regenerated["image_url"] = (
+        f"{settings.supabase_url}/storage/v1/object/public/menu-images/"
+        f"{image_storage_path}"
+        if image_storage_path
+        else None
+    )
+    return regenerated
 
 
 async def fetch_diet_meal_context(
@@ -2117,7 +2341,8 @@ async def fetch_diet_meal_context(
             params={
                 "select": (
                     "diet_meal_id,diet_recommendation_id,meal_type,meal_order,"
-                    "recommended_calories,recommendation_note,status"
+                    "recommended_calories,recommendation_note,image_storage_path,"
+                    "menu_image_key,status"
                 ),
                 "diet_meal_id": f"eq.{diet_meal_id}",
                 "limit": "1",
@@ -3024,6 +3249,7 @@ async def generate_diet_recommendation(
         inventory,
         [name for name in allergy_names if name],
     )
+    await assign_menu_images(plan["meals"], settings)
     await create_diet_recommendation(user.id, plan, settings)
     result = await fetch_latest_diet_recommendation(user.id, settings)
     return {"ok": True, "generator": "rules_v1", "result": result}
@@ -3068,11 +3294,17 @@ async def regenerate_recommended_diet_meal(
             detail="No alternative diet meal is available",
         ) from exc
 
+    await assign_menu_images([replacement], settings)
     meal = await regenerate_diet_meal(
         user.id,
         str(diet_meal_id),
         replacement,
         settings,
+    )
+    meal["image_source"] = replacement.get("image_source")
+    meal["image_generation_status"] = replacement.get("image_generation_status")
+    meal["image_generation_required"] = replacement.get(
+        "image_generation_required", False
     )
     return {"ok": True, "generator": "rules_v1", "meal": meal}
 

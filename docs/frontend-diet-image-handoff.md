@@ -1,0 +1,173 @@
+# 프론트엔드 식단 이미지 연동 안내
+
+## 바로 사용할 정보
+
+- 공용 API Base URL: `https://auto-fit-api-dev.onrender.com`
+- Swagger: `https://auto-fit-api-dev.onrender.com/docs`
+- 인증: 모든 사용자 API 요청에 Supabase 액세스 토큰을 보낸다.
+- 현재 허용된 웹 Origin: `http://localhost:3000`, `http://localhost:8081`
+
+```http
+Authorization: Bearer <SUPABASE_ACCESS_TOKEN>
+Content-Type: application/json
+```
+
+Render 무료 인스턴스가 유휴 상태이면 첫 요청에 재시작 시간이 걸릴 수 있다.
+
+## 식단 조회 API
+
+오늘 또는 최근 활성 식단:
+
+```http
+GET /api/diet/recommendations/latest
+```
+
+날짜별 식단:
+
+```http
+GET /api/diet/recommendations?date=2026-09-16
+```
+
+식단이 없으면 `result`는 `null`이다. 식단을 새로 생성하려면 다음 요청을 사용한다.
+
+```http
+POST /api/diet/recommendations/generate
+Content-Type: application/json
+
+{}
+```
+
+## 식단 이미지 응답
+
+각 `result.meals[]`에 아래 이미지 필드가 포함된다.
+
+```json
+{
+  "diet_meal_id": "uuid",
+  "meal_type": "breakfast",
+  "recommended_calories": 400,
+  "menu_image_key": "catalog:01",
+  "image_storage_path": "menus/01.png",
+  "image_url": "https://eeeqibyssajykrhvecbv.supabase.co/storage/v1/object/public/menu-images/menus/01.png",
+  "image_source": "uploaded",
+  "image_generation_status": "completed",
+  "image_generation_required": false,
+  "foods": []
+}
+```
+
+| 필드 | 의미 | 프론트 처리 |
+|---|---|---|
+| `image_url` | 화면에 표시할 완성 이미지 URL | 값이 있으면 그대로 이미지 컴포넌트에 전달 |
+| `image_storage_path` | Supabase Storage 내부 상대 경로 | 표시용 URL을 직접 조합하는 데 사용하지 않음 |
+| `menu_image_key` | 이미지 캐시를 찾는 고유 키 | 화면 로직에서는 보관만 하고 수정하지 않음 |
+| `image_source` | `uploaded` 또는 `generated` | 필요하면 디버그·관리 화면에 사용 |
+| `image_generation_status` | `pending`, `generating`, `completed`, `failed` | 향후 생성 진행 상태 표시에 사용 |
+| `image_generation_required` | 완성된 캐시 이미지가 없는지 표시 | `true`이면 기본 이미지를 표시 |
+
+백엔드가 `foods[].food_name`을 정규화한 뒤 단백질·탄수화물·식재료 구성을 기준으로
+기존 40장 중 가장 가까운 사진을 자동 선택한다. 따라서 프론트에서 음식 이름별 이미지 표를
+만들거나 파일명을 직접 연결할 필요가 없다.
+
+일치하는 사진이 없으면 백엔드는 음식 구성의 고유 키로 `menu_images` 캐시 항목을 한 번만
+생성하고 상태를 `pending`으로 기록한다. 이미지 생성 모델은 아직 연결되지 않았으므로 이때
+`image_url`은 `null`이며 프론트는 기본 이미지를 표시한다. 향후 작업자가 모델 결과를 Storage에
+저장하고 같은 캐시 항목을 `completed`로 바꾸면, 다음 식단 조회부터 완성된 `image_url`이 반환된다.
+
+## 권장 렌더링 코드
+
+React Native 또는 Expo:
+
+```tsx
+type DietMeal = {
+  diet_meal_id: string;
+  meal_type: "breakfast" | "lunch" | "dinner" | "snack";
+  recommended_calories: number | null;
+  image_url: string | null;
+  image_source: "uploaded" | "generated" | null;
+  image_generation_status:
+    | "pending"
+    | "generating"
+    | "completed"
+    | "failed"
+    | null;
+  image_generation_required: boolean;
+};
+
+const imageSource = meal.image_url
+  ? { uri: meal.image_url }
+  : require("../assets/diet-placeholder.png");
+
+<Image
+  source={imageSource}
+  resizeMode="cover"
+  accessibilityLabel={`${meal.meal_type} 추천 식단`}
+/>
+```
+
+React Web:
+
+```tsx
+<img
+  src={meal.image_url ?? "/images/diet-placeholder.png"}
+  alt={`${meal.meal_type} 추천 식단`}
+  loading="lazy"
+/>
+```
+
+`image_url`을 우선 사용한다. `image_storage_path`를 이용해 프론트에서 Supabase URL을
+직접 만들지 않는다. 스토리지 정책이나 CDN 주소가 바뀌어도 API 응답만 변경하면 되기 때문이다.
+
+## 요청 예시
+
+```ts
+const API_BASE_URL =
+  "https://auto-fit-api-dev.onrender.com";
+
+export async function fetchLatestDiet(accessToken: string) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/diet/recommendations/latest`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`식단 조회 실패: ${response.status}`);
+  }
+
+  return response.json();
+}
+```
+
+## 프론트 처리 규칙
+
+1. `result === null`이면 식단 없음 상태를 표시하거나 생성 API를 호출한다.
+2. `meal.image_url`이 있으면 해당 사진을 표시한다.
+3. `image_url`이 없으면 앱에 포함된 기본 식단 이미지를 표시한다.
+4. 이미지 네트워크 로드가 실패해도 기본 이미지로 대체한다.
+5. `image_generation_required`가 `true`여도 프론트에서 이미지 생성 API를 직접 호출하지 않는다.
+   이미지 생성 작업은 추후 백엔드가 담당한다.
+6. 이미지 URL이나 Storage 경로를 로컬에 영구 저장하지 않는다. 식단 조회 시 받은 최신 값을 사용한다.
+
+## 현재 확인된 상태
+
+- 기존 식단 사진 40장이 `menu_images` 캐시에 등록되어 있다.
+- 40장 모두 음식 구성 태그가 등록되어 백엔드 자동 매칭에 사용된다.
+- 아침·점심·저녁·간식 응답에서 실제 `image_url` 반환을 확인했다.
+- 연결된 이미지 URL은 모두 HTTP 200과 `image/png`로 응답한다.
+- 백엔드 전체 테스트 306개가 통과했다.
+- FastAPI 공유 주소의 `/health`가 `{"status":"ok"}`로 응답한다.
+
+## 문제 확인 순서
+
+사진이 표시되지 않으면 다음 순서로 확인한다.
+
+1. 식단 API 응답의 `image_url`이 `null`인지 확인한다.
+2. `image_generation_status`와 `image_generation_required`를 확인한다.
+3. `image_url`을 브라우저에서 직접 열어 HTTP 200인지 확인한다.
+4. React Native라면 `Image`의 `onError` 로그를 확인한다.
+5. API 요청이 실패하면 Supabase 액세스 토큰과 `Authorization` 헤더를 확인한다.
