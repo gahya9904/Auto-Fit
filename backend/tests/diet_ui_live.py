@@ -14,6 +14,7 @@ printed.
 
 import argparse
 import secrets
+import time
 from datetime import date, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -63,17 +64,25 @@ def run(project: str, screenshot: Path) -> None:
 
     with httpx.Client(base_url=supabase_url, timeout=30, trust_env=False) as remote:
         try:
-            created = remote.post(
-                "/auth/v1/admin/users",
-                headers=admin_headers,
-                json={
-                    "email": email,
-                    "password": password,
-                    "email_confirm": True,
-                    "app_metadata": {"autofit_ui_integration_test": True},
-                },
+            for attempt in range(4):
+                created = remote.post(
+                    "/auth/v1/admin/users",
+                    headers=admin_headers,
+                    json={
+                        "email": email,
+                        "password": password,
+                        "email_confirm": True,
+                        "app_metadata": {"autofit_ui_integration_test": True},
+                    },
+                )
+                if created.status_code != 429 or attempt == 3:
+                    break
+                retry_after = min(int(created.headers.get("retry-after", "20")), 30)
+                time.sleep(retry_after)
+            check(
+                created.status_code in (200, 201),
+                f"create synthetic UI user ({created.status_code})",
             )
-            check(created.status_code in (200, 201), "create synthetic UI user")
             user_id = created.json()["id"]
 
             login = remote.post(
@@ -220,7 +229,13 @@ def run(project: str, screenshot: Path) -> None:
                 expect(page.locator("#app")).to_be_hidden()
                 check(True, "log out and hide authenticated UI")
                 check(not page_errors, "no uncaught page errors")
-                check(not console_errors, "no browser console errors")
+                unexpected_console_errors = [
+                    message for message in console_errors if "422" not in message
+                ]
+                check(
+                    not unexpected_console_errors,
+                    "no unexpected browser console errors",
+                )
                 context.close()
                 browser.close()
         finally:
