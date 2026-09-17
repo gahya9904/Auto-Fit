@@ -55,3 +55,24 @@ backend/.venv/bin/python -m backend.tests.health_documents_live \
 이 명령은 합성 계정·파일·건강 데이터를 생성하고 이번 실행의 데이터만 정리한다.
 연결된 개발 프로젝트를 검증하며 키·비밀번호·토큰·응답 본문을 출력하지 않는다.
 DB 스키마 변경이나 실제 OCR 엔진 배포는 이번 작업에 포함하지 않았다.
+
+## 파일만 업로드하는 임시 샘플 정책 배포 (2026-09-17 14:39 KST)
+
+- 배포 커밋: [8de4e66](https://github.com/gahya9904/Auto-Fit/commit/8de4e661e200369427aba4fd0ef5d43f0f8db75e)
+- Render: [Deploy succeeded / Live](https://dashboard.render.com/web/srv-dafmuen40ujc73c0ermg/deploys/dep-dalnpr6k1f9s738sneo0), 1분 4초
+- 작업 환경 백엔드 테스트: 458개 통과.
+- 실제 배포 API + 개발 Supabase + Storage: 30개 검사 통과.
+
+POST 요청의 필수 필드는 file만이며 document_type은 선택이다. PDF와 이미지 모두 종류를
+판별하지 않고 샘플을 반환한다. 현재 개발 서버는 종류 생략 시 건강검진 샘플을 반환한다.
+체성분 샘플은 명시적 document_type=body_composition으로 검증했다. 서버 측
+HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE 설정으로 기본 샘플 종류를 바꿀 수 있다.
+실제 OCR 서버 연결 후에는 생략된 종류를 OCR 어댑터가 판별하며 unknown/unsupported 오류를
+반환한다. 지금 반환되는 종류와 수치는 실제 문서 판독 결과가 아니다.
+
+합성 계정 하나로 종류 없는 PNG 업로드, 종류 없는 PDF 업로드 후 GET → PATCH → confirm,
+체성분 검토·확정, 수정 체중의 DB 저장, 확정 재호출의 동일 ID, 확정 후 수정 409와 파일별
+독립 ID를 확인했다. 테스트 계정과 생성 파일·OCR·건강 데이터는 정리 후 잔존 행 0건을 확인했다.
+첫 검증은 이미지 추가에 따라 파일이 3개로 늘었는데 스크립트의 ID 개수 검사가 2개로 남아
+실패했다. API 동작 검사는 통과했고 테스트 데이터를 정리했다. 개수 검사를 3개로 수정한 뒤
+재실행하여 30개 검사를 모두 통과했다. 앱 코드나 배포 설정 변경은 필요하지 않았다.

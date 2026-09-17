@@ -120,7 +120,7 @@ async def run(api_base: str) -> None:
                     json={"extracted_data": {"weight_kg": "68"}})
                 check(locked.status_code == 409 and locked.json()["detail"]["code"] == "DOCUMENT_CONFIRMED",
                       f"{kind}: confirmed document is immutable")
-            check(len(set(file_ids)) == 2, "independent IDs for multiple files")
+            check(len(file_ids) == 3 and len(set(file_ids)) == 3, "independent IDs for multiple files")
             print(f"Completed {checks} deployed health document checks.", flush=True)
         finally:
             if uid:
