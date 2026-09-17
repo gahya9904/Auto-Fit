@@ -11,7 +11,15 @@ interface WeeklyProgressCardProps {
 }
 
 export function WeeklyProgressCard({ change, message, style }: WeeklyProgressCardProps) {
-  const changeText = change === null ? '-' : `+${change}`;
+  const changeText = change === null ? '-' : `${change > 0 ? '+' : ''}${change}`;
+  const comparisonResult =
+    change === null
+      ? '비교 데이터가 없어요!'
+      : change === 0
+        ? '변화 없어요!'
+        : change > 0
+          ? '상승했어요!'
+          : '하락했어요!';
   const messageText = message ?? '-';
 
   return (
@@ -25,7 +33,7 @@ export function WeeklyProgressCard({ change, message, style }: WeeklyProgressCar
         <TrendUpIcon color={colors.primary} fill={colors.primary} height={50} width={50} />
       </View>
       <Text numberOfLines={1} style={styles.title}>
-        지난주보다 <Text style={styles.change}>{changeText}</Text>점 상승했어요!
+        이전 평가 대비 <Text style={styles.change}>{changeText}</Text>점 {comparisonResult}
       </Text>
       <Text numberOfLines={1} style={styles.message}>
         {messageText}

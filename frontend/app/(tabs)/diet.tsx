@@ -80,6 +80,7 @@ type MealStatuses = Record<MealType, MealStatus>;
 
 type Meal = {
   dietMealId?: string;
+  imageUrl?: string;
   recommendationStatus?: MealStatus;
   variantId: string;
   id: MealType;
@@ -564,6 +565,7 @@ function mapRecommendationMeals(result: unknown): Meal[] {
       foods: foodNames.join(', ') || '등록된 음식이 없어요',
       id: mealId,
       image: presentation.image,
+      imageUrl: readString(apiMeal, ['image_url']),
       intake: foods
         .map((food) => [foodName(food), foodAmount(food)] as [string, string])
         .filter(([name]) => Boolean(name)),
@@ -851,6 +853,7 @@ const MealCard = memo(function MealCard({
   const [detailHeight, setDetailHeight] = useState(0);
   const [detailProgress] = useState(() => new Animated.Value(expanded ? 1 : 0));
   const [detailOpacity] = useState(() => new Animated.Value(expanded ? 1 : 0));
+  const [failedRemoteImageUrl, setFailedRemoteImageUrl] = useState<string | null>(null);
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousExpanded = useRef(expanded);
   const displayedStatus = status;
@@ -861,11 +864,15 @@ const MealCard = memo(function MealCard({
     ? recordedMeal.foods.map((food) => food.name).join(', ')
     : meal.foods;
   const displayedKcal = showsRecordedMeal ? recordedMeal.kcal : meal.kcal;
+  const usesRemoteRecommendationImage =
+    !showsRecordedMeal && Boolean(meal.imageUrl) && meal.imageUrl !== failedRemoteImageUrl;
   const displayedImage = showsRecordedMeal
     ? recordedMeal.photoUri
       ? { uri: recordedMeal.photoUri }
       : emptyFoodImage
-    : meal.image;
+    : usesRemoteRecommendationImage
+      ? { uri: meal.imageUrl }
+      : meal.image;
   const displayedUsedIngredients = showsRecordedMeal
     ? recordedMeal.usedIngredients
     : meal.usedIngredients;
@@ -1001,9 +1008,10 @@ const MealCard = memo(function MealCard({
         </Pressable>
 
         <Pressable
-          disabled={feedbackPending}
+          disabled={feedbackPending || displayedStatus === 'modified'}
           onPress={(event) => {
             event.stopPropagation();
+            if (displayedStatus === 'modified') return;
             onRecordOtherMeal(meal.id);
           }}
           style={({ pressed }) => actionStyle('modified', displayedStatus, pressed)}
@@ -1043,6 +1051,11 @@ const MealCard = memo(function MealCard({
 
       <View style={styles.mealSummary}>
         <Image
+          onError={
+            usesRemoteRecommendationImage
+              ? () => setFailedRemoteImageUrl(meal.imageUrl ?? null)
+              : undefined
+          }
           resizeMode="cover"
           source={displayedImage}
           style={[styles.mealImage, dimmed && styles.skippedContent]}

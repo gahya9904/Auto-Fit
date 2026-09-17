@@ -6,11 +6,31 @@ export type HealthScorePreviewResponse = {
   answer?: unknown;
 };
 
+export type HomeResponse = {
+  user_name: string;
+  health_score: {
+    score: number | null;
+    total_score: number;
+    assessed_at: string | null;
+  };
+  score_change: {
+    change: number | null;
+    previous_score: number | null;
+    previous_assessed_at: string | null;
+    comparison: string;
+    message: string;
+  };
+};
+
 type ProfileResponse = {
   profile?: {
     name?: string | null;
   } | null;
 };
+
+export function getHome() {
+  return apiRequest<HomeResponse>('/api/home', { method: 'GET' });
+}
 
 export function getProfile() {
   return apiRequest<ProfileResponse>('/api/profile', { method: 'GET' });

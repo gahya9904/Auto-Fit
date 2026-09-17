@@ -2,11 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import {
-  getHealthScorePreview,
-  getProfile,
-  getProfileName,
-} from '@/src/api/home';
+import { getHome } from '@/src/api/home';
 import { HealthScore, HomeGreeting, WeeklyProgressCard } from '@/src/components/home';
 import {
   BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
@@ -33,14 +29,13 @@ const fallbackUserName = '회원';
 type ApiRecord = Record<string, unknown>;
 
 type HomeHealthScore = {
-  score?: number;
-  status?: string;
-  totalScore?: number;
+  score: number | null;
+  totalScore: number | null;
 };
 
 type HomeWeeklyProgress = {
-  change?: number;
-  message?: string;
+  change: number | null;
+  message: string | null;
 };
 
 type HomeLoadState = 'error' | 'loading' | 'ready';
@@ -49,40 +44,12 @@ function isApiRecord(value: unknown): value is ApiRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function readNumber(record: ApiRecord, keys: string[]) {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-  }
-  return undefined;
-}
-
 function readString(record: ApiRecord, keys: string[]) {
   for (const key of keys) {
     const value = record[key];
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
-}
-
-// The documented preview response guarantees only answer.content (natural language).
-// Never parse that text. These values are used only when the server explicitly returns
-// structured fields alongside it in a future compatible response.
-function getStructuredHealthScore(answer: unknown): HomeHealthScore | null {
-  if (!isApiRecord(answer)) return null;
-  const score = readNumber(answer, ['health_score', 'score']);
-  const totalScore = readNumber(answer, ['max_score', 'total_score']);
-  const status = readString(answer, ['health_status', 'status']);
-  if (score === undefined && totalScore === undefined && !status) return null;
-  return { score, status, totalScore };
-}
-
-function getStructuredWeeklyProgress(answer: unknown): HomeWeeklyProgress | null {
-  if (!isApiRecord(answer)) return null;
-  const change = readNumber(answer, ['change', 'health_score_change', 'weekly_change']);
-  const message = readString(answer, ['change_message', 'message', 'weekly_message']);
-  if (change === undefined && !message) return null;
-  return { change, message };
 }
 
 async function getSessionUserName() {
@@ -114,44 +81,42 @@ export default function HomeScreen() {
     requestInFlightRef.current = true;
     setLoadState('loading');
 
-    const [latestResult, changeResult, profileResult, sessionUserNameResult] =
-      await Promise.allSettled([
-        getHealthScorePreview('latest', false),
-        getHealthScorePreview('change', true),
-        getProfile(),
-        getSessionUserName(),
-      ]);
+    try {
+      const response = await getHome();
+      if (!isMountedRef.current) return;
 
-    requestInFlightRef.current = false;
-    if (!isMountedRef.current) return;
+      const apiUserName = response.user_name.trim();
+      setHealthScore({
+        score: response.health_score.score,
+        totalScore: response.health_score.total_score,
+      });
+      setWeeklyProgress({
+        change: response.score_change.change,
+        message: response.score_change.message,
+      });
+      setUserName(apiUserName || fallbackUserName);
+      setLoadState('ready');
 
-    const nextHealthScore =
-      latestResult.status === 'fulfilled'
-        ? getStructuredHealthScore(latestResult.value.answer)
-        : null;
-    const nextWeeklyProgress =
-      changeResult.status === 'fulfilled'
-        ? getStructuredWeeklyProgress(changeResult.value.answer)
-        : null;
-    const profileName =
-      profileResult.status === 'fulfilled' ? getProfileName(profileResult.value) : undefined;
-    const sessionUserName =
-      sessionUserNameResult.status === 'fulfilled' ? sessionUserNameResult.value : undefined;
-    const previewErrors = [latestResult, changeResult].filter(
-      (result): result is PromiseRejectedResult => result.status === 'rejected',
-    );
+      if (!apiUserName) {
+        void getSessionUserName().then((sessionUserName) => {
+          if (isMountedRef.current && sessionUserName) setUserName(sessionUserName);
+        });
+      }
+    } catch (error) {
+      if (!isMountedRef.current) return;
 
-    setHealthScore(nextHealthScore);
-    setWeeklyProgress(nextWeeklyProgress);
-    setUserName(profileName ?? sessionUserName ?? fallbackUserName);
-
-    if (previewErrors.length > 0) {
-      console.error('Home health-score preview request failed:', previewErrors);
+      console.error('Home request failed:', error);
+      setHealthScore(null);
+      setWeeklyProgress(null);
+      setUserName(fallbackUserName);
       setLoadState('error');
-      return;
-    }
 
-    setLoadState('ready');
+      void getSessionUserName().then((sessionUserName) => {
+        if (isMountedRef.current && sessionUserName) setUserName(sessionUserName);
+      });
+    } finally {
+      requestInFlightRef.current = false;
+    }
   }, []);
 
   useEffect(() => {
@@ -221,7 +186,7 @@ export default function HomeScreen() {
           ) : (
             <HealthScore
               score={healthScore?.score ?? null}
-              status={healthScore?.status ?? null}
+              status={null}
               totalScore={healthScore?.totalScore ?? null}
             />
           )}
