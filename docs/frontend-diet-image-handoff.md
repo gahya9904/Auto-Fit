@@ -176,7 +176,8 @@ export async function fetchLatestDiet(accessToken: string) {
 
 이 절의 API는 저장소 코드에 추가되었으며,
 `20260917002044_add_meal_log_photos.sql`은 개발 Supabase에 적용 완료했다.
-로컬 API와 실제 개발 DB 연동 검증 13개가 통과했으며, 공유 서버 배포는 대기 중이다.
+공유 개발 서버 배포(커밋 `a7bebe6`)와 배포 API 실연동 검증 13개가 완료되어 지금 사용할 수 있다.
+공개 OpenAPI에서도 multipart 업로드 API 반영을 확인했다.
 위의 기존 확인 결과는 추천 이미지에 대한 이전 검증 결과이며 사용자 사진의 배포 검증 결과가 아니다.
 
 1. `POST /api/diet/meals/{diet_meal_id}/feedback`에 `different_food`와 `actual_items`를 보내 식사 기록을 생성한다.

@@ -23,4 +23,12 @@ backend/.venv/bin/python -m backend.tests.meal_photo_live_integration --local
 backend/.venv/bin/python -m backend.tests.meal_photo_live_integration
 ```
 
-현재 상태: Render 로그인 대기. 배포 서버 대상 검증은 아직 실행하지 않음.
+## 배포 검증 완료
+
+- API: `https://auto-fit-api-dev.onrender.com`
+- 커밋: `a7bebe6`
+- Render: `dep-dalj8tajnfac739p6310` (Live, 52.1초)
+- 배포 서버 대상 사진 검증 13개 통과, 테스트 리소스 정리 완료.
+- 배포 OpenAPI에서 `POST /api/diet/meal-logs/{meal_log_id}/photo`의 multipart 요청과 201 응답 스키마 확인.
+- 날짜별 추천 재조회에서 4끼 모두 이미지 URL 반환 및 해당 URL의 HTTP 200/image 응답 확인.
+- 앱 UI 변경은 별도 프론트 연동 작업이다. 백엔드 사진 저장·재조회 API는 현재 사용 가능하다.

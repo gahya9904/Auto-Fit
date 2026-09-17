@@ -161,6 +161,13 @@ async def run(project: str, api_base: str) -> None:
                     "read recommendation by KST date",
                 )
 
+                image_urls = [meal.get("image_url") for meal in dated.json()["result"]["meals"]]
+                check(all(image_urls), "recommendation reload restores images for all meals")
+                for image_url in set(image_urls):
+                    image = await remote.get(image_url)
+                    check(image.status_code == 200 and image.headers.get("content-type", "").startswith("image/"),
+                          "recommendation image URL returns actual image")
+
                 before_summary = await api.get(
                     "/api/diet/nutrition-summary",
                     headers=owner,
