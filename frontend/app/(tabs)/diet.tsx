@@ -54,6 +54,7 @@ import {
   type DietActualItem,
   type DietFeedbackInput,
 } from '@/src/api/diet';
+import { getProfile, getProfileName } from '@/src/api/home';
 import {
   BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
   getBottomNavigationVisualHeight,
@@ -1188,6 +1189,7 @@ export default function DietScreen() {
     Record<string, Partial<Record<MealType, MealRecordDraft>>>
   >({});
   const [fridgeIngredients, setFridgeIngredients] = useState<FridgeIngredient[]>([]);
+  const [userName, setUserName] = useState<string | null>(null);
   const activeMealTransitions = useRef(new Set<MealType>());
   const feedbackRequestMealIdsRef = useRef(new Set<MealType>());
   const pendingCanvasHeight = useRef(0);
@@ -1243,6 +1245,22 @@ export default function DietScreen() {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    void getProfile()
+      .then((response) => {
+        if (isActive) setUserName(getProfileName(response) ?? null);
+      })
+      .catch(() => {
+        if (isActive) setUserName(null);
+      });
+
+    return () => {
+      isActive = false;
     };
   }, []);
 
@@ -1737,7 +1755,7 @@ export default function DietScreen() {
             <View style={styles.hero}>
               <View style={styles.heroCopy}>
                 <Text style={styles.heroTitle}>
-                  OO님을 위한{`\n`}
+                  {userName ? `${userName}님을 위한` : '나를 위한'}{`\n`}
                   <Text style={styles.primaryText}>맞춤 식단</Text>이에요!
                 </Text>
                 <Text style={styles.heroDescription}>근육은 지키고, 체지방은 천천히</Text>
