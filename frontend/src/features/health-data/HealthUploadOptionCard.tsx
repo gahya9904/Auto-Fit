@@ -33,14 +33,7 @@ export function HealthUploadOptionCard({
           <Icon color={colors.primary} fill={colors.primary} height={32} width={32} />
         </View>
         <Text style={styles.title}>{title}</Text>
-        <Text style={styles.description}>
-          {description.map((line, index) => (
-            <Text key={line}>
-              {line}
-              {index < description.length - 1 ? '\n' : ''}
-            </Text>
-          ))}
-        </Text>
+        <Text style={styles.description}>{description.join(' ')}</Text>
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ busy: disabled, disabled }}
@@ -71,7 +64,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: '100%',
     justifyContent: 'space-between',
-    paddingHorizontal: 10,
+    paddingHorizontal: 2,
     paddingVertical: 10,
     width: '100%',
   },
@@ -91,6 +84,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   description: {
+    alignSelf: 'stretch',
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
     fontSize: 14,
