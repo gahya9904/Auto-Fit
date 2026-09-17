@@ -38,6 +38,7 @@ from backend.app.http_client import client_scope
 from backend.app.diet_timing import DietTimingMiddleware, timed_http_client
 from backend.app.home import HomeResponse, build_home_response
 from backend.app.health_documents import create_health_documents_router
+from backend.app.account_deletion import create_account_deletion_router
 from backend.app.analysis_popups import create_analysis_popups_router
 from backend.app.meal_photos import attach_photos, create_meal_photos_router
 from backend.app.security import (
@@ -2876,6 +2877,7 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(DietTimingMiddleware)
 app.include_router(create_meal_photos_router(get_current_user, get_settings))
+app.include_router(create_account_deletion_router(get_current_user, get_settings))
 app.include_router(create_analysis_popups_router(get_current_user, get_settings))
 app.include_router(
     create_health_documents_router(
