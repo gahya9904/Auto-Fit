@@ -744,4 +744,4 @@ OpenAPI에 201, 401, 404, 409, 413, 415, 422, 502와 오류 스키마를 정의�
 
 ## GET /api/health-documents
 
-Bearer 인증 필수. query limit=20 (1~100), offset=0 (0 이상). 사용자 소유 건강 문서의 최신순 목록을 반환합니다. 응답은 items 배열과 limit, offset, has_more이며 각 항목은 uploaded_file_id, original_file_name, file_name, document_type, uploaded_at입니다.
+Bearer 인증 필수. query limit=20 (1~100), offset=0 (0 이상). 사용자 소유 건강 문서의 최신순 목록을 반환합니다. 응답은 items 배열과 limit, offset, has_more이며 각 항목은 uploaded_file_id, original_file_name, file_name, document_type, uploaded_at, status(awaiting_review | confirmed | failed)입니다. 선택 query status=confirmed로 확정 문서만 필터링합니다. 로그인 분기는 status=confirmed&limit=1의 items 유무를 사용합니다.

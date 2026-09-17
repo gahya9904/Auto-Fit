@@ -513,12 +513,22 @@ def test_upload_openapi_document_type_is_optional():
 
 
 @pytest.mark.parametrize("rows,has_more", [([], False), ([None], False), ([None, "원본.pdf", "next.pdf"], True)])
-def test_document_list_preserves_names_scopes_owner_and_paginates(monkeypatch, rows, has_more):
+@pytest.mark.parametrize("processing_status,ocr_status,expected", [
+    ("awaiting_review", "completed", "awaiting_review"),
+    ("awaiting_review", "failed", "failed"),
+    ("manually_confirmed", "completed", "confirmed"),
+    ("manually_confirmed", "failed", "confirmed"),
+    ("awaiting_review", None, "awaiting_review"),
+])
+def test_document_list_preserves_names_scopes_owner_and_paginates(monkeypatch, rows, has_more, processing_status, ocr_status, expected):
     class Client:
         def __init__(self, **kwargs): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *args): pass
         async def get(self, url, *, headers, params):
+            if url.endswith("/ocr_results"):
+                assert params["uploaded_file_id"] == "in.(" + ",".join(FILE_ID for _ in rows[:2]) + ")"
+                return httpx.Response(200, json=[{"uploaded_file_id": FILE_ID, "status": ocr_status}] if ocr_status else [])
             assert params["user_id"] == f"eq.{USER_ID}"
             assert params["document_type"] == "in.(health_checkup,body_composition)"
             assert params["limit"] == "3"
@@ -526,7 +536,7 @@ def test_document_list_preserves_names_scopes_owner_and_paginates(monkeypatch, r
             assert params["order"] == "uploaded_at.desc,uploaded_file_id.desc"
             return httpx.Response(200, json=[{"uploaded_file_id": FILE_ID, "original_file_name": name,
                 "file_name": "fallback.pdf", "document_type": "health_checkup",
-                "uploaded_at": "2026-09-17T00:00:00Z"} for name in rows])
+                "uploaded_at": "2026-09-17T00:00:00Z", "processing_status": processing_status} for name in rows])
     monkeypatch.setattr(health_documents.httpx, "AsyncClient", Client)
     override_dependencies()
     try:
@@ -537,6 +547,7 @@ def test_document_list_preserves_names_scopes_owner_and_paginates(monkeypatch, r
         assert body["limit"] == 2 and body["offset"] == 4
         assert len(body["items"]) == min(len(rows), 2)
         assert [item["original_file_name"] for item in body["items"]] == [name or "fallback.pdf" for name in rows[:2]]
+        assert all(item["status"] == expected for item in body["items"])
     finally:
         main.app.dependency_overrides.clear()
 
@@ -556,6 +567,30 @@ def test_document_list_requires_authentication():
     try:
         response = TestClient(main.app).get("/api/health-documents")
         assert response.status_code == 401
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_confirmed_list_filters_before_pagination_and_empty_list_skips_ocr(monkeypatch):
+    calls = []
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def get(self, url, *, headers, params):
+            calls.append(url)
+            assert url.endswith("/upload_files")
+            assert params["user_id"] == f"eq.{USER_ID}"
+            assert params["processing_status"] == "eq.manually_confirmed"
+            assert params["limit"] == "2"
+            return httpx.Response(200, json=[])
+    monkeypatch.setattr(health_documents.httpx, "AsyncClient", Client)
+    override_dependencies()
+    try:
+        response = TestClient(main.app).get("/api/health-documents?status=confirmed&limit=1")
+        assert response.status_code == 200
+        assert response.json()["items"] == []
+        assert len(calls) == 1
     finally:
         main.app.dependency_overrides.clear()
 

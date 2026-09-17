@@ -136,6 +136,7 @@ class DocumentListItem(BaseModel):
     file_name: str
     document_type: DocumentType
     uploaded_at: datetime
+    status: Literal["awaiting_review", "confirmed", "failed"]
 
 
 class DocumentListResponse(BaseModel):
@@ -170,6 +171,12 @@ DOCUMENT_ERRORS = {
 }
 
 
+def _document_status(processing_status: str | None, ocr_status: str) -> str:
+    if processing_status == "manually_confirmed":
+        return "confirmed"
+    return "failed" if ocr_status == "failed" else "awaiting_review"
+
+
 def _document_response(document: dict[str, Any]) -> dict[str, Any]:
     file = document["file"]
     ocr = document["ocr_result"]
@@ -182,9 +189,7 @@ def _document_response(document: dict[str, Any]) -> dict[str, Any]:
         "original_file_name": file.get("original_file_name") or file["file_name"],
         "uploaded_at": file["uploaded_at"],
         "ocr_status": ocr_status,
-        "status": "confirmed" if file.get("processing_status") == "manually_confirmed" else (
-            "failed" if ocr_status == "failed" else "awaiting_review"
-        ),
+        "status": _document_status(file.get("processing_status"), ocr_status),
         "extracted_data": (ocr or {}).get("extracted_data") or _empty_extracted_data(file["document_type"]),
         "error": {"code": (ocr or {}).get("error_message") or "OCR_FAILED",
                   "message": "OCR 결과를 추출하지 못했습니다. 다시 업로드하거나 직접 입력해 주세요.",
@@ -413,26 +418,41 @@ async def _delete_storage_object(storage_path: str, settings: Any) -> None:
         )
 
 
-async def _list_documents(user_id: str, settings: Any, *, limit: int, offset: int) -> dict[str, Any]:
+async def _list_documents(user_id: str, settings: Any, *, limit: int, offset: int, confirmed_only: bool = False) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/upload_files",
             headers=_service_headers(settings),
             params={
-                "select": "uploaded_file_id,original_file_name,file_name,document_type,uploaded_at",
+                "select": "uploaded_file_id,original_file_name,file_name,document_type,uploaded_at,processing_status",
                 "user_id": f"eq.{user_id}",
                 "document_type": "in.(health_checkup,body_composition)",
                 "order": "uploaded_at.desc,uploaded_file_id.desc",
                 "limit": str(limit + 1),
                 "offset": str(offset),
+                **({"processing_status": "eq.manually_confirmed"} if confirmed_only else {}),
             },
         )
     if not response.is_success:
         raise HTTPException(status_code=502, detail="Health document list query failed")
     rows = response.json()
+    ocr_statuses = {}
+    if rows:
+        file_ids = ",".join(str(row["uploaded_file_id"]) for row in rows[:limit])
+        async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+            ocr_response = await client.get(f"{settings.supabase_url}/rest/v1/ocr_results",
+                headers=_service_headers(settings),
+                params={"select": "uploaded_file_id,status", "uploaded_file_id": f"in.({file_ids})"})
+        if not ocr_response.is_success:
+            raise HTTPException(status_code=502, detail="Health document list OCR query failed")
+        ocr_statuses = {row["uploaded_file_id"]: row["status"] for row in ocr_response.json()}
+    items = []
+    for row in rows[:limit]:
+        ocr_status = ocr_statuses.get(row["uploaded_file_id"], "pending")
+        items.append({**row, "original_file_name": row.get("original_file_name") or row["file_name"],
+                      "status": _document_status(row.get("processing_status"), ocr_status)})
     return {
-        "items": [{**row, "original_file_name": row.get("original_file_name") or row["file_name"]}
-                  for row in rows[:limit]],
+        "items": items,
         "limit": limit, "offset": offset, "has_more": len(rows) > limit,
     }
 
@@ -678,10 +698,11 @@ def create_health_documents_router(
     async def list_health_documents(
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         offset: Annotated[int, Query(ge=0)] = 0,
+        status: Annotated[Literal["confirmed"] | None, Query(description="선택: confirmed 지정 시 확정 문서만 조회. 로그인 분기는 status=confirmed&limit=1의 items 유무로 한 번에 판정.")] = None,
         user: Any = Depends(current_user_dependency),
         settings: Any = Depends(settings_dependency),
     ) -> dict[str, Any]:
-        return await _list_documents(user.id, settings, limit=limit, offset=offset)
+        return await _list_documents(user.id, settings, limit=limit, offset=offset, confirmed_only=status == "confirmed")
 
     @router.get("/{uploaded_file_id}", response_model=DocumentResponse, responses=DOCUMENT_ERRORS)
     async def get_health_document(

@@ -134,9 +134,15 @@ OCR 엔진 자체는 저장소에 포함되지 않습니다. 샘플 데이터는
 `GET /api/health-documents?limit=20&offset=0` — Bearer 인증 필수. 로그인 사용자의 건강검진·체성분 문서만 조회합니다. 미확정/실패 문서도 포함하며 최신 업로드 순입니다. 동일 시각이면 파일 ID 내림차순입니다. limit은 1~100(기본 20), offset은 0 이상(기본 0)입니다.
 
 ```json
-{"items":[{"uploaded_file_id":"20260916-0000-4000-8000-000000000002","original_file_name":"건강검진결과_2026.pdf","file_name":"건강검진결과_2026.pdf","document_type":"health_checkup","uploaded_at":"2026-09-17T00:00:00Z"}],"limit":20,"offset":0,"has_more":false}
+{"items":[{"uploaded_file_id":"20260916-0000-4000-8000-000000000002","original_file_name":"건강검진결과_2026.pdf","file_name":"건강검진결과_2026.pdf","document_type":"health_checkup","uploaded_at":"2026-09-17T00:00:00Z","status":"confirmed"}],"limit":20,"offset":0,"has_more":false}
 ```
 
 POST·개별 GET·PATCH 응답의 최상위 `original_file_name`을 표시하면 됩니다. 목록도 같은 원본명을 반환합니다. 기존 DB 문서에 원본명이 없으면 file_name을 반환합니다. 과거에 UUID만 저장된 문서의 실제 원본명은 복원할 수 없습니다. 목록 조회 시 OCR 추출 데이터나 Storage 경로는 반환하지 않습니다.
 
 원본 파일명·목록 API는 공유 개발 서버에 배포되었으며 POST·GET·목록·DB 보존을 실제 서버에서 검증했습니다. [배포·검증 결과](health-documents-deployment-results.md)를 참고하세요.
+
+## 로그인 초기 화면 분기 (로컬 구현, 배포 전)
+
+목록 items의 status는 awaiting_review | confirmed | failed이며 단건 조회와 같은 기준입니다. processing_status=manually_confirmed는 confirmed, 그 외 OCR 실패는 failed, 나머지는 awaiting_review입니다. OCR 결과가 없거나 처리 중인 문서도 awaiting_review입니다. 서버는 페이지 내 소유 문서의 OCR 상태를 일괄 조회하므로 프론트 단건 추가 요청은 필요하지 않습니다.
+
+목록은 페이지 단위이므로 첫 페이지에 confirmed가 없다고 전체 문서가 없다고 판단하지 마세요. 로그인 분기는 `GET /api/health-documents?status=confirmed&limit=1`로 조회하여 items가 하나 이상이면 Home, 빈 배열이면 업로드 화면으로 이동합니다. status 필터는 현재 confirmed만 지원하며, 생략하면 전체 상태를 반환합니다. 인증/서버 오류는 문서 없음으로 처리하지 마세요.

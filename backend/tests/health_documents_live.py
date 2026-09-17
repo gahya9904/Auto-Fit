@@ -79,6 +79,9 @@ async def run(api_base: str) -> None:
             file_ids.append(image_result["uploaded_file_id"])
             check(image_result["document_type"] == "health_checkup" and image_result["ocr_status"] == "completed"
                   and image_result["extracted_data"]["weight_kg"] == "70", "image returns default sample without classification")
+            empty_confirmed = await api.get("/api/health-documents?status=confirmed&limit=1", headers=owner)
+            check(empty_confirmed.status_code == 200 and empty_confirmed.json()["items"] == [],
+                  "login branch: awaiting review is not confirmed data")
             for kind, table, id_field, date_field in [
                 ("health_checkup", "health_checkups", "health_checkup_id", "checkup_date"),
                 ("body_composition", "body_compositions", "body_composition_id", "measured_at"),
@@ -135,10 +138,25 @@ async def run(api_base: str) -> None:
             check(listing.status_code == 200 and listing.json()["has_more"] and len(listing.json()["items"]) == 2
                   and {item["original_file_name"] for item in listing.json()["items"]} == {"건강검진결과_2026.pdf", "체성분결과_2026.pdf"},
                   "list shows persisted original names with pagination")
+            check(all(item["status"] == "confirmed" for item in listing.json()["items"]),
+                  "list includes confirmed status")
             next_page = await api.get("/api/health-documents?limit=2&offset=2", headers=owner)
             check(next_page.status_code == 200 and not next_page.json()["has_more"]
                   and [item["uploaded_file_id"] for item in next_page.json()["items"]] == [file_ids[0]],
                   "list next page contains only this user's remaining document")
+            check(next_page.json()["items"][0]["status"] == "awaiting_review", "list includes awaiting_review status")
+            confirmed_only = await api.get("/api/health-documents?status=confirmed&limit=1", headers=owner)
+            check(confirmed_only.status_code == 200 and len(confirmed_only.json()["items"]) == 1
+                  and confirmed_only.json()["items"][0]["status"] == "confirmed"
+                  and confirmed_only.json()["items"][0]["uploaded_file_id"] in file_ids[1:],
+                  "login branch: one filtered request finds confirmed data")
+            failed_ocr = await db.patch("/rest/v1/ocr_results", headers=admin,
+                params={"uploaded_file_id": f"eq.{file_ids[0]}"}, json={"status": "failed", "error_message": "OCR_FAILED"})
+            failed_listing = await api.get("/api/health-documents?limit=2&offset=2", headers=owner)
+            failed_detail = await api.get(f"/api/health-documents/{file_ids[0]}", headers=owner)
+            check(failed_ocr.is_success and failed_listing.status_code == 200 and failed_detail.status_code == 200
+                  and failed_listing.json()["items"][0]["status"] == failed_detail.json()["status"] == "failed",
+                  "list failed status matches detail")
             print(f"Completed {checks} deployed health document checks.", flush=True)
         finally:
             if uid:

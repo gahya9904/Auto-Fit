@@ -279,7 +279,7 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 | Method | 경로 | 입력 | 성공 응답 | 코드 |
 |---|---|---|---|---|
 | POST | `/api/health-documents` | multipart `file` 필수, `document_type`·`original_file_name` 선택 | `uploaded_file_id, document_type, file_name, original_file_name, uploaded_at, ocr_status, status, extracted_data, error` | 201 |
-| GET | `/api/health-documents` | query `limit`(기본 20, 최대 100), `offset`(기본 0) | `items[{uploaded_file_id, original_file_name, file_name, document_type, uploaded_at}], limit, offset, has_more` | 200 |
+| GET | `/api/health-documents` | query `limit`(기본 20, 최대 100), `offset`(기본 0) | `items[{uploaded_file_id, original_file_name, file_name, document_type, uploaded_at, status}], limit, offset, has_more` | 200 |
 | GET | `/api/health-documents/{uploaded_file_id}` | 경로 UUID | `uploaded_file_id, document_type, file_name, original_file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
 | PATCH | `/api/health-documents/{uploaded_file_id}/ocr-result` | `extracted_data` | `uploaded_file_id, document_type, file_name, original_file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
 | POST | `/api/health-documents/{uploaded_file_id}/confirm` | 본문 없음 | `uploaded_file_id, document_type, status, health_checkup_id, body_composition_id, already_confirmed` | 200 |
@@ -411,3 +411,5 @@ Render 공유 서버에 배포됐다. `/health` 200과 신규 5개 경로의 인
 | 프론트 | 토큰 전달, 화면 API 연결, ID 보관, 로딩/빈 데이터/null/오류 처리, 재시도 중복 방지 |
 | 모델 담당 | 모델 호출 주소 또는 Python 실행 방식, 입력·출력 JSON, 인증·제한·타임아웃 전달 |
 | 공동 | 날짜 기준 통일, 응답 샘플 확인, 실제 화면 시나리오 테스트, 보관기간 기산점 확정 |
+
+건강 문서 목록 상태 추가 (배포 전): items.status는 awaiting_review | confirmed | failed입니다. 로그인 분기는 GET /api/health-documents?status=confirmed&limit=1의 items 유무로 판단합니다. 일반 목록 첫 페이지만으로 전체 확정 데이터 부재를 판단하면 안 됩니다.

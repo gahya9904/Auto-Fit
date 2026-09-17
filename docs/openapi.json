@@ -389,6 +389,25 @@
             }
           },
           {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "confirmed",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "선택: confirmed 지정 시 확정 문서만 조회. 로그인 분기는 status=confirmed&limit=1의 items 유무로 한 번에 판정.",
+              "title": "Status"
+            },
+            "description": "선택: confirmed 지정 시 확정 문서만 조회. 로그인 분기는 status=confirmed&limit=1의 items 유무로 한 번에 판정."
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -6759,6 +6778,15 @@
             "type": "string",
             "format": "date-time",
             "title": "Uploaded At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "awaiting_review",
+              "confirmed",
+              "failed"
+            ],
+            "title": "Status"
           }
         },
         "type": "object",
@@ -6767,7 +6795,8 @@
           "original_file_name",
           "file_name",
           "document_type",
-          "uploaded_at"
+          "uploaded_at",
+          "status"
         ],
         "title": "DocumentListItem"
       }
