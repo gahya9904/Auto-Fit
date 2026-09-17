@@ -2,6 +2,8 @@
 
 2026-09-17 · 계산 버전 `1.0.0` · Swagger 그룹 `Health Analysis`
 
+공유 개발 서버에 배포 완료. [배포 검증 범위](analysis-popup-deployment-results.md) 참고.
+
 세 팝업의 데이터를 한 번에 조회한다. 이 API는 조회 전용이며 평가·건강자료·전략을 새로 생성하거나 저장하지 않는다.
 
 ## 조회
