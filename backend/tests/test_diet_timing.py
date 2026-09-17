@@ -15,6 +15,7 @@ SETTINGS = main.Settings("https://example.supabase.co", "publishable-private", "
 @pytest.fixture
 def diet_client(monkeypatch):
     original = httpx.AsyncClient
+    created = []
 
     def handler(request):
         path = request.url.path
@@ -31,11 +32,16 @@ def diet_client(monkeypatch):
         assert path in rows
         return httpx.Response(200, json=rows[path])
 
-    monkeypatch.setattr(main.httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+    def create_client(**kwargs):
+        client = original(transport=httpx.MockTransport(handler), **kwargs)
+        created.append(client)
+        return client
+    monkeypatch.setattr(main.httpx, "AsyncClient", create_client)
     monkeypatch.setenv("DIET_TIMING_ENABLED", "true")
     main.app.dependency_overrides[main.get_settings] = lambda: SETTINGS
     try:
         with TestClient(main.app) as client:
+            client.created_http_clients = created
             yield client
     finally:
         main.app.dependency_overrides.pop(main.get_settings, None)
@@ -49,12 +55,14 @@ def timing_records(caplog):
 @pytest.mark.parametrize("route,expected", [
     ("/api/diet/recommendations?date=2026-09-16", {"auth", "recommendation", "meals", "foods", "menu_images"}),
     ("/api/diet/meal-logs?from_date=2026-09-16&to_date=2026-09-16", {"auth", "meal_logs", "meal_log_items", "meal_photos"}),
-    ("/api/diet/nutrition-summary?date=2026-09-16", {"auth", "recommendation", "meals", "foods", "menu_images", "meal_logs", "meal_log_items", "meal_photos"}),
+    ("/api/diet/nutrition-summary?date=2026-09-16", {"auth", "recommendation", "meal_logs", "meal_log_items"}),
 ])
 def test_real_diet_routes_log_stages_without_sensitive_data(diet_client, caplog, route, expected):
     caplog.set_level(logging.INFO, logger="uvicorn.error")
     response = diet_client.get(route + "&private=secret-query", headers={"Authorization": "Bearer secret-token", "X-Request-ID": "untrusted-private"})
     assert response.status_code == 200
+    assert len(diet_client.created_http_clients) == 1
+    assert not diet_client.created_http_clients[0].is_closed
     records = timing_records(caplog)
     assert len(records) == 1
     record = records[0]
@@ -64,7 +72,7 @@ def test_real_diet_routes_log_stages_without_sensitive_data(diet_client, caplog,
     assert record["status"] == 200
     assert set(record["stages"]) == expected
     assert all(stage["calls"] == 1 and stage["ms"] >= 0 for stage in record["stages"].values())
-    assert record["total_ms"] >= sum(stage["ms"] for stage in record["stages"].values()) - 0.1
+    assert record["total_ms"] >= max(stage["ms"] for stage in record["stages"].values()) - 0.1
     assert all(secret not in json.dumps(record) for secret in ("private", "secret", "2026-09-16", "Bearer", "example.com"))
     assert diet_timing._stages.get() is None
 

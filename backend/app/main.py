@@ -2161,6 +2161,9 @@ async def fetch_diet_recommendation(
     user_id: str,
     settings: Settings,
     recommendation_date: date | None = None,
+    *,
+    client: httpx.AsyncClient | None = None,
+    include_details: bool = True,
 ) -> dict[str, Any] | None:
     recommendation_params = {
         "select": (
@@ -2176,11 +2179,16 @@ async def fetch_diet_recommendation(
         ),
         "limit": "1",
     }
+    if not include_details:
+        recommendation_params["select"] = (
+            "target_calories,target_carbohydrates,target_protein,target_fat"
+        )
     if recommendation_date is None:
         recommendation_params["status"] = "eq.active"
     else:
         recommendation_params["recommendation_date"] = f"eq.{recommendation_date.isoformat()}"
-    async with timed_http_client("recommendation") as client:
+    shared_client = client
+    async with timed_http_client("recommendation", shared_client) as client:
         recommendation_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_recommendations",
             headers=service_headers(settings),
@@ -2195,6 +2203,8 @@ async def fetch_diet_recommendation(
     if not recommendations:
         return None
     recommendation = recommendations[0]
+    if not include_details:
+        return {"recommendation": recommendation, "meals": []}
     meal_params = {
         "select": (
             "diet_meal_id,diet_recommendation_id,meal_type,meal_order,"
@@ -2204,7 +2214,7 @@ async def fetch_diet_recommendation(
         "diet_recommendation_id": f"eq.{recommendation['diet_recommendation_id']}",
         "order": "meal_order.asc",
     }
-    async with timed_http_client("meals") as client:
+    async with timed_http_client("meals", shared_client) as client:
         meal_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_meals",
             headers=service_headers(settings),
@@ -2218,8 +2228,10 @@ async def fetch_diet_recommendation(
     meals = meal_response.json()
     meal_ids = [row["diet_meal_id"] for row in meals]
     foods_by_meal: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    if meal_ids:
-        async with timed_http_client("foods") as client:
+    async def load_foods():
+        if not meal_ids:
+            return
+        async with timed_http_client("foods", shared_client) as client:
             food_response = await client.get(
                 f"{settings.supabase_url}/rest/v1/diet_meal_foods",
                 headers=service_headers(settings),
@@ -2243,8 +2255,10 @@ async def fetch_diet_recommendation(
         {meal["menu_image_key"] for meal in meals if meal.get("menu_image_key")}
     )
     cached_images: dict[str, dict[str, Any]] = {}
-    if menu_image_keys:
-        async with timed_http_client("menu_images") as client:
+    async def load_images():
+        if not menu_image_keys:
+            return
+        async with timed_http_client("menu_images", shared_client) as client:
             image_response = await client.get(
                 f"{settings.supabase_url}/rest/v1/menu_images",
                 headers=service_headers(settings),
@@ -2258,9 +2272,15 @@ async def fetch_diet_recommendation(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Supabase menu image cache query failed",
             )
-        cached_images = {
+        cached_images.update({
             image["image_key"]: image for image in image_response.json()
-        }
+        })
+
+    # Wait for both probes even on failure so no child outlives the request/client.
+    results = await asyncio.gather(load_foods(), load_images(), return_exceptions=True)
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
 
     for meal in meals:
         image_key = meal.get("menu_image_key")
@@ -2590,6 +2610,9 @@ async def fetch_meal_logs(
     from_date: date,
     to_date: date,
     settings: Settings,
+    *,
+    client: httpx.AsyncClient | None = None,
+    include_photos: bool = True,
 ) -> list[dict[str, Any]]:
     start = datetime(
         from_date.year,
@@ -2615,7 +2638,8 @@ async def fetch_meal_logs(
         "and": f"(eaten_at.lt.{end.isoformat()})",
         "order": "eaten_at.desc",
     }
-    async with timed_http_client("meal_logs") as client:
+    shared_client = client
+    async with timed_http_client("meal_logs", shared_client) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/meal_logs",
             headers=service_headers(settings),
@@ -2629,8 +2653,10 @@ async def fetch_meal_logs(
     logs = response.json()
     log_ids = [row["meal_log_id"] for row in logs]
     items_by_log: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    if log_ids:
-        async with timed_http_client("meal_log_items") as client:
+    async def load_items():
+        if not log_ids:
+            return
+        async with timed_http_client("meal_log_items", shared_client) as client:
             item_response = await client.get(
                 f"{settings.supabase_url}/rest/v1/meal_log_items",
                 headers=service_headers(settings),
@@ -2651,7 +2677,13 @@ async def fetch_meal_logs(
             )
         for item in item_response.json():
             items_by_log[item["meal_log_id"]].append(item)
-    await attach_photos(logs, user_id, settings)
+    tasks = [load_items()]
+    if include_photos:
+        tasks.append(attach_photos(logs, user_id, settings, client=shared_client))
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
     return [{**log, "items": items_by_log[log["meal_log_id"]]} for log in logs]
 
 
@@ -3318,11 +3350,13 @@ async def get_diet_recommendation_by_date(
     recommendation_date: Annotated[date, Query(alias="date")],
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
+    request: Request = None,
 ) -> dict[str, Any]:
     result = await fetch_diet_recommendation(
         user.id,
         settings,
         recommendation_date,
+        client=getattr(request.app.state, "supabase_http_client", None) if request else None,
     )
     return {"result": result}
 
@@ -3341,13 +3375,20 @@ async def get_diet_nutrition_summary(
     target_date: Annotated[date, Query(alias="date")],
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
+    request: Request = None,
 ) -> dict[str, Any]:
-    recommendation = await fetch_diet_recommendation(
-        user.id,
-        settings,
-        target_date,
+    client = getattr(request.app.state, "supabase_http_client", None) if request else None
+    results = await asyncio.gather(
+        fetch_diet_recommendation(user.id, settings, target_date,
+                                  client=client, include_details=False),
+        fetch_meal_logs(user.id, target_date, target_date, settings,
+                        client=client, include_photos=False),
+        return_exceptions=True,
     )
-    logs = await fetch_meal_logs(user.id, target_date, target_date, settings)
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    recommendation, logs = results
     return {
         "summary": build_daily_nutrition_summary(
             target_date,
@@ -3467,6 +3508,7 @@ async def get_diet_meal_logs(
     to_date: date,
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
+    request: Request = None,
 ) -> dict[str, Any]:
     if from_date > to_date:
         raise HTTPException(
@@ -3478,7 +3520,10 @@ async def get_diet_meal_logs(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Meal log range cannot exceed 367 days",
         )
-    logs = await fetch_meal_logs(user.id, from_date, to_date, settings)
+    logs = await fetch_meal_logs(
+        user.id, from_date, to_date, settings,
+        client=getattr(request.app.state, "supabase_http_client", None) if request else None,
+    )
     return {
         "period": {"from": from_date.isoformat(), "to": to_date.isoformat()},
         "count": len(logs),

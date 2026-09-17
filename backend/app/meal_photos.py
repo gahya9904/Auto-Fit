@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
-from backend.app.diet_timing import timed_http_client
+from backend.app.diet_timing import logger, timed_http_client
 
 BUCKET = "meal-photos"
 MAX_BYTES = 5 * 1024 * 1024
@@ -49,15 +49,20 @@ async def signed_photo(client: httpx.AsyncClient, path: str, settings: Any) -> d
             "image_url_expires_in": URL_TTL}
 
 
-async def attach_photos(logs: list[dict[str, Any]], user_id: str, settings: Any) -> None:
+async def attach_photos(logs: list[dict[str, Any]], user_id: str, settings: Any, *, client=None) -> None:
     for log in logs:
         log.update(image_storage_path=None, image_url=None, image_url_expires_in=None)
     if not logs:
         return
-    async with timed_http_client("meal_photos", timeout=20) as client:
+    async with timed_http_client("meal_photos", client, timeout=20) as client:
         for log in logs:
             if path := log.get("photo_storage_path"):
-                log.update(await signed_photo(client, path, settings))
+                try:
+                    log.update(await signed_photo(client, path, settings))
+                except (HTTPException, httpx.RequestError):
+                    # Optional media must not take down persisted dietary records.
+                    # Uploads still use strict signing; never log private paths/errors.
+                    logger.warning("[diet-photo] URL signing failed during meal log read")
 
 
 async def upload_photo(meal_log_id: str, user_id: str, file: UploadFile, settings: Any) -> dict[str, Any]:

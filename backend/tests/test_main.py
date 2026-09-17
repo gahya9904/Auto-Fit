@@ -1633,7 +1633,7 @@ def test_get_diet_recommendation_by_date_uses_authenticated_user(
     async def fake_user() -> main.AuthenticatedUser:
         return main.AuthenticatedUser(id="authenticated-user")
 
-    async def fake_fetch(user_id, settings, recommendation_date):
+    async def fake_fetch(user_id, settings, recommendation_date, *, client=None):
         assert user_id == "authenticated-user"
         assert settings == TEST_SETTINGS
         assert recommendation_date == main.date(2026, 9, 16)
@@ -2066,13 +2066,15 @@ def test_get_diet_nutrition_summary_uses_authenticated_user(monkeypatch) -> None
     async def fake_user() -> main.AuthenticatedUser:
         return main.AuthenticatedUser(id="authenticated-user")
 
-    async def fake_recommendation(user_id, settings, recommendation_date):
+    async def fake_recommendation(user_id, settings, recommendation_date, *, client=None, include_details=True):
+        assert include_details is False
         assert user_id == "authenticated-user"
         assert settings == TEST_SETTINGS
         assert recommendation_date == main.date(2026, 9, 16)
         return None
 
-    async def fake_logs(user_id, from_date, to_date, settings):
+    async def fake_logs(user_id, from_date, to_date, settings, *, client=None, include_photos=True):
+        assert include_photos is False
         assert user_id == "authenticated-user"
         assert from_date == main.date(2026, 9, 16)
         assert to_date == main.date(2026, 9, 16)
@@ -2107,7 +2109,7 @@ def test_meal_logs_validate_range_and_use_authenticated_user(monkeypatch) -> Non
     async def fake_user() -> main.AuthenticatedUser:
         return main.AuthenticatedUser(id="authenticated-user")
 
-    async def fake_fetch(user_id, from_date, to_date, settings):
+    async def fake_fetch(user_id, from_date, to_date, settings, *, client=None):
         assert user_id == "authenticated-user"
         assert from_date.isoformat() == "2026-09-01"
         assert to_date.isoformat() == "2026-09-03"
