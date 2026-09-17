@@ -274,19 +274,19 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 
 ## 7. 건강 문서 업로드·검토 (4개)
 
-현재 버전은 실제 OCR 엔진 대신 빈 추출 결과를 만든다. 사용자가 화면에서 값을 입력·수정한 뒤
-확정하면 `health_checkups` 또는 `body_compositions`에 저장되는 임시 MVP다.
+파일 저장 후 설정된 OCR 어댑터를 동기로 호출한다. URL이 없으면 기본적으로 건강검진/체성분별
+고정 샘플을 `ocr_status=completed`로 반환한다. 실제 OCR 호출 실패는 `failed`로 반환한다. 상세 타입·단위·상태·오류·재업로드 계약은 [건강 문서 API](health-documents-api.md)를 참고한다.
 
 | Method | 경로 | 입력 | 성공 응답 | 코드 |
 |---|---|---|---|---|
-| POST | `/api/health-documents` | multipart `file`, `document_type` | `file, ocr_result` | 201 |
-| GET | `/api/health-documents/{uploaded_file_id}` | 경로 UUID | `file, ocr_result` | 200 |
-| PATCH | `/api/health-documents/{uploaded_file_id}/ocr-result` | `extracted_data` | `file, ocr_result` | 200 |
-| POST | `/api/health-documents/{uploaded_file_id}/confirm` | 본문 없음 | `file, health_data, already_confirmed` | 200 |
+| POST | `/api/health-documents` | multipart `file`, `document_type` | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 201 |
+| GET | `/api/health-documents/{uploaded_file_id}` | 경로 UUID | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
+| PATCH | `/api/health-documents/{uploaded_file_id}/ocr-result` | `extracted_data` | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
+| POST | `/api/health-documents/{uploaded_file_id}/confirm` | 본문 없음 | `uploaded_file_id, document_type, status, health_checkup_id, body_composition_id, already_confirmed` | 200 |
 
 - `document_type`: `health_checkup` 또는 `body_composition` (`inbody`가 아님).
-- 업로드 응답의 `ocr_result.extracted_data`는 필드가 `null`인 빈 템플릿이다.
-- PATCH에는 화면에서 검토·입력한 `extracted_data` 전체를 보낸다.
+- 업로드 응답의 `extracted_data`는 문서 종류별 명시적 타입이며 Decimal은 문자열로 반환한다.
+- PATCH는 보낸 필드만 변경하며 null은 값을 비운다. 확정 문서 수정은 409다.
 - 확정 전 건강검진은 `checkup_date`, 인바디는 timezone을 포함한 `measured_at`이 필수다.
 - confirm은 같은 파일로 반복 호출해도 기존 건강 데이터를 반환한다.
 - 파일은 private Storage 버킷에 저장하며 현재 다운로드 URL은 제공하지 않는다.
@@ -298,7 +298,7 @@ curl -X POST "$API_BASE/api/health-documents" \
   -F "file=@./checkup.pdf"
 ```
 
-업로드 응답의 `file.uploaded_file_id`를 다음 두 호출의 경로 ID로 사용한다.
+업로드 응답의 `uploaded_file_id`를 다음 두 호출의 경로 ID로 사용한다.
 
 ```json
 {

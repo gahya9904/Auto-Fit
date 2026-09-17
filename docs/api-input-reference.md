@@ -503,7 +503,8 @@ OpenAPI에 명시된 상태 코드: 201, 422. 런타임 인증·상태·DB 오�
 | file | 예 | binary | PDF, PNG, JPEG, HEIC; 파일 자체 최대 10 MiB |
 | document_type | 예 | string | enum=["health_checkup","body_composition"] |
 
-OpenAPI에 명시된 상태 코드: 201, 422. 런타임에는 413, 415, 502도 가능하다.
+OpenAPI에 201, 401, 404, 409, 413, 415, 422, 502와 오류 스키마를 정의한다.
+응답 타입·단위·호출 흐름은 [건강 문서 API](health-documents-api.md)를 참고한다.
 
 ## GET /api/health-documents/{uploaded_file_id}
 
@@ -515,7 +516,8 @@ OpenAPI에 명시된 상태 코드: 201, 422. 런타임에는 413, 415, 502도 �
 ## PATCH /api/health-documents/{uploaded_file_id}/ocr-result
 
 경로·인증은 위와 동일하다. JSON 본문은 `OCRResultUpdateRequest`이며
-`extracted_data`에 문서 유형별 전체 검토값을 보낸다. 정의되지 않은 필드는 거부한다.
+`extracted_data`에 문서 유형별 수정 항목만 보낸다. 생략한 항목은 유지하고 null은 값을 비운다.
+정의되지 않은 필드는 거부하며 확정된 문서 수정은 409다.
 
 ## POST /api/health-documents/{uploaded_file_id}/confirm
 

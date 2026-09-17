@@ -229,6 +229,7 @@
           "health-documents"
         ],
         "summary": "Upload Health Document",
+        "description": "파일 1개당 호출. 저장 후 동기 OCR 실행. OCR URL 미설정 시 기본적으로 문서 종류별 고정 샘플을 completed로 반환; HEALTH_DOCUMENT_OCR_MOCK_ENABLED=false로 비활성화. 실패도 파일 ID와 ocr_status=failed 반환. 재업로드는 새 ID 생성; 이전 문서는 유지되고 confirm 전에는 분석 DB에 저장되지 않음.",
         "operationId": "upload_health_document_api_health_documents_post",
         "parameters": [
           {
@@ -264,19 +265,92 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/HealthCheckupDocumentResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BodyCompositionDocumentResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "document_type",
+                    "mapping": {
+                      "health_checkup": "#/components/schemas/HealthCheckupDocumentResponse",
+                      "body_composition": "#/components/schemas/BodyCompositionDocumentResponse"
+                    }
+                  },
                   "title": "Response Upload Health Document Api Health Documents Post"
                 }
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "401": {
+            "description": "AUTH_REQUIRED: 인증 실패 또는 세션 만료",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "DOCUMENT_NOT_FOUND: 문서 없음 또는 다른 사용자 소유",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DOCUMENT_CONFIRMED / OCR_NOT_READY: 확정 문서 수정 또는 OCR 미완료",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE: 최대 10 MiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_FILE_TYPE: PDF/PNG/JPEG/HEIC만 허용",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_ERROR: 종류별 필드/값 오류 또는 확정 필수 날짜 누락",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "DATA_SOURCE_ERROR: 저장소/DB 호출 실패",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
                 }
               }
             }
@@ -325,19 +399,92 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/HealthCheckupDocumentResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BodyCompositionDocumentResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "document_type",
+                    "mapping": {
+                      "health_checkup": "#/components/schemas/HealthCheckupDocumentResponse",
+                      "body_composition": "#/components/schemas/BodyCompositionDocumentResponse"
+                    }
+                  },
                   "title": "Response Get Health Document Api Health Documents  Uploaded File Id  Get"
                 }
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "401": {
+            "description": "AUTH_REQUIRED: 인증 실패 또는 세션 만료",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "DOCUMENT_NOT_FOUND: 문서 없음 또는 다른 사용자 소유",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DOCUMENT_CONFIRMED / OCR_NOT_READY: 확정 문서 수정 또는 OCR 미완료",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE: 최대 10 MiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_FILE_TYPE: PDF/PNG/JPEG/HEIC만 허용",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_ERROR: 종류별 필드/값 오류 또는 확정 필수 날짜 누락",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "DATA_SOURCE_ERROR: 저장소/DB 호출 실패",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
                 }
               }
             }
@@ -396,19 +543,92 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/HealthCheckupDocumentResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BodyCompositionDocumentResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "document_type",
+                    "mapping": {
+                      "health_checkup": "#/components/schemas/HealthCheckupDocumentResponse",
+                      "body_composition": "#/components/schemas/BodyCompositionDocumentResponse"
+                    }
+                  },
                   "title": "Response Update Health Document Result Api Health Documents  Uploaded File Id  Ocr Result Patch"
                 }
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "401": {
+            "description": "AUTH_REQUIRED: 인증 실패 또는 세션 만료",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "DOCUMENT_NOT_FOUND: 문서 없음 또는 다른 사용자 소유",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DOCUMENT_CONFIRMED / OCR_NOT_READY: 확정 문서 수정 또는 OCR 미완료",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE: 최대 10 MiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_FILE_TYPE: PDF/PNG/JPEG/HEIC만 허용",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_ERROR: 종류별 필드/값 오류 또는 확정 필수 날짜 누락",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "DATA_SOURCE_ERROR: 저장소/DB 호출 실패",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
                 }
               }
             }
@@ -422,6 +642,7 @@
           "health-documents"
         ],
         "summary": "Confirm Health Document",
+        "description": "검진은 health_checkups, 체성분은 body_compositions에 저장. 재호출은 기존 ID 반환. 날짜 필수.",
         "operationId": "confirm_health_document_api_health_documents__uploaded_file_id__confirm_post",
         "parameters": [
           {
@@ -457,19 +678,77 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Confirm Health Document Api Health Documents  Uploaded File Id  Confirm Post"
+                  "$ref": "#/components/schemas/ConfirmationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AUTH_REQUIRED: 인증 실패 또는 세션 만료",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "DOCUMENT_NOT_FOUND: 문서 없음 또는 다른 사용자 소유",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DOCUMENT_CONFIRMED / OCR_NOT_READY: 확정 문서 수정 또는 OCR 미완료",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE: 최대 10 MiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_FILE_TYPE: PDF/PNG/JPEG/HEIC만 허용",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
                 }
               }
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "VALIDATION_ERROR: 종류별 필드/값 오류 또는 확정 필수 날짜 누락",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "DATA_SOURCE_ERROR: 저장소/DB 호출 실패",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
                 }
               }
             }
@@ -4560,9 +4839,16 @@
       "OCRResultUpdateRequest": {
         "properties": {
           "extracted_data": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Extracted Data"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HealthCheckupData-Input"
+              },
+              {
+                "$ref": "#/components/schemas/BodyCompositionData-Input"
+              }
+            ],
+            "title": "Extracted Data",
+            "description": "문서 종류에 맞는 필드만 허용. 보낸 필드만 갱신; null은 해당 값을 비웁니다."
           }
         },
         "additionalProperties": false,
@@ -4968,6 +5254,1277 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "HealthCheckupDocumentResponse": {
+        "properties": {
+          "uploaded_file_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Uploaded File Id"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          },
+          "ocr_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "completed",
+              "failed"
+            ],
+            "title": "Ocr Status"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "awaiting_review",
+              "confirmed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentErrorDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "file": {
+            "$ref": "#/components/schemas/UploadMetadata",
+            "description": "기존 클라이언트 호환용 파일 메타데이터"
+          },
+          "ocr_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OCRMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document_type": {
+            "type": "string",
+            "const": "health_checkup",
+            "title": "Document Type"
+          },
+          "extracted_data": {
+            "$ref": "#/components/schemas/HealthCheckupData-Output"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uploaded_file_id",
+          "file_name",
+          "uploaded_at",
+          "ocr_status",
+          "status",
+          "file",
+          "document_type",
+          "extracted_data"
+        ],
+        "title": "HealthCheckupDocumentResponse"
+      },
+      "DocumentErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fields"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "DocumentErrorDetail"
+      },
+      "UploadMetadata": {
+        "properties": {
+          "uploaded_file_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Uploaded File Id"
+          },
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "health_checkup",
+              "body_composition"
+            ],
+            "title": "Document Type"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "uploaded_file_id",
+          "document_type"
+        ],
+        "title": "UploadMetadata"
+      },
+      "OCRMetadata": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "OCRMetadata"
+      },
+      "HealthCheckupData-Output": {
+        "properties": {
+          "checkup_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkup Date",
+            "description": "검진일 YYYY-MM-DD. 확정 시 필수"
+          },
+          "height_cm": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Cm",
+            "description": "단위: cm. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "weight_kg": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight Kg",
+            "description": "단위: kg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "bmi": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bmi",
+            "description": "단위: kg/m². Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "systolic_bp": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 300.0,
+                "minimum": 30.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Systolic Bp",
+            "description": "단위: mmHg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "diastolic_bp": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 200.0,
+                "minimum": 20.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diastolic Bp",
+            "description": "단위: mmHg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "fasting_glucose": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fasting Glucose",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "total_cholesterol": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cholesterol",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "hdl_cholesterol": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hdl Cholesterol",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "ldl_cholesterol": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ldl Cholesterol",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "triglycerides": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triglycerides",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "ast": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ast",
+            "description": "단위: U/L. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "alt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alt",
+            "description": "단위: U/L. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "gamma_gtp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gamma Gtp",
+            "description": "단위: U/L. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "hemoglobin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hemoglobin",
+            "description": "단위: g/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "creatinine": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creatinine",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "institution_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Institution Name"
+          },
+          "checkup_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkup Type"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HealthCheckupData"
+      },
+      "BodyCompositionDocumentResponse": {
+        "properties": {
+          "uploaded_file_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Uploaded File Id"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          },
+          "ocr_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "completed",
+              "failed"
+            ],
+            "title": "Ocr Status"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "awaiting_review",
+              "confirmed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentErrorDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "file": {
+            "$ref": "#/components/schemas/UploadMetadata",
+            "description": "기존 클라이언트 호환용 파일 메타데이터"
+          },
+          "ocr_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OCRMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document_type": {
+            "type": "string",
+            "const": "body_composition",
+            "title": "Document Type"
+          },
+          "extracted_data": {
+            "$ref": "#/components/schemas/BodyCompositionData-Output"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uploaded_file_id",
+          "file_name",
+          "uploaded_at",
+          "ocr_status",
+          "status",
+          "file",
+          "document_type",
+          "extracted_data"
+        ],
+        "title": "BodyCompositionDocumentResponse"
+      },
+      "BodyCompositionData-Output": {
+        "properties": {
+          "measured_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured At",
+            "description": "측정 시각 ISO 8601. 시간대 포함 권장. 확정 시 필수"
+          },
+          "height_cm": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Cm",
+            "description": "단위: cm. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "weight_kg": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight Kg",
+            "description": "단위: kg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "skeletal_muscle_mass_kg": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skeletal Muscle Mass Kg",
+            "description": "단위: kg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "body_fat_mass_kg": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Fat Mass Kg",
+            "description": "단위: kg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "body_fat_percentage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Fat Percentage",
+            "description": "단위: %. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "bmi": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bmi",
+            "description": "단위: kg/m². Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "basal_metabolic_rate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basal Metabolic Rate",
+            "description": "단위: kcal/day. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "visceral_fat_level": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visceral Fat Level",
+            "description": "단위: level. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "body_water_percentage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Water Percentage",
+            "description": "단위: %. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "body_water_liters": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Water Liters",
+            "description": "단위: L. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "protein_percentage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protein Percentage",
+            "description": "단위: %. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "BodyCompositionData"
+      },
+      "DocumentError": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/DocumentErrorDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "DocumentError"
+      },
+      "HealthCheckupData-Input": {
+        "properties": {
+          "checkup_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkup Date",
+            "description": "검진일 YYYY-MM-DD. 확정 시 필수"
+          },
+          "height_cm": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 300.0,
+                "minimum": 50.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Cm",
+            "description": "단위: cm. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "weight_kg": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 500.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight Kg",
+            "description": "단위: kg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "bmi": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bmi",
+            "description": "단위: kg/m². Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "systolic_bp": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 300.0,
+                "minimum": 30.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Systolic Bp",
+            "description": "단위: mmHg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "diastolic_bp": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 200.0,
+                "minimum": 20.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diastolic Bp",
+            "description": "단위: mmHg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "fasting_glucose": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fasting Glucose",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "total_cholesterol": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cholesterol",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "hdl_cholesterol": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hdl Cholesterol",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "ldl_cholesterol": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ldl Cholesterol",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "triglycerides": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 5000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triglycerides",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "ast": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ast",
+            "description": "단위: U/L. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "alt": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alt",
+            "description": "단위: U/L. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "gamma_gtp": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gamma Gtp",
+            "description": "단위: U/L. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "hemoglobin": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hemoglobin",
+            "description": "단위: g/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "creatinine": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creatinine",
+            "description": "단위: mg/dL. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "institution_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Institution Name"
+          },
+          "checkup_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkup Type"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HealthCheckupData"
+      },
+      "BodyCompositionData-Input": {
+        "properties": {
+          "measured_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured At",
+            "description": "측정 시각 ISO 8601. 시간대 포함 권장. 확정 시 필수"
+          },
+          "height_cm": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 300.0,
+                "minimum": 50.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Cm",
+            "description": "단위: cm. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "weight_kg": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 500.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight Kg",
+            "description": "단위: kg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "skeletal_muscle_mass_kg": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 300.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skeletal Muscle Mass Kg",
+            "description": "단위: kg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "body_fat_mass_kg": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 300.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Fat Mass Kg",
+            "description": "단위: kg. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "body_fat_percentage": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Fat Percentage",
+            "description": "단위: %. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "bmi": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bmi",
+            "description": "단위: kg/m². Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "basal_metabolic_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basal Metabolic Rate",
+            "description": "단위: kcal/day. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "visceral_fat_level": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visceral Fat Level",
+            "description": "단위: level. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "body_water_percentage": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Water Percentage",
+            "description": "단위: %. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "body_water_liters": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 300.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Water Liters",
+            "description": "단위: L. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "protein_percentage": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protein Percentage",
+            "description": "단위: %. Decimal 값은 응답에서 문자열로 직렬화됩니다."
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "BodyCompositionData"
+      },
+      "ConfirmationResponse": {
+        "properties": {
+          "uploaded_file_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Uploaded File Id"
+          },
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "health_checkup",
+              "body_composition"
+            ],
+            "title": "Document Type"
+          },
+          "status": {
+            "type": "string",
+            "const": "confirmed",
+            "title": "Status"
+          },
+          "health_checkup_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Checkup Id"
+          },
+          "body_composition_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Composition Id"
+          },
+          "already_confirmed": {
+            "type": "boolean",
+            "title": "Already Confirmed"
+          },
+          "file": {
+            "$ref": "#/components/schemas/UploadMetadata"
+          },
+          "health_data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Health Data",
+            "description": "저장된 DB 레코드; 생성 ID는 최상위 필드 사용"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uploaded_file_id",
+          "document_type",
+          "status",
+          "already_confirmed",
+          "file",
+          "health_data"
+        ],
+        "title": "ConfirmationResponse"
       }
     },
     "securitySchemes": {
@@ -4988,7 +6545,7 @@
     },
     {
       "name": "health-documents",
-      "description": "건강검진·인바디 파일 업로드, 수동 결과 수정 및 확정 저장 (자동 OCR 미지원)"
+      "description": "건강검진·인바디 파일 업로드, 동기 OCR, 결과 수정 및 확정 저장"
     },
     {
       "name": "Exercise",

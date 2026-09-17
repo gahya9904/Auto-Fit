@@ -2815,7 +2815,7 @@ app = FastAPI(
     openapi_tags=[
         {"name": "Profile", "description": "프로필, 알레르기 및 온보딩"},
         {"name": "Health Analysis", "description": "종합 분석의 체성분 추가 지표, 판정 기준 및 출처 팝업"},
-        {"name": "health-documents", "description": "건강검진·인바디 파일 업로드, 수동 결과 수정 및 확정 저장 (자동 OCR 미지원)"},
+        {"name": "health-documents", "description": "건강검진·인바디 파일 업로드, 동기 OCR, 결과 수정 및 확정 저장"},
         {"name": "Exercise", "description": "운동 선호도, 추천, 세션, 목표 및 진행 현황"},
         {"name": "Diet", "description": "식재료, 식단 추천, 영양 요약 및 식사 기록"},
         {"name": "Chat", "description": "건강 상담 채팅 및 답변·점수 미리보기"},
@@ -2834,6 +2834,13 @@ async def chat_http_error(request, exc):
         code = "AUTH_REQUIRED" if exc.status_code == 401 else "DATA_SOURCE_ERROR"
         message = "로그인이 필요하거나 세션이 만료되었습니다." if exc.status_code == 401 else "요청을 처리하지 못했습니다."
         return JSONResponse(status_code=exc.status_code, content={"detail": {"code": code, "message": message, "fields": None}})
+    if request.url.path.startswith("/api/health-documents"):
+        codes = {401: "AUTH_REQUIRED", 404: "DOCUMENT_NOT_FOUND", 409: "OCR_NOT_READY", 413: "FILE_TOO_LARGE", 415: "UNSUPPORTED_FILE_TYPE", 422: "VALIDATION_ERROR", 502: "DATA_SOURCE_ERROR"}
+        detail = exc.detail if isinstance(exc.detail, dict) else {"message": exc.detail}
+        return JSONResponse(status_code=exc.status_code, headers=exc.headers, content={"detail": {
+            "code": detail.get("code", codes.get(exc.status_code, "REQUEST_FAILED")),
+            "message": detail.get("message", "Request failed"), "fields": detail.get("fields"),
+        }})
     return await http_exception_handler(request, exc)
 
 
@@ -2841,7 +2848,7 @@ async def chat_http_error(request, exc):
 async def chat_validation_error(request, exc):
     # Never echo question text, tokens, health data, or arbitrary input.
     fields = [".".join(map(str, error["loc"])) for error in exc.errors()]
-    if request.url.path.startswith("/api/chats"):
+    if request.url.path.startswith(("/api/chats", "/api/health-documents")):
         return JSONResponse(status_code=422, content={"detail": {
             "code": "VALIDATION_ERROR", "message": "입력값을 확인해 주세요.",
             "fields": fields,
