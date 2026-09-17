@@ -76,3 +76,21 @@ HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE 설정으로 기본 샘플 종류를 바�
 첫 검증은 이미지 추가에 따라 파일이 3개로 늘었는데 스크립트의 ID 개수 검사가 2개로 남아
 실패했다. API 동작 검사는 통과했고 테스트 데이터를 정리했다. 개수 검사를 3개로 수정한 뒤
 재실행하여 30개 검사를 모두 통과했다. 앱 코드나 배포 설정 변경은 필요하지 않았다.
+
+## 원본 파일명 보존·목록 조회 배포 (2026-09-17 15:36 KST)
+
+- 배포 커밋: [6a92d20](https://github.com/gahya9904/Auto-Fit/commit/6a92d208ed5ea5c7b2c4318049f555edef84228a)
+- Render: [Deploy succeeded / Live](https://dashboard.render.com/web/srv-dafmuen40ujc73c0ermg/deploys/dep-dalokcajnfac73aa4pog), 1분 7초
+- 작업 환경 백엔드 테스트 473개 및 Bandit 통과.
+- 배포 API + 개발 Supabase + Storage 실연동 검사 39개 통과.
+
+POST multipart의 선택 필드 original_file_name을 추가했다. 캐시 UUID 파일명으로 전송된
+건강검진·체성분 PDF에 한글 원본명을 별도 전달하여 POST와 개별 GET 응답에 동일 원본명이
+반환되고 upload_files.original_file_name에 저장되는 것을 확인했다. 기존 file_name에도
+표시명을 반영하며 Storage 경로는 UUID를 유지한다. DB 마이그레이션 없이 기존 컬럼을 사용했다.
+
+GET /api/health-documents?limit=2&offset=0에서 한글 원본명 두 개와 has_more=true를 확인하고,
+offset=2에서 이번 사용자의 나머지 이미지 한 개와 has_more=false를 확인했다. OpenAPI의
+요청 필드와 목록 경로, 기존 샘플 OCR 검토·수정·확정·건강 DB 저장도 검증했다.
+합성 계정 하나와 파일 세 개만 사용했고 종료 시 테스트 계정·파일·OCR·건강 데이터는 정리했다.
+실제 문서 판별 모델은 연결하지 않았으며 종류 생략 시 건강검진 샘플 정책을 유지한다.
