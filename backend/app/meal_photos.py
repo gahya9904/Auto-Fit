@@ -1,0 +1,127 @@
+"""Private, owner-scoped photos attached to persisted meal logs."""
+from typing import Any
+from uuid import UUID, uuid4
+
+import httpx
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
+
+BUCKET = "meal-photos"
+MAX_BYTES = 5 * 1024 * 1024
+URL_TTL = 3600
+
+
+class MealPhotoResponse(BaseModel):
+    meal_log_id: UUID
+    image_storage_path: str
+    image_url: str
+    image_url_expires_in: int = URL_TTL
+
+
+def headers(settings: Any) -> dict[str, str]:
+    return {"apikey": settings.supabase_service_role_key,
+            "Authorization": f"Bearer {settings.supabase_service_role_key}"}
+
+
+async def read_photo(file: UploadFile) -> tuple[bytes, str, str]:
+    content = await file.read(MAX_BYTES + 1)
+    if len(content) > MAX_BYTES:
+        raise HTTPException(413, "Meal photo must be at most 5 MiB")
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return content, "image/png", ".png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return content, "image/jpeg", ".jpg"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return content, "image/webp", ".webp"
+    raise HTTPException(415, "Only JPEG, PNG and WebP photos are supported")
+
+
+async def signed_photo(client: httpx.AsyncClient, path: str, settings: Any) -> dict[str, Any]:
+    response = await client.post(
+        f"{settings.supabase_url}/storage/v1/object/sign/{BUCKET}/{path}",
+        headers=headers(settings), json={"expiresIn": URL_TTL},
+    )
+    if not response.is_success:
+        raise HTTPException(502, "Meal photo URL signing failed")
+    return {"image_storage_path": path,
+            "image_url": f"{settings.supabase_url}/storage/v1{response.json()['signedURL']}",
+            "image_url_expires_in": URL_TTL}
+
+
+async def attach_photos(logs: list[dict[str, Any]], user_id: str, settings: Any) -> None:
+    for log in logs:
+        log.update(image_storage_path=None, image_url=None, image_url_expires_in=None)
+    if not logs:
+        return
+    async with httpx.AsyncClient(timeout=20, trust_env=False) as client:
+        for log in logs:
+            if path := log.get("photo_storage_path"):
+                log.update(await signed_photo(client, path, settings))
+
+
+async def upload_photo(meal_log_id: str, user_id: str, file: UploadFile, settings: Any) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=30, trust_env=False) as client:
+        owned = await client.get(
+            f"{settings.supabase_url}/rest/v1/meal_logs", headers=headers(settings),
+            params={"select": "meal_log_id,photo_storage_path", "meal_log_id": f"eq.{meal_log_id}",
+                    "user_id": f"eq.{user_id}", "status": "eq.recorded"},
+        )
+        if not owned.is_success:
+            raise HTTPException(502, "Meal log ownership query failed")
+        if not owned.json():
+            raise HTTPException(404, "Meal log not found")
+        if owned.json()[0].get("photo_storage_path"):
+            raise HTTPException(409, "Meal photo already exists")
+        content, mime, extension = await read_photo(file)
+        path = f"{user_id}/{meal_log_id}/{uuid4()}{extension}"
+        uploaded = await client.post(
+            f"{settings.supabase_url}/storage/v1/object/{BUCKET}/{path}",
+            headers={**headers(settings), "Content-Type": mime}, content=content,
+        )
+        if not uploaded.is_success:
+            raise HTTPException(502, "Meal photo upload failed")
+        try:
+            saved = await client.patch(
+                f"{settings.supabase_url}/rest/v1/meal_logs",
+                headers={**headers(settings), "Prefer": "return=representation"},
+                params={"meal_log_id": f"eq.{meal_log_id}", "user_id": f"eq.{user_id}",
+                        "status": "eq.recorded", "photo_storage_path": "is.null"},
+                json={"photo_storage_path": path},
+            )
+            if not saved.is_success:
+                raise HTTPException(409 if saved.status_code == 409 else 502,
+                                    "Meal photo already exists" if saved.status_code == 409 else "Meal photo save failed")
+            if not saved.json():
+                raise HTTPException(409, "Meal photo already exists or record changed")
+        except HTTPException:
+            # A transport timeout can happen after the DB committed. Only remove
+            # the object when the DB explicitly rejected the update.
+            try:
+                await client.delete(f"{settings.supabase_url}/storage/v1/object/{BUCKET}/{path}",
+                                    headers=headers(settings))
+            except httpx.HTTPError:
+                pass
+            raise
+        return {"meal_log_id": meal_log_id, **await signed_photo(client, path, settings)}
+
+
+def create_meal_photos_router(current_user_dependency: Any, settings_dependency: Any) -> APIRouter:
+    router = APIRouter(prefix="/api/diet/meal-logs", tags=["Diet"])
+
+    @router.post("/{meal_log_id}/photo", status_code=201, response_model=MealPhotoResponse,
+                 responses={404: {"description": "Record not found"},
+                            409: {"description": "Photo already attached"},
+                            413: {"description": "Photo exceeds 5 MiB"},
+                            415: {"description": "Unsupported image format"}},
+                 summary="Upload a photo for an existing meal log")
+    async def post_photo(meal_log_id: UUID, file: UploadFile = File(...),
+                         user: Any = Depends(current_user_dependency),
+                         settings: Any = Depends(settings_dependency)) -> dict[str, Any]:
+        try:
+            return await upload_photo(str(meal_log_id), user.id, file, settings)
+        except httpx.HTTPError as exc:
+            raise HTTPException(502, "Meal photo storage unavailable") from exc
+        finally:
+            await file.close()
+
+    return router

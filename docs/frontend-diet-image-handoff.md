@@ -171,3 +171,54 @@ export async function fetchLatestDiet(accessToken: string) {
 3. `image_url`을 브라우저에서 직접 열어 HTTP 200인지 확인한다.
 4. React Native라면 `Image`의 `onError` 로그를 확인한다.
 5. API 요청이 실패하면 Supabase 액세스 토큰과 `Authorization` 헤더를 확인한다.
+
+## 사용자 촬영 사진 연동 (2026-09-17 추가)
+
+이 절의 API는 저장소 코드에 추가되었으며,
+`20260917002044_add_meal_log_photos.sql`은 개발 Supabase에 적용 완료했다.
+로컬 API와 실제 개발 DB 연동 검증 13개가 통과했으며, 공유 서버 배포는 대기 중이다.
+위의 기존 확인 결과는 추천 이미지에 대한 이전 검증 결과이며 사용자 사진의 배포 검증 결과가 아니다.
+
+1. `POST /api/diet/meals/{diet_meal_id}/feedback`에 `different_food`와 `actual_items`를 보내 식사 기록을 생성한다.
+2. 응답의 `result.meal_log.meal_log_id`를 사용해 아래 API로 촬영 파일을 업로드한다.
+3. 앱 재진입 시 `GET /api/diet/meal-logs?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`를 호출해
+   `logs[].image_url`을 이미지 컴포넌트에 전달한다.
+
+```http
+POST /api/diet/meal-logs/{meal_log_id}/photo
+Authorization: Bearer <SUPABASE_ACCESS_TOKEN>
+Content-Type: multipart/form-data; boundary=<client-generated>
+
+file: <촬영한 이미지 파일>
+```
+
+`FormData`를 사용하며 `Content-Type` 헤더를 직접 지정하지 않는다. 클라이언트가 boundary를 생성해야 한다.
+Expo/React Native에서는 로컬 URI가 가리키는 파일을 FormData에 넣어 전송한다.
+로컬 URI 문자열 자체를 JSON으로 보내는 방식은 지원하지 않는다.
+
+업로드 성공은 HTTP 201이며 응답은 다음과 같다.
+
+```json
+{
+  "meal_log_id": "uuid",
+  "image_storage_path": "user-uuid/meal-log-uuid/photo-uuid.jpg",
+  "image_url": "https://<project>.supabase.co/storage/v1/object/sign/meal-photos/...?token=...",
+  "image_url_expires_in": 3600
+}
+```
+
+식단 기록 조회의 `logs[]`에도 같은 이미지 필드가 포함된다. 사진이 없으면 세 필드는 `null`이다.
+DB에는 기존 `meal_logs.photo_storage_path` 컬럼에 영구 경로를 저장하고,
+비공개 `meal-photos` 버킷의 파일을 조회할 때마다 1시간 유효한 서명 URL을 새로 발급한다.
+URL을 영구 저장하지 않으며 만료 시 식단 기록을 다시 조회한다.
+추천 이미지는 기존 `result.meals[].image_url`, 실제 촬영 이미지는 `logs[].image_url`을 사용한다.
+
+- `MealLogItemRequest`는 음식의 영양 정보이며 이미지 필드를 추가하지 않는다. 사진은 식사 기록 전체에 한 장 연결된다.
+- JPEG, PNG, WebP 파일을 지원하며 최대 5 MiB이다. HEIC는 업로드 전 JPEG 등으로 변환한다.
+- 기존 사진이 있는 기록은 HTTP 409를 반환한다. 현재 API는 사진 교체·삭제를 지원하지 않는다.
+- 존재하지 않거나 다른 사용자의 기록은 HTTP 404, 인증 누락은 401, 용량 초과는 413, 미지원 형식은 415이다.
+- 식사 저장 후 업로드가 실패하면 식사 기록은 유지된다. 사진 업로드만 재시도한다.
+  업로드 응답을 받지 못했다면 먼저 식단 기록을 조회해 사진이 저장되었는지 확인한다.
+- Storage/DB 오류는 502이다. DB 저장 실패 시 새로 업로드한 파일 정리를 시도한다.
+- 피드백 수정으로 식사 기록이 유지되는 경우 사진도 유지된다. `skipped`로 바꾸면 해당 기록은 조회 대상에서 제외된다.
+- 앱 구현 소스는 이 저장소에 없으므로 실제 화면의 fixture 대체와 업로드 호출은 프론트 저장소에서 적용해야 한다.

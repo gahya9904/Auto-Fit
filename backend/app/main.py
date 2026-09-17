@@ -35,6 +35,7 @@ from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
 from backend.app.chat_rate_limit import ChatRateLimiter
 from backend.app.health_documents import create_health_documents_router
+from backend.app.meal_photos import attach_photos, create_meal_photos_router
 from backend.app.security import (
     BlockedPathMiddleware,
     RequestBodyLimitMiddleware,
@@ -2598,7 +2599,7 @@ async def fetch_meal_logs(
     params = {
         "select": (
             "meal_log_id,user_id,diet_meal_id,meal_type,source_type,eaten_at,"
-            "status,note,created_at,updated_at"
+            "status,note,created_at,updated_at,photo_storage_path"
         ),
         "user_id": f"eq.{user_id}",
         "status": "eq.recorded",
@@ -2642,6 +2643,7 @@ async def fetch_meal_logs(
             )
         for item in item_response.json():
             items_by_log[item["meal_log_id"]].append(item)
+    await attach_photos(logs, user_id, settings)
     return [{**log, "items": items_by_log[log["meal_log_id"]]} for log in logs]
 
 
@@ -2826,6 +2828,7 @@ app.add_middleware(
     allowed_hosts=parse_allowed_hosts(os.getenv("BACKEND_ALLOWED_HOSTS")),
 )
 app.add_middleware(SecurityHeadersMiddleware)
+app.include_router(create_meal_photos_router(get_current_user, get_settings))
 app.include_router(
     create_health_documents_router(
         current_user_dependency=get_current_user,

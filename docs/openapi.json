@@ -5,6 +5,87 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/diet/meal-logs/{meal_log_id}/photo": {
+      "post": {
+        "tags": [
+          "Diet"
+        ],
+        "summary": "Upload a photo for an existing meal log",
+        "operationId": "post_photo_api_diet_meal_logs__meal_log_id__photo_post",
+        "parameters": [
+          {
+            "name": "meal_log_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Meal Log Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_post_photo_api_diet_meal_logs__meal_log_id__photo_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MealPhotoResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Record not found"
+          },
+          "409": {
+            "description": "Photo already attached"
+          },
+          "413": {
+            "description": "Photo exceeds 5 MiB"
+          },
+          "415": {
+            "description": "Unsupported image format"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health-documents": {
       "post": {
         "tags": [
@@ -2448,6 +2529,75 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Diet"
+        ],
+        "summary": "Patch Diet Meal Feedback",
+        "operationId": "patch_diet_meal_feedback_api_diet_meals__diet_meal_id__feedback_patch",
+        "parameters": [
+          {
+            "name": "diet_meal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Diet Meal Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DietMealFeedbackUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Patch Diet Meal Feedback Api Diet Meals  Diet Meal Id  Feedback Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/diet/meal-logs": {
@@ -3046,6 +3196,20 @@
         "type": "object",
         "title": "AllergySelectionRequest"
       },
+      "Body_post_photo_api_diet_meal_logs__meal_log_id__photo_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_post_photo_api_diet_meal_logs__meal_log_id__photo_post"
+      },
       "Body_upload_health_document_api_health_documents_post": {
         "properties": {
           "file": {
@@ -3171,6 +3335,45 @@
           "feedback_type"
         ],
         "title": "DietMealFeedbackRequest"
+      },
+      "DietMealFeedbackUpdateRequest": {
+        "properties": {
+          "feedback_type": {
+            "type": "string",
+            "enum": [
+              "eaten",
+              "different_food",
+              "skipped"
+            ],
+            "title": "Feedback Type"
+          },
+          "eaten_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eaten At"
+          },
+          "actual_items": {
+            "items": {
+              "$ref": "#/components/schemas/MealLogItemRequest"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Actual Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "feedback_type"
+        ],
+        "title": "DietMealFeedbackUpdateRequest"
       },
       "ExerciseDiscomfortRequest": {
         "properties": {
@@ -3848,6 +4051,35 @@
           "unit"
         ],
         "title": "MealLogItemRequest"
+      },
+      "MealPhotoResponse": {
+        "properties": {
+          "meal_log_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Meal Log Id"
+          },
+          "image_storage_path": {
+            "type": "string",
+            "title": "Image Storage Path"
+          },
+          "image_url": {
+            "type": "string",
+            "title": "Image Url"
+          },
+          "image_url_expires_in": {
+            "type": "integer",
+            "title": "Image Url Expires In",
+            "default": 3600
+          }
+        },
+        "type": "object",
+        "required": [
+          "meal_log_id",
+          "image_storage_path",
+          "image_url"
+        ],
+        "title": "MealPhotoResponse"
       },
       "OCRResultUpdateRequest": {
         "properties": {
