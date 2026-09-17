@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
+  Alert,
   Dimensions,
   Image,
   Platform,
@@ -18,11 +19,16 @@ import DocumentIcon from '@/assets/icons/system/Document.svg';
 import FolderIcon from '@/assets/icons/system/Folder.svg';
 import TrashIcon from '@/assets/icons/common/Trash.svg';
 import {
+  getHealthDocumentErrorMessage,
+  uploadHealthDocument,
+} from '@/src/api/healthDocuments';
+import {
   AppCard,
   CustomScrollIndicator,
   useCustomScrollIndicator,
 } from '@/src/components/common';
 import { HealthUploadOptionCard } from '@/src/features/health-data/HealthUploadOptionCard';
+import type { OCRUploadRouteItem } from '@/src/features/health-data/ocrResults';
 import {
   type SelectedHealthFile,
   useHealthFilePicker,
@@ -42,6 +48,16 @@ const selectedFileRowGap = 8;
 const baseBottomContentPadding = 20;
 const minimumScreenHeight = 740;
 const maximumScreenHeight = 917;
+const maximumUploadSize = 10 * 1024 * 1024;
+
+function isSupportedHealthDocument(file: SelectedHealthFile) {
+  const mimeType = file.mimeType?.toLowerCase();
+  if (mimeType && ['application/pdf', 'image/heic', 'image/jpeg', 'image/png'].includes(mimeType)) {
+    return true;
+  }
+
+  return /\.(heic|jpe?g|pdf|png)$/i.test(file.name);
+}
 
 interface GuideItemProps {
   description: string[];
@@ -145,6 +161,7 @@ export default function HealthDataUploadScreen() {
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { isSelecting, pickDocument, removeFile, selectedFiles, takePhoto } = useHealthFilePicker();
   const [measuredContentBottom, setMeasuredContentBottom] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
 
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
   const widthScale = Math.min(1, availableWidth / referenceWidth);
@@ -189,16 +206,47 @@ export default function HealthDataUploadScreen() {
     showInitially: true,
   });
 
-  const handleContinue = useCallback(() => {
+  const handleContinue = useCallback(async () => {
     if (selectedFiles.length === 0) return;
 
-    // TODO: OCR API 연동
-    router.push({
-      pathname: '/ocr-result',
-      params: {
-        files: JSON.stringify(selectedFiles),
-      },
-    });
+    const invalidFile = selectedFiles.find(
+      (file) =>
+        !isSupportedHealthDocument(file) ||
+        (file.size !== undefined && file.size > maximumUploadSize),
+    );
+    if (invalidFile) {
+      Alert.alert(
+        '업로드할 수 없는 파일',
+        !isSupportedHealthDocument(invalidFile)
+          ? 'PDF, PNG, JPEG, HEIC 파일만 업로드할 수 있습니다.'
+          : '파일 크기는 10 MiB 이하만 업로드할 수 있습니다.',
+      );
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const responses = await Promise.all(selectedFiles.map((file) => uploadHealthDocument(file)));
+      const uploads: OCRUploadRouteItem[] = responses.map((response, index) => ({
+        file: {
+          height: selectedFiles[index].height,
+          mimeType: selectedFiles[index].mimeType,
+          name: selectedFiles[index].name,
+          size: selectedFiles[index].size,
+          source: selectedFiles[index].source,
+          uri: selectedFiles[index].uri,
+          width: selectedFiles[index].width,
+        },
+        uploadedFileId: response.uploaded_file_id,
+      }));
+
+      router.push({ pathname: '/ocr-result', params: { uploads: JSON.stringify(uploads) } });
+    } catch (error) {
+      console.error('Health document upload failed:', error);
+      Alert.alert('건강 데이터 업로드에 실패했어요.', getHealthDocumentErrorMessage(error));
+    } finally {
+      setIsUploading(false);
+    }
   }, [router, selectedFiles]);
 
   return (
@@ -267,7 +315,7 @@ export default function HealthDataUploadScreen() {
                   '리포트 등을 촬영하여',
                   '업로드할 수 있어요.',
                 ]}
-                disabled={isSelecting}
+                disabled={isSelecting || isUploading}
                 Icon={CameraIcon}
                 onPress={takePhoto}
                 title="카메라로 촬영하기"
@@ -279,7 +327,7 @@ export default function HealthDataUploadScreen() {
                   '선택하여 여러 개의 파일을',
                   '한 번에 업로드할 수 있어요.',
                 ]}
-                disabled={isSelecting}
+                disabled={isSelecting || isUploading}
                 Icon={DocumentIcon}
                 onPress={pickDocument}
                 secondary
@@ -318,9 +366,9 @@ export default function HealthDataUploadScreen() {
 
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ disabled: selectedFiles.length === 0 }}
-              disabled={selectedFiles.length === 0}
-              onPress={handleContinue}
+              accessibilityState={{ disabled: selectedFiles.length === 0 || isUploading }}
+              disabled={selectedFiles.length === 0 || isUploading}
+              onPress={() => void handleContinue()}
               onLayout={(event) => {
                 const { height, y } = event.nativeEvent.layout;
                 setMeasuredContentBottom(y + height);
@@ -328,7 +376,7 @@ export default function HealthDataUploadScreen() {
               style={({ pressed }) => [
                 styles.nextButton,
                 { top: nextButtonTop },
-                selectedFiles.length === 0 && styles.nextButtonDisabled,
+                (selectedFiles.length === 0 || isUploading) && styles.nextButtonDisabled,
                 pressed && styles.pressed,
               ]}
             >

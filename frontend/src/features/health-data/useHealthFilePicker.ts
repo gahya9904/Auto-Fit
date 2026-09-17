@@ -10,6 +10,7 @@ export interface SelectedHealthFile {
   size?: number;
   source: 'camera' | 'document';
   uri: string;
+  webFile?: Blob;
   width?: number;
 }
 
@@ -84,7 +85,7 @@ export function useHealthFilePicker() {
       const result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
         multiple: false,
-        type: ['image/*', 'application/pdf', 'text/csv', 'text/comma-separated-values'],
+        type: ['image/jpeg', 'image/png', 'image/heic', 'application/pdf'],
       });
 
       if (result.canceled) return null;
@@ -96,6 +97,7 @@ export function useHealthFilePicker() {
         size: asset.size,
         source: 'document',
         uri: asset.uri,
+        webFile: asset.file,
       };
       appendFile(file);
       return file;

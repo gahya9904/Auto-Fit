@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
+  ActivityIndicator,
+  Alert,
   Dimensions,
   Image,
   Keyboard,
@@ -35,6 +37,15 @@ import DocumentIcon from '@/assets/icons/system/Document.svg';
 import CheckIcon from '@/assets/icons/system/Check.svg';
 import ShieldCheckIcon from '@/assets/icons/system/ShieldCheck.svg';
 import {
+  confirmHealthDocument,
+  getHealthDocument,
+  getHealthDocumentErrorMessage,
+  type BodyCompositionExtractedDataInput,
+  type HealthCheckupExtractedDataInput,
+  updateHealthDocumentOcrResult,
+  uploadHealthDocument,
+} from '@/src/api/healthDocuments';
+import {
   AppBottomSheet,
   AppCard,
   BackButton,
@@ -43,10 +54,11 @@ import {
 } from '@/src/components/common';
 import { HealthUploadOptionCard } from '@/src/features/health-data/HealthUploadOptionCard';
 import {
-  createMockOCRResults,
   type HealthCheckupOCRResult,
   type InbodyOCRResult,
   type OCRResultItem,
+  type OCRUploadRouteItem,
+  mapHealthDocumentToOCRResult,
 } from '@/src/features/health-data/ocrResults';
 import {
   type SelectedHealthFile,
@@ -67,17 +79,39 @@ const maximumScreenHeight = 917;
 const webInnerScrollStyle =
   Platform.OS === 'web' ? ({ overscrollBehavior: 'contain' } as ViewStyle) : undefined;
 
-function formatUploadTimestamp(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}. ${pad(date.getMonth() + 1)}. ${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
+const loadingResult: OCRResultItem = {
+  apiData: {},
+  data: {
+    bloodPressure: '',
+    bmi: '',
+    checkupDate: '',
+    fastingBloodSugar: '',
+    height: '',
+    hemoglobin: '',
+    totalCholesterol: '',
+    weight: '',
+  },
+  fileName: '',
+  fileSource: 'document',
+  id: 'loading',
+  ocrStatus: 'pending',
+  status: 'awaiting_review',
+  type: 'health_checkup',
+  uploadedAt: '',
+  uploadedFileId: '',
+};
 
 function isImageFile(file: SelectedHealthFile) {
   if (file.mimeType?.toLowerCase().startsWith('image/')) return true;
   return /\.(avif|bmp|gif|heic|heif|jpe?g|png|webp)$/i.test(file.name);
 }
 
-function parseSelectedFiles(value?: string): SelectedHealthFile[] {
+function formatUploadDate(value: string) {
+  const date = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date.replaceAll('-', '.') : '-';
+}
+
+function parseUploadRouteItems(value?: string): OCRUploadRouteItem[] {
   if (!value) return [];
 
   try {
@@ -85,16 +119,32 @@ function parseSelectedFiles(value?: string): SelectedHealthFile[] {
     if (!Array.isArray(parsed)) return [];
 
     return parsed.filter(
-      (file): file is SelectedHealthFile =>
-        typeof file === 'object' &&
-        file !== null &&
-        typeof file.name === 'string' &&
-        typeof file.uri === 'string' &&
-        (file.source === 'camera' || file.source === 'document'),
+      (item): item is OCRUploadRouteItem => {
+        if (!item || typeof item !== 'object') return false;
+        const candidate = item as Partial<OCRUploadRouteItem>;
+        const file = candidate.file;
+        return (
+          typeof candidate.uploadedFileId === 'string' &&
+          typeof file === 'object' &&
+          file !== null &&
+          typeof file.name === 'string' &&
+          typeof file.uri === 'string' &&
+          (file.source === 'camera' || file.source === 'document')
+        );
+      },
     );
   } catch {
     return [];
   }
+}
+
+function selectedFileFromResult(result: OCRResultItem): SelectedHealthFile {
+  return {
+    mimeType: result.fileMimeType,
+    name: result.fileName,
+    source: result.fileSource,
+    uri: result.previewUri ?? '',
+  };
 }
 
 type OCRMetricKey = keyof HealthCheckupOCRResult | keyof InbodyOCRResult;
@@ -306,6 +356,65 @@ function updateResultData(
   };
 }
 
+function nullableText(value: string | undefined) {
+  const trimmed = value?.trim() ?? '';
+  return trimmed ? trimmed : null;
+}
+
+function toApiDate(value: string | undefined) {
+  const compactDate = (value ?? '').replace(/\D/g, '');
+  if (!/^\d{8}$/.test(compactDate)) return null;
+  return `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
+}
+
+function toNullableInteger(value: string | undefined) {
+  const normalized = nullableText(value);
+  return normalized === null ? null : Number(normalized);
+}
+
+function buildExtractedDataUpdate(
+  result: OCRResultItem,
+  values: Record<string, string>,
+): HealthCheckupExtractedDataInput | BodyCompositionExtractedDataInput {
+  if (result.type === 'health_checkup') {
+    const [systolic = '', diastolic = ''] = (values.bloodPressure ?? '')
+      .split('/')
+      .map((value) => value.trim());
+    return {
+      ...result.apiData,
+      bmi: nullableText(values.bmi),
+      checkup_date: toApiDate(values.checkupDate),
+      diastolic_bp: toNullableInteger(diastolic),
+      fasting_glucose: nullableText(values.fastingBloodSugar),
+      height_cm: nullableText(values.height),
+      hemoglobin: nullableText(values.hemoglobin),
+      systolic_bp: toNullableInteger(systolic),
+      total_cholesterol: nullableText(values.totalCholesterol),
+      weight_kg: nullableText(values.weight),
+    };
+  }
+
+  const measuredDate = toApiDate(values.measurementDate);
+  const previousMeasuredDate = result.apiData.measured_at?.slice(0, 10) ?? null;
+  return {
+    ...result.apiData,
+    basal_metabolic_rate: nullableText(values.basalMetabolicRate),
+    bmi: nullableText(values.bmi),
+    body_fat_mass_kg: nullableText(values.bodyFatMass),
+    body_fat_percentage: nullableText(values.bodyFatPercentage),
+    height_cm: nullableText(values.height),
+    measured_at:
+      measuredDate === null
+        ? null
+        : measuredDate === previousMeasuredDate
+          ? result.apiData.measured_at
+          : `${measuredDate}T00:00:00.000Z`,
+    skeletal_muscle_mass_kg: nullableText(values.skeletalMuscleMass),
+    visceral_fat_level: nullableText(values.visceralFatLevel),
+    weight_kg: nullableText(values.weight),
+  };
+}
+
 function ResultStepIndicator({ current, total }: { current: number; total: number }) {
   return (
     <View
@@ -326,6 +435,7 @@ function ResultStepIndicator({ current, total }: { current: number; total: numbe
 
 function MetricRow({
   definition,
+  disabled,
   diastolicDraft,
   draftValue,
   isEditing,
@@ -338,6 +448,7 @@ function MetricRow({
   value,
 }: {
   definition: HealthMetricDefinition;
+  disabled: boolean;
   diastolicDraft: string;
   draftValue: string;
   isEditing: boolean;
@@ -423,6 +534,7 @@ function MetricRow({
           <Pressable
             accessibilityLabel={`${definition.label} ${isEditing ? '확인' : '수정'}`}
             accessibilityRole="button"
+            disabled={disabled}
             onPress={onToggleEdit}
             style={({ pressed }) => [
               styles.modifyButton,
@@ -448,20 +560,22 @@ function MetricRow({
 
 export default function OCRResultScreen() {
   const router = useRouter();
-  const { files } = useLocalSearchParams<{
-    files?: string;
+  const { uploads } = useLocalSearchParams<{
+    uploads?: string;
   }>();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { isSelecting, pickDocument, takePhoto } = useHealthFilePicker();
-  const [results, setResults] = useState<OCRResultItem[]>(() =>
-    createMockOCRResults(parseSelectedFiles(files)),
-  );
+  const uploadItems = useMemo(() => parseUploadRouteItems(uploads), [uploads]);
+  const [results, setResults] = useState<OCRResultItem[]>([]);
+  const [isLoadingResults, setIsLoadingResults] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isReuploading, setIsReuploading] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isInnerScrollActive, setIsInnerScrollActive] = useState(false);
   const [isReuploadSheetOpen, setIsReuploadSheetOpen] = useState(false);
   const [metricValues, setMetricValues] = useState<Record<string, string>>(
-    () => ({ ...results[0].data }),
+    () => ({}),
   );
   const [editingMetricKey, setEditingMetricKey] = useState<OCRMetricKey | null>(null);
   const [draftValue, setDraftValue] = useState('');
@@ -479,6 +593,82 @@ export default function OCRResultScreen() {
   const screenViewportRef = useRef<View>(null);
   const innerScrollIndicator = useCustomScrollIndicator();
 
+  useEffect(() => {
+    let isActive = true;
+
+    if (uploadItems.length === 0) {
+      Alert.alert('업로드 정보가 없어요.', '건강 데이터 업로드 화면에서 다시 시도해 주세요.');
+      router.back();
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const loadResults = async () => {
+      setIsLoadingResults(true);
+      try {
+        const nextResults = await Promise.all(
+          uploadItems.map(async (item) =>
+            mapHealthDocumentToOCRResult(
+              await getHealthDocument(item.uploadedFileId),
+              item.file,
+            ),
+          ),
+        );
+        if (!isActive) return;
+        setResults(nextResults);
+        setCurrentIndex(0);
+        setMetricValues({ ...nextResults[0].data });
+      } catch (error) {
+        console.error('Health document result load failed:', error);
+        if (isActive) {
+          Alert.alert('OCR 결과를 불러오지 못했어요.', getHealthDocumentErrorMessage(error));
+          router.back();
+        }
+      } finally {
+        if (isActive) setIsLoadingResults(false);
+      }
+    };
+
+    void loadResults();
+    return () => {
+      isActive = false;
+    };
+  }, [router, uploadItems]);
+
+  useEffect(() => {
+    const pendingResults = results.filter(
+      (result) => result.ocrStatus === 'pending' || result.ocrStatus === 'processing',
+    );
+    if (pendingResults.length === 0) return;
+
+    let isActive = true;
+    const timeout = setTimeout(() => {
+      void Promise.all(
+        pendingResults.map(async (result) => ({
+          id: result.id,
+          result: mapHealthDocumentToOCRResult(
+            await getHealthDocument(result.uploadedFileId),
+            selectedFileFromResult(result),
+          ),
+        })),
+      )
+        .then((updatedResults) => {
+          if (!isActive) return;
+          const byId = new Map(updatedResults.map((item) => [item.id, item.result]));
+          setResults((current) => current.map((result) => byId.get(result.id) ?? result));
+        })
+        .catch((error) => {
+          if (__DEV__) console.error('Health document OCR status refresh failed:', error);
+        });
+    }, 2000);
+
+    return () => {
+      isActive = false;
+      clearTimeout(timeout);
+    };
+  }, [results]);
+
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
   const widthScale = Math.min(1, availableWidth / referenceWidth);
   const scale = widthScale;
@@ -493,7 +683,7 @@ export default function OCRResultScreen() {
   );
   const verticalValue = (expanded: number, compact: number) =>
     compact + (expanded - compact) * heightProgress;
-  const currentResult = results[currentIndex];
+  const currentResult = results[currentIndex] ?? loadingResult;
   const extractedCardHeight = referenceExtractedCardHeight;
   const completionTop = verticalValue(114, 92);
   const stepIndicatorTop = verticalValue(75, 65);
@@ -531,8 +721,11 @@ export default function OCRResultScreen() {
     source: currentResult.fileSource,
     uri: currentResult.previewUri ?? '',
   };
-  const uploadTimestamp = currentResult.uploadedAt ?? '2026. 08. 11 09:13';
+  const uploadTimestamp = formatUploadDate(currentResult.uploadedAt);
   const hasImagePreview = uploadedFile.uri.length > 0 && isImageFile(uploadedFile);
+  const canReviewCurrentResult =
+    currentResult.ocrStatus === 'completed' && currentResult.status === 'awaiting_review';
+  const canEditCurrentResult = canReviewCurrentResult && !isSaving && !isReuploading;
 
   const centerFocusedRow = useCallback(
   (key: OCRMetricKey, activeKeyboardTop: number) => {
@@ -677,28 +870,28 @@ export default function OCRResultScreen() {
   };
 
   const handleReuploadSelection = async (selectFile: () => Promise<SelectedHealthFile | null>) => {
+    if (isReuploading || isSaving) return;
     const file = await selectFile();
     if (!file) return;
 
-    setResults((current) =>
-      current.map((result, index) =>
-        index === currentIndex
-          ? {
-              ...result,
-              fileMimeType: file.mimeType,
-              fileName: file.name,
-              fileSource: file.source,
-              previewUri: file.uri,
-              uploadedAt: formatUploadTimestamp(new Date()),
-            }
-          : result,
-      ),
-    );
-    setIsReuploadSheetOpen(false);
-    console.log('reuploadFile', file);
-    // TODO: 선택한 파일로 OCR 재실행
+    setIsReuploading(true);
+    try {
+      const uploaded = await uploadHealthDocument(file);
+      const response = await getHealthDocument(uploaded.uploaded_file_id);
+      const nextResult = mapHealthDocumentToOCRResult(response, file);
+      setResults((current) =>
+        current.map((result, index) => (index === currentIndex ? nextResult : result)),
+      );
+      setMetricValues({ ...nextResult.data });
+      setEditingMetricKey(null);
+      setIsReuploadSheetOpen(false);
+    } catch (error) {
+      console.error('Health document reupload failed:', error);
+      Alert.alert('다시 업로드하지 못했어요.', getHealthDocumentErrorMessage(error));
+    } finally {
+      setIsReuploading(false);
+    }
   };
-
   const handleBack = () => {
     if (currentIndex === 0) {
       Keyboard.dismiss();
@@ -730,7 +923,9 @@ export default function OCRResultScreen() {
     Keyboard.dismiss();
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    if (isLoadingResults || isSaving || results.length === 0) return;
+
     const committedValues = applyEditingDraft(metricValues);
     setMetricValues(committedValues);
     setResults((current) =>
@@ -738,6 +933,41 @@ export default function OCRResultScreen() {
         index === currentIndex ? updateResultData(result, committedValues) : result,
       ),
     );
+
+    if (currentResult.ocrStatus === 'pending' || currentResult.ocrStatus === 'processing') {
+      Alert.alert('OCR 결과 준비 중', 'OCR 결과가 완료된 뒤 다시 확인해 주세요.');
+      return;
+    }
+    if (currentResult.ocrStatus === 'failed' || currentResult.status === 'failed') {
+      Alert.alert('OCR 처리에 실패했어요.', '다시 업로드한 뒤 결과를 확인해 주세요.');
+      return;
+    }
+
+    let savedResult = updateResultData(currentResult, committedValues);
+    if (currentResult.status !== 'confirmed') {
+      setIsSaving(true);
+      try {
+        const updatedResponse = await updateHealthDocumentOcrResult(currentResult.uploadedFileId, {
+          extracted_data: buildExtractedDataUpdate(currentResult, committedValues),
+        });
+        const updatedResult = mapHealthDocumentToOCRResult(
+          updatedResponse,
+          selectedFileFromResult(currentResult),
+        );
+        await confirmHealthDocument(updatedResult.uploadedFileId);
+        savedResult = { ...updatedResult, status: 'confirmed' };
+        setResults((current) =>
+          current.map((result, index) => (index === currentIndex ? savedResult : result)),
+        );
+        setMetricValues({ ...savedResult.data });
+      } catch (error) {
+        console.error('Health document save or confirm failed:', error);
+        Alert.alert('OCR 결과를 저장하지 못했어요.', getHealthDocumentErrorMessage(error));
+        return;
+      } finally {
+        setIsSaving(false);
+      }
+    }
 
     if (currentIndex >= results.length - 1) {
       Keyboard.dismiss();
@@ -765,6 +995,7 @@ export default function OCRResultScreen() {
     <MetricRow
       key={definition.key}
       definition={definition}
+      disabled={!canEditCurrentResult}
       diastolicDraft={diastolicDraft}
       draftValue={editingMetricKey === definition.key ? draftValue : ''}
       isEditing={editingMetricKey === definition.key}
@@ -783,6 +1014,14 @@ export default function OCRResultScreen() {
       value={metricValues[definition.key] ?? ''}
     />
   ));
+
+  if (isLoadingResults || results.length === 0) {
+    return (
+      <View style={styles.loadingRoot}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <View ref={screenViewportRef} style={styles.root}>
@@ -891,6 +1130,7 @@ export default function OCRResultScreen() {
                   </View>
                   <Pressable
                     accessibilityRole="button"
+                    disabled={isSaving || isReuploading}
                     onPress={() => setIsReuploadSheetOpen(true)}
                     style={({ pressed }) => [styles.reuploadButton, pressed && styles.pressed]}
                   >
@@ -954,12 +1194,33 @@ export default function OCRResultScreen() {
 
             <Pressable
               accessibilityRole="button"
-              onPress={handleNext}
+              accessibilityState={{
+                disabled:
+                  isSaving ||
+                  isReuploading ||
+                  currentResult.ocrStatus !== 'completed' ||
+                  currentResult.status === 'failed',
+              }}
+              disabled={
+                isSaving ||
+                isReuploading ||
+                currentResult.ocrStatus !== 'completed' ||
+                currentResult.status === 'failed'
+              }
+              onPress={() => void handleNext()}
               onLayout={(event) => {
                 const { height, y } = event.nativeEvent.layout;
                 setMeasuredContentBottom(y + height);
               }}
-              style={({ pressed }) => [styles.nextButton, { top: nextButtonTop }, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.nextButton,
+                { top: nextButtonTop },
+                (isSaving ||
+                  isReuploading ||
+                  currentResult.ocrStatus !== 'completed' ||
+                  currentResult.status === 'failed') && styles.nextButtonDisabled,
+                pressed && styles.pressed,
+              ]}
             >
               <Text style={styles.nextButtonText}>다음</Text>
             </Pressable>
@@ -991,7 +1252,7 @@ export default function OCRResultScreen() {
               '리포트 등을 촬영하여',
               '업로드할 수 있어요.',
             ]}
-            disabled={isSelecting}
+            disabled={isSelecting || isReuploading || isSaving}
             Icon={CameraIcon}
             onPress={() => void handleReuploadSelection(takePhoto)}
             style={styles.reuploadOptionCard}
@@ -1004,7 +1265,7 @@ export default function OCRResultScreen() {
               '선택하여 여러 개의 파일을',
               '한 번에 업로드할 수 있어요.',
             ]}
-            disabled={isSelecting}
+            disabled={isSelecting || isReuploading || isSaving}
             Icon={DocumentIcon}
             onPress={() => void handleReuploadSelection(pickDocument)}
             secondary
@@ -1018,6 +1279,12 @@ export default function OCRResultScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingRoot: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    flex: 1,
+    justifyContent: 'center',
+  },
   root: {
     backgroundColor: colors.surface,
     flex: 1,
@@ -1390,6 +1657,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 830,
     width: 370,
+  },
+  nextButtonDisabled: {
+    opacity: 0.5,
   },
   nextButtonText: {
     color: colors.surface,
