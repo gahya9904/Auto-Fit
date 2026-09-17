@@ -356,6 +356,137 @@
             }
           }
         }
+      },
+      "get": {
+        "tags": [
+          "health-documents"
+        ],
+        "summary": "List Health Documents",
+        "description": "로그인 사용자의 건강 문서 목록. 최신 업로드 순(동일 시각은 파일 ID 내림차순). 원본 파일명 반환. 미확정/실패 문서 포함; 다른 사용자와 기타 문서 종류 제외. limit 기본 20, 최대 100; offset 기본 0. has_more로 다음 페이지 확인.",
+        "operationId": "list_health_documents_api_health_documents_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AUTH_REQUIRED: 인증 실패 또는 세션 만료",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "DOCUMENT_NOT_FOUND: 문서 없음 또는 다른 사용자 소유",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DOCUMENT_CONFIRMED / OCR_NOT_READY: 확정 문서 수정 또는 OCR 미완료",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE: 최대 10 MiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_FILE_TYPE: PDF/PNG/JPEG/HEIC만 허용",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_ERROR / UNKNOWN_DOCUMENT / UNSUPPORTED_DOCUMENT: 입력 오류 또는 문서 종류 판별 불가",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "DATA_SOURCE_ERROR / OCR_FAILED / OCR_INVALID_RESPONSE / OCR_NOT_CONFIGURED: 저장소/DB/OCR 호출 실패",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/health-documents/{uploaded_file_id}": {
@@ -3698,6 +3829,19 @@
             ],
             "title": "Document Type",
             "description": "선택: 생략하면 파일 내용으로 서버가 자동 판별합니다. 기존 클라이언트 호환을 위한 명시적 종류 지정."
+          },
+          "original_file_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original File Name",
+            "description": "선택: DocumentPickerAsset.name 등 사용자 원본 파일명. DB에 영구 보존. 생략/공백 시 multipart 파일명 사용. 경로/NUL 제거 및 앞뒤 공백 정리."
           }
         },
         "type": "object",
@@ -5273,6 +5417,11 @@
             "type": "string",
             "title": "File Name"
           },
+          "original_file_name": {
+            "type": "string",
+            "title": "Original File Name",
+            "description": "사용자 표시용 원본 파일명. 기존 문서에 값이 없으면 file_name 사용"
+          },
           "uploaded_at": {
             "type": "string",
             "format": "date-time",
@@ -5334,6 +5483,7 @@
         "required": [
           "uploaded_file_id",
           "file_name",
+          "original_file_name",
           "uploaded_at",
           "ocr_status",
           "status",
@@ -5389,6 +5539,18 @@
               "body_composition"
             ],
             "title": "Document Type"
+          },
+          "original_file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original File Name",
+            "description": "업로드 시 DB에 보존한 사용자 표시용 원본 파일명"
           }
         },
         "additionalProperties": true,
@@ -5671,6 +5833,11 @@
             "type": "string",
             "title": "File Name"
           },
+          "original_file_name": {
+            "type": "string",
+            "title": "Original File Name",
+            "description": "사용자 표시용 원본 파일명. 기존 문서에 값이 없으면 file_name 사용"
+          },
           "uploaded_at": {
             "type": "string",
             "format": "date-time",
@@ -5732,6 +5899,7 @@
         "required": [
           "uploaded_file_id",
           "file_name",
+          "original_file_name",
           "uploaded_at",
           "ocr_status",
           "status",
@@ -6532,6 +6700,76 @@
           "health_data"
         ],
         "title": "ConfirmationResponse"
+      },
+      "DocumentListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "DocumentListResponse"
+      },
+      "DocumentListItem": {
+        "properties": {
+          "uploaded_file_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Uploaded File Id"
+          },
+          "original_file_name": {
+            "type": "string",
+            "title": "Original File Name"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "health_checkup",
+              "body_composition"
+            ],
+            "title": "Document Type"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uploaded_file_id",
+          "original_file_name",
+          "file_name",
+          "document_type",
+          "uploaded_at"
+        ],
+        "title": "DocumentListItem"
       }
     },
     "securitySchemes": {

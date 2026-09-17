@@ -46,6 +46,8 @@ async def run(api_base: str) -> None:
             upload_schema = schema["paths"]["/api/health-documents"]["post"]["requestBody"]["content"]["multipart/form-data"]["schema"]
             upload_fields = schema["components"]["schemas"][upload_schema["$ref"].rsplit("/", 1)[-1]]
             check(upload_fields["required"] == ["file"], "document_type optional in deployed contract")
+            check("original_file_name" in upload_fields["properties"] and "get" in schema["paths"]["/api/health-documents"],
+                  "original filename and list API in deployed contract")
             email = f"autofit-health-test-{uuid4().hex}@example.com"
             password = "Af9!" + secrets.token_urlsafe(32)
             created = await db.post("/auth/v1/admin/users", headers=admin, json={
@@ -81,14 +83,21 @@ async def run(api_base: str) -> None:
                 ("health_checkup", "health_checkups", "health_checkup_id", "checkup_date"),
                 ("body_composition", "body_compositions", "body_composition_id", "measured_at"),
             ]:
+                original_name = "건강검진결과_2026.pdf" if kind == "health_checkup" else "체성분결과_2026.pdf"
                 upload = await api.post("/api/health-documents", headers=owner,
-                    data={} if kind == "health_checkup" else {"document_type": kind},
-                    files={"file": (f"synthetic-{kind}.pdf", b"%PDF-1.4\n% synthetic mock OCR fixture\n%%EOF", "application/pdf")})
+                    data={"original_file_name": original_name, **({} if kind == "health_checkup" else {"document_type": kind})},
+                    files={"file": (f"cache-{uuid4()}.pdf", b"%PDF-1.4\n% synthetic mock OCR fixture\n%%EOF", "application/pdf")})
                 check(upload.status_code == 201, f"{kind}: upload")
                 initial = upload.json()
                 file_ids.append(initial["uploaded_file_id"])
-                check(initial["document_type"] == kind and initial["file_name"] == f"synthetic-{kind}.pdf"
+                check(initial["document_type"] == kind and initial["file_name"] == original_name
                       and bool(initial["uploaded_at"]), f"{kind}: flat upload metadata")
+                check(initial["original_file_name"] == original_name, f"{kind}: POST preserves original filename")
+                stored = await db.get("/rest/v1/upload_files", headers=admin,
+                    params={"uploaded_file_id": f"eq.{initial['uploaded_file_id']}", "user_id": f"eq.{uid}",
+                            "select": "original_file_name,storage_path"})
+                check(stored.is_success and len(stored.json()) == 1 and stored.json()[0]["original_file_name"] == original_name
+                      and original_name not in stored.json()[0]["storage_path"], f"{kind}: original name persisted with UUID storage path")
                 check(initial["ocr_status"] == "completed" and initial["error"] is None
                       and initial["extracted_data"][date_field] is not None
                       and initial["extracted_data"]["weight_kg"] == "70", f"{kind}: populated mock extraction")
@@ -96,6 +105,7 @@ async def run(api_base: str) -> None:
                 fetched = await api.get(path, headers=owner)
                 check(fetched.status_code == 200 and fetched.json()["extracted_data"] == initial["extracted_data"],
                       f"{kind}: reload extraction")
+                check(fetched.json()["original_file_name"] == original_name, f"{kind}: GET preserves original filename")
                 modified = await api.patch(path + "/ocr-result", headers=owner,
                     json={"extracted_data": {"weight_kg": "69.5"}})
                 check(modified.status_code == 200 and modified.json()["extracted_data"]["weight_kg"] == "69.5"
@@ -121,6 +131,14 @@ async def run(api_base: str) -> None:
                 check(locked.status_code == 409 and locked.json()["detail"]["code"] == "DOCUMENT_CONFIRMED",
                       f"{kind}: confirmed document is immutable")
             check(len(file_ids) == 3 and len(set(file_ids)) == 3, "independent IDs for multiple files")
+            listing = await api.get("/api/health-documents?limit=2&offset=0", headers=owner)
+            check(listing.status_code == 200 and listing.json()["has_more"] and len(listing.json()["items"]) == 2
+                  and {item["original_file_name"] for item in listing.json()["items"]} == {"건강검진결과_2026.pdf", "체성분결과_2026.pdf"},
+                  "list shows persisted original names with pagination")
+            next_page = await api.get("/api/health-documents?limit=2&offset=2", headers=owner)
+            check(next_page.status_code == 200 and not next_page.json()["has_more"]
+                  and [item["uploaded_file_id"] for item in next_page.json()["items"]] == [file_ids[0]],
+                  "list next page contains only this user's remaining document")
             print(f"Completed {checks} deployed health document checks.", flush=True)
         finally:
             if uid:

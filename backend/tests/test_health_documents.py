@@ -42,6 +42,7 @@ def test_upload_endpoint_uses_authenticated_user(monkeypatch) -> None:
 
     assert response.status_code == 201
     assert response.json()["uploaded_file_id"] == FILE_ID
+    assert response.json()["original_file_name"] == "checkup.pdf"
     assert response.json()["extracted_data"]["weight_kg"] == "70"
     assert captured["user_id"] == USER_ID
     assert captured["document_type"] == "health_checkup"
@@ -141,7 +142,7 @@ def test_document_query_is_owner_scoped(monkeypatch) -> None:
 
 def test_health_document_routes_are_in_openapi() -> None:
     paths = main.app.openapi()["paths"]
-    assert set(paths["/api/health-documents"]) == {"post"}
+    assert set(paths["/api/health-documents"]) == {"post", "get"}
     assert set(paths["/api/health-documents/{uploaded_file_id}"]) == {"get"}
     assert set(paths["/api/health-documents/{uploaded_file_id}/ocr-result"]) == {"patch"}
     assert set(paths["/api/health-documents/{uploaded_file_id}/confirm"]) == {"post"}
@@ -371,7 +372,8 @@ def test_document_openapi_has_discriminator_units_and_errors():
     ("body_composition", "body_composition_id", "measured_at"),
 ])
 @pytest.mark.parametrize("automatic", [False, True])
-def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, id_field, date_field, automatic):
+@pytest.mark.parametrize("original_file_name", [None, "건강검진결과_2026.pdf"])
+def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, id_field, date_field, automatic, original_file_name):
     """Real route/service flow; only external Storage/PostgREST are in memory."""
     monkeypatch.delenv("HEALTH_DOCUMENT_OCR_URL", raising=False)
     monkeypatch.delenv("HEALTH_DOCUMENT_OCR_MOCK_ENABLED", raising=False)
@@ -410,11 +412,18 @@ def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, 
     try:
         client = TestClient(main.app)
         content = b"%PDF-1.7\n"
-        upload = client.post("/api/health-documents", data={} if automatic else {"document_type": document_type},
-            files={"file": ("sample.pdf", content, "application/pdf")})
+        data = {} if automatic else {"document_type": document_type}
+        if original_file_name is not None:
+            data["original_file_name"] = original_file_name
+        upload = client.post("/api/health-documents", data=data,
+            files={"file": ("cache-uuid.pdf", content, "application/pdf")})
         assert upload.status_code == 201
         initial = upload.json()
         assert initial["document_type"] == document_type
+        expected_name = original_file_name or "cache-uuid.pdf"
+        assert initial["original_file_name"] == initial["file_name"] == expected_name
+        assert rows["upload_files"][0]["original_file_name"] == expected_name
+        assert expected_name not in rows["upload_files"][0]["storage_path"]
         assert initial["ocr_status"] == "completed"
         assert initial["error"] is None
         assert initial["extracted_data"][date_field] is not None
@@ -424,6 +433,7 @@ def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, 
         fetched = client.get(path)
         assert fetched.status_code == 200
         assert fetched.json()["extracted_data"] == initial["extracted_data"]
+        assert fetched.json()["original_file_name"] == expected_name
         patch = client.patch(path + "/ocr-result", json={"extracted_data": {"weight_kg": "69.5"}})
         assert patch.status_code == 200
         assert patch.json()["extracted_data"]["weight_kg"] == "69.5"
@@ -499,6 +509,75 @@ def test_upload_openapi_document_type_is_optional():
     body = spec["paths"]["/api/health-documents"]["post"]["requestBody"]["content"]["multipart/form-data"]["schema"]
     schema = spec["components"]["schemas"][body["$ref"].rsplit("/", 1)[-1]]
     assert schema["required"] == ["file"]
+    assert "original_file_name" in schema["properties"]
+
+
+@pytest.mark.parametrize("rows,has_more", [([], False), ([None], False), ([None, "원본.pdf", "next.pdf"], True)])
+def test_document_list_preserves_names_scopes_owner_and_paginates(monkeypatch, rows, has_more):
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def get(self, url, *, headers, params):
+            assert params["user_id"] == f"eq.{USER_ID}"
+            assert params["document_type"] == "in.(health_checkup,body_composition)"
+            assert params["limit"] == "3"
+            assert params["offset"] == "4"
+            assert params["order"] == "uploaded_at.desc,uploaded_file_id.desc"
+            return httpx.Response(200, json=[{"uploaded_file_id": FILE_ID, "original_file_name": name,
+                "file_name": "fallback.pdf", "document_type": "health_checkup",
+                "uploaded_at": "2026-09-17T00:00:00Z"} for name in rows])
+    monkeypatch.setattr(health_documents.httpx, "AsyncClient", Client)
+    override_dependencies()
+    try:
+        response = TestClient(main.app).get("/api/health-documents?limit=2&offset=4")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["has_more"] == has_more
+        assert body["limit"] == 2 and body["offset"] == 4
+        assert len(body["items"]) == min(len(rows), 2)
+        assert [item["original_file_name"] for item in body["items"]] == [name or "fallback.pdf" for name in rows[:2]]
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=101", "offset=-1"])
+def test_document_list_rejects_invalid_pagination(query):
+    override_dependencies()
+    try:
+        response = TestClient(main.app).get("/api/health-documents?" + query)
+        assert response.status_code == 422
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_document_list_requires_authentication():
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    try:
+        response = TestClient(main.app).get("/api/health-documents")
+        assert response.status_code == 401
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("name,expected", [(" /cache/건강검진.pdf ", "건강검진.pdf"),
+    ("C:\\cache\\InBody.jpg", "InBody.jpg"), ("check\x00up.pdf", "checkup.pdf")])
+def test_original_name_sanitization(name, expected):
+    assert health_documents._clean_filename(name) == expected
+
+
+def test_original_name_over_limit_rejected_before_creation(monkeypatch):
+    async def forbidden_create(**kwargs):
+        pytest.fail("Invalid original_file_name must not persist an upload")
+    monkeypatch.setattr(health_documents, "_create_document", forbidden_create)
+    override_dependencies()
+    try:
+        response = TestClient(main.app).post("/api/health-documents", data={"original_file_name": "x" * 256},
+            files={"file": ("cache.pdf", b"%PDF-1.7\n", "application/pdf")})
+        assert response.status_code == 422
+        assert response.json()["detail"]["fields"] == ["body.original_file_name"]
+    finally:
+        main.app.dependency_overrides.clear()
 
 
 def test_auto_detection_disabled_without_server(monkeypatch):

@@ -272,18 +272,20 @@ feedback_type: eaten/different_food/skipped. different_food만 actual_items 1~20
 logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 null일 수 있다.
 이 API는 diet_meal_id와 연결된 기록이다. 추천 식단과 무관한 독립 식사 등록 API는 아직 없다.
 
-## 7. 건강 문서 업로드·검토 (4개)
+## 7. 건강 문서 업로드·검토·목록 (5개)
 
 파일만 전송하면 서버가 문서 종류를 판별하고 응답의 `document_type`에 따라 화면을 분기한다. 실제 OCR 연결 후 판별 불가 시 저장 없이 422 `UNKNOWN_DOCUMENT`/`UNSUPPORTED_DOCUMENT`를 반환한다. URL이 없는 임시 모드는 종류 판별 없이 PDF/이미지 모두 고정 샘플을 반환한다. 종류 생략 시 기본 건강검진 샘플이며 서버 HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE=body_composition 설정으로 체성분 샘플도 테스트한다. 실제 판별은 OCR 서버 연결 후 수행한다. 상세 타입·단위·상태·오류·재업로드 계약은 [건강 문서 API](health-documents-api.md)를 참고한다.
 
 | Method | 경로 | 입력 | 성공 응답 | 코드 |
 |---|---|---|---|---|
-| POST | `/api/health-documents` | multipart `file` 필수, `document_type` 선택 | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 201 |
-| GET | `/api/health-documents/{uploaded_file_id}` | 경로 UUID | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
-| PATCH | `/api/health-documents/{uploaded_file_id}/ocr-result` | `extracted_data` | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
+| POST | `/api/health-documents` | multipart `file` 필수, `document_type`·`original_file_name` 선택 | `uploaded_file_id, document_type, file_name, original_file_name, uploaded_at, ocr_status, status, extracted_data, error` | 201 |
+| GET | `/api/health-documents` | query `limit`(기본 20, 최대 100), `offset`(기본 0) | `items[{uploaded_file_id, original_file_name, file_name, document_type, uploaded_at}], limit, offset, has_more` | 200 |
+| GET | `/api/health-documents/{uploaded_file_id}` | 경로 UUID | `uploaded_file_id, document_type, file_name, original_file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
+| PATCH | `/api/health-documents/{uploaded_file_id}/ocr-result` | `extracted_data` | `uploaded_file_id, document_type, file_name, original_file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
 | POST | `/api/health-documents/{uploaded_file_id}/confirm` | 본문 없음 | `uploaded_file_id, document_type, status, health_checkup_id, body_composition_id, already_confirmed` | 200 |
 
 - 응답의 `document_type`: 서버가 결정한 `health_checkup` 또는 `body_composition` (`inbody`가 아님). 업로드·재업로드 요청에서는 생략한다.
+- `DocumentPickerAsset.name`을 `original_file_name`으로 보내고 응답의 `original_file_name`을 표시한다. DB에 보존하며 기존 원본명이 없는 행은 file_name으로 대체한다.
 - 업로드 응답의 `extracted_data`는 문서 종류별 명시적 타입이며 Decimal은 문자열로 반환한다.
 - PATCH는 보낸 필드만 변경하며 null은 값을 비운다. 확정 문서 수정은 409다.
 - 확정 전 건강검진은 `checkup_date`, 인바디는 timezone을 포함한 `measured_at`이 필수다.

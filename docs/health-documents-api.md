@@ -1,6 +1,6 @@
 # 건강 문서 업로드·OCR·확정 API
 
-Bearer 인증이 필요합니다. 각 파일은 `POST /api/health-documents`를 한 번 호출합니다. 요청은 multipart/form-data이며 `file`만 보내면 됩니다. `document_type`은 선택 입력이며 기존 클라이언트 호환용입니다. 생략하면 실제 OCR 연결 시 서버가 파일 내용으로 `health_checkup` 또는 `body_composition`을 판별하며, 임시 모드는 아래 샘플 정책을 사용합니다. 빈 문자열 대신 필드 자체를 생략하세요. PDF/PNG/JPEG(JPG)/HEIC, 최대 10 MiB(10,485,760 bytes)를 지원하며 확장자 대신 파일 시그니처로 검사합니다.
+Bearer 인증이 필요합니다. 각 파일은 `POST /api/health-documents`를 한 번 호출합니다. 요청은 multipart/form-data이며 `file`은 필수이며 원본 표시명을 `original_file_name`으로 별도 전달할 수 있습니다. 예: `original_file_name=건강검진결과_2026.pdf` (Expo `DocumentPickerAsset.name`). 선택 필드이며 최대 255자, 경로/NUL 제거와 앞뒤 공백 정리 후 DB `upload_files.original_file_name`과 `file_name`에 영구 저장합니다. 생략/공백이면 multipart 파일명을 사용합니다. Storage 경로는 기존 UUID를 유지합니다. `document_type`은 선택 입력이며 기존 클라이언트 호환용입니다. 생략하면 실제 OCR 연결 시 서버가 파일 내용으로 `health_checkup` 또는 `body_composition`을 판별하며, 임시 모드는 아래 샘플 정책을 사용합니다. 빈 문자열 대신 필드 자체를 생략하세요. PDF/PNG/JPEG(JPG)/HEIC, 최대 10 MiB(10,485,760 bytes)를 지원하며 확장자 대신 파일 시그니처로 검사합니다.
 
 ## 업로드와 조회
 
@@ -11,6 +11,7 @@ Bearer 인증이 필요합니다. 각 파일은 `POST /api/health-documents`를 
   "uploaded_file_id": "20260916-0000-4000-8000-000000000002",
   "document_type": "health_checkup",
   "file_name": "checkup.pdf",
+  "original_file_name": "checkup.pdf",
   "uploaded_at": "2026-09-17T00:00:00Z",
   "ocr_status": "completed",
   "status": "awaiting_review",
@@ -127,3 +128,15 @@ HTTP 오류는 아래 형태입니다. 입력값이나 OCR 원문을 오류에 �
 서버가 준비되면 `HEALTH_DOCUMENT_OCR_URL=https://<실제 서버>/ai/ocr`와 필요한 토큰을 설정합니다. 위 응답 형식과 다른 실제 서버 응답은 내부 OCR 어댑터에서 DB 필드명으로 매핑하면 됩니다. 프론트의 네 경로와 요청·응답 스키마는 유지합니다. 현재 ai 브랜치의 `fields/extracted_text` 응답은 이 정규화 형식과 다르므로 실제 서버 완성 시 내부 매핑이 필요합니다.
 
 OCR 엔진 자체는 저장소에 포함되지 않습니다. 샘플 데이터는 실제 파일 판독 결과가 아닙니다. 선택 document_type과 임시 샘플 정책은 공유 개발 서버에 배포했습니다. 현재 실제 판별은 수행하지 않고 종류 생략 시 건강검진 샘플을 반환합니다. [배포·검증 결과](health-documents-deployment-results.md)를 참고하세요.
+
+## 과거 문서 목록
+
+`GET /api/health-documents?limit=20&offset=0` — Bearer 인증 필수. 로그인 사용자의 건강검진·체성분 문서만 조회합니다. 미확정/실패 문서도 포함하며 최신 업로드 순입니다. 동일 시각이면 파일 ID 내림차순입니다. limit은 1~100(기본 20), offset은 0 이상(기본 0)입니다.
+
+```json
+{"items":[{"uploaded_file_id":"20260916-0000-4000-8000-000000000002","original_file_name":"건강검진결과_2026.pdf","file_name":"건강검진결과_2026.pdf","document_type":"health_checkup","uploaded_at":"2026-09-17T00:00:00Z"}],"limit":20,"offset":0,"has_more":false}
+```
+
+POST·개별 GET·PATCH 응답의 최상위 `original_file_name`을 표시하면 됩니다. 목록도 같은 원본명을 반환합니다. 기존 DB 문서에 원본명이 없으면 file_name을 반환합니다. 과거에 UUID만 저장된 문서의 실제 원본명은 복원할 수 없습니다. 목록 조회 시 OCR 추출 데이터나 Storage 경로는 반환하지 않습니다.
+
+이 원본 파일명·목록 API 변경은 로컬 구현 기준이며 별도 배포 전입니다.

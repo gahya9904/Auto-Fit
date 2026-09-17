@@ -501,6 +501,7 @@ OpenAPI에 명시된 상태 코드: 201, 422. 런타임 인증·상태·DB 오�
 | 필드 | 필수 | 타입 | 조건 |
 |---|---|---|---|
 | file | 예 | binary | PDF, PNG, JPEG, HEIC; 파일 자체 최대 10 MiB |
+| original_file_name | 아니오 | string | 사용자 원본 파일명, 최대 255자; 생략 시 multipart 파일명 |
 | document_type | 아니오 | string 또는 null | 생략 시 파일 내용으로 서버 자동 판별; enum=["health_checkup","body_composition"] |
 
 OpenAPI에 201, 401, 404, 409, 413, 415, 422, 502와 오류 스키마를 정의한다.
@@ -740,3 +741,7 @@ OpenAPI에 201, 401, 404, 409, 413, 415, 422, 502와 오류 스키마를 정의�
 | type | 예 | string | — |
 | input | 아니오 | object | — |
 | ctx | 아니오 | object | — |
+
+## GET /api/health-documents
+
+Bearer 인증 필수. query limit=20 (1~100), offset=0 (0 이상). 사용자 소유 건강 문서의 최신순 목록을 반환합니다. 응답은 items 배열과 limit, offset, has_more이며 각 항목은 uploaded_file_id, original_file_name, file_name, document_type, uploaded_at입니다.

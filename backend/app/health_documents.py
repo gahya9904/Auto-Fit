@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import httpx
 from fastapi.routing import APIRoute
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
@@ -94,6 +94,7 @@ class UploadMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
     uploaded_file_id: UUID
     document_type: DocumentType
+    original_file_name: str | None = Field(default=None, description="업로드 시 DB에 보존한 사용자 표시용 원본 파일명")
 
 
 class OCRMetadata(BaseModel):
@@ -104,6 +105,7 @@ class OCRMetadata(BaseModel):
 class DocumentResponseBase(BaseModel):
     uploaded_file_id: UUID
     file_name: str
+    original_file_name: str = Field(description="사용자 표시용 원본 파일명. 기존 문서에 값이 없으면 file_name 사용")
     uploaded_at: datetime
     ocr_status: Literal["pending", "processing", "completed", "failed"]
     status: Literal["awaiting_review", "confirmed", "failed"]
@@ -126,6 +128,21 @@ DocumentResponse = Annotated[
     HealthCheckupDocumentResponse | BodyCompositionDocumentResponse,
     Field(discriminator="document_type"),
 ]
+
+
+class DocumentListItem(BaseModel):
+    uploaded_file_id: UUID
+    original_file_name: str
+    file_name: str
+    document_type: DocumentType
+    uploaded_at: datetime
+
+
+class DocumentListResponse(BaseModel):
+    items: list[DocumentListItem]
+    limit: int
+    offset: int
+    has_more: bool
 
 
 class ConfirmationResponse(BaseModel):
@@ -162,6 +179,7 @@ def _document_response(document: dict[str, Any]) -> dict[str, Any]:
         "uploaded_file_id": file["uploaded_file_id"],
         "document_type": file["document_type"],
         "file_name": file["file_name"],
+        "original_file_name": file.get("original_file_name") or file["file_name"],
         "uploaded_at": file["uploaded_at"],
         "ocr_status": ocr_status,
         "status": "confirmed" if file.get("processing_status") == "manually_confirmed" else (
@@ -395,6 +413,30 @@ async def _delete_storage_object(storage_path: str, settings: Any) -> None:
         )
 
 
+async def _list_documents(user_id: str, settings: Any, *, limit: int, offset: int) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+        response = await client.get(
+            f"{settings.supabase_url}/rest/v1/upload_files",
+            headers=_service_headers(settings),
+            params={
+                "select": "uploaded_file_id,original_file_name,file_name,document_type,uploaded_at",
+                "user_id": f"eq.{user_id}",
+                "document_type": "in.(health_checkup,body_composition)",
+                "order": "uploaded_at.desc,uploaded_file_id.desc",
+                "limit": str(limit + 1),
+                "offset": str(offset),
+            },
+        )
+    if not response.is_success:
+        raise HTTPException(status_code=502, detail="Health document list query failed")
+    rows = response.json()
+    return {
+        "items": [{**row, "original_file_name": row.get("original_file_name") or row["file_name"]}
+                  for row in rows[:limit]],
+        "limit": limit, "offset": offset, "has_more": len(rows) > limit,
+    }
+
+
 async def _delete_upload_row(uploaded_file_id: UUID, settings: Any) -> None:
     async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
         await client.delete(
@@ -410,6 +452,7 @@ async def _create_document(
     document_type: DocumentType | None,
     user_id: str,
     settings: Any,
+    original_file_name: str | None = None,
 ) -> dict[str, Any]:
     content, media_type, extension = await _read_validated_upload(file)
     automatic_result = None
@@ -419,7 +462,7 @@ async def _create_document(
     uploaded_file_id = uuid4()
     now = datetime.now(UTC)
     storage_path = f"{user_id}/{now:%Y/%m}/{uploaded_file_id}{extension}"
-    filename = _clean_filename(file.filename)
+    filename = _clean_filename(original_file_name if original_file_name and original_file_name.strip() else file.filename)
     storage_headers = _service_headers(settings)
     storage_headers.update({"Content-Type": media_type, "x-upsert": "false"})
 
@@ -617,6 +660,7 @@ def create_health_documents_router(
     async def upload_health_document(
         file: Annotated[UploadFile, File(description="PDF, PNG, JPEG, or HEIC; max 10 MB")],
         document_type: Annotated[DocumentType | None, Form(description="선택: 생략하면 파일 내용으로 서버가 자동 판별합니다. 기존 클라이언트 호환을 위한 명시적 종류 지정.")] = None,
+        original_file_name: Annotated[str | None, Form(max_length=255, description="선택: DocumentPickerAsset.name 등 사용자 원본 파일명. DB에 영구 보존. 생략/공백 시 multipart 파일명 사용. 경로/NUL 제거 및 앞뒤 공백 정리.")] = None,
         user: Any = Depends(current_user_dependency),
         settings: Any = Depends(settings_dependency),
     ) -> dict[str, Any]:
@@ -625,8 +669,19 @@ def create_health_documents_router(
             document_type=document_type,
             user_id=user.id,
             settings=settings,
+            original_file_name=original_file_name,
         )
         return _document_response(document)
+
+    @router.get("", response_model=DocumentListResponse, responses=DOCUMENT_ERRORS,
+                description="로그인 사용자의 건강 문서 목록. 최신 업로드 순(동일 시각은 파일 ID 내림차순). 원본 파일명 반환. 미확정/실패 문서 포함; 다른 사용자와 기타 문서 종류 제외. limit 기본 20, 최대 100; offset 기본 0. has_more로 다음 페이지 확인.")
+    async def list_health_documents(
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        offset: Annotated[int, Query(ge=0)] = 0,
+        user: Any = Depends(current_user_dependency),
+        settings: Any = Depends(settings_dependency),
+    ) -> dict[str, Any]:
+        return await _list_documents(user.id, settings, limit=limit, offset=offset)
 
     @router.get("/{uploaded_file_id}", response_model=DocumentResponse, responses=DOCUMENT_ERRORS)
     async def get_health_document(
