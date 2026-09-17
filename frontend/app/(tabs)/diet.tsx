@@ -1195,7 +1195,12 @@ export default function DietScreen() {
   const pendingCanvasHeight = useRef(0);
   const isMountedRef = useRef(true);
   const mealLogsRequestRef = useRef(0);
+  const mealLogEntriesByDateRef = useRef(new Map<string, unknown[]>());
   const recommendationRequestRef = useRef(0);
+  const recommendationMealsByDateRef = useRef<{ dateKey: string | null; meals: Meal[] }>({
+    dateKey: null,
+    meals: [],
+  });
   const nutritionSummaryRequestRef = useRef(0);
   const regenerateRequestMealIdsRef = useRef(new Set<MealType>());
 
@@ -1297,52 +1302,64 @@ export default function DietScreen() {
     });
   }, []);
 
-  const restoreMealLogs = useCallback(async (dateKey: string, sourceMeals: Meal[]) => {
+  const applyMealLogs = useCallback((dateKey: string, sourceMeals: Meal[], entries: unknown[]) => {
+    const mealsByDietId = new Map(
+      sourceMeals
+        .filter((meal): meal is Meal & { dietMealId: string } => Boolean(meal.dietMealId))
+        .map((meal) => [meal.dietMealId, meal]),
+    );
+    const nextStatuses: Partial<MealStatuses> = {};
+    const nextRecords: Partial<Record<MealType, MealRecordDraft>> = {};
+
+    entries.forEach((entry) => {
+      if (!isApiRecord(entry)) return;
+      const dietMealId = readString(entry, ['diet_meal_id', 'meal_id']);
+      const targetMeal =
+        (dietMealId ? mealsByDietId.get(dietMealId) : undefined) ??
+        sourceMeals.find(
+          (meal) =>
+            meal.id ===
+            readMealType(
+              readString(entry, ['meal_type', 'meal_category', 'type', 'time_of_day']),
+            ),
+        );
+      const nextStatus = feedbackTypeToStatus(readString(entry, ['feedback_type', 'type']));
+      if (!targetMeal || !nextStatus) return;
+
+      nextStatuses[targetMeal.id] = nextStatus;
+      if (nextStatus === 'modified') {
+        const draft = mapLogDraft(entry, targetMeal.id);
+        if (draft) nextRecords[targetMeal.id] = draft;
+      }
+    });
+
+    setStatusesByDate((current) => ({ ...current, [dateKey]: nextStatuses }));
+    setMealRecordsByDate((current) => ({ ...current, [dateKey]: nextRecords }));
+  }, []);
+
+  const loadMealLogs = useCallback(async (dateKey: string) => {
     const requestId = ++mealLogsRequestRef.current;
     try {
       const response = await getDietMealLogs(dateKey, dateKey);
       if (!isMountedRef.current || requestId !== mealLogsRequestRef.current) return;
 
-      const mealsByDietId = new Map(
-        sourceMeals
-          .filter((meal): meal is Meal & { dietMealId: string } => Boolean(meal.dietMealId))
-          .map((meal) => [meal.dietMealId, meal]),
-      );
-      const nextStatuses: Partial<MealStatuses> = {};
-      const nextRecords: Partial<Record<MealType, MealRecordDraft>> = {};
+      const entries = readArray(response.logs);
+      mealLogEntriesByDateRef.current.set(dateKey, entries);
 
-      readArray(response.logs).forEach((entry) => {
-        if (!isApiRecord(entry)) return;
-        const dietMealId = readString(entry, ['diet_meal_id', 'meal_id']);
-        const targetMeal =
-          (dietMealId ? mealsByDietId.get(dietMealId) : undefined) ??
-          sourceMeals.find(
-            (meal) =>
-              meal.id ===
-              readMealType(
-                readString(entry, ['meal_type', 'meal_category', 'type', 'time_of_day']),
-              ),
-          );
-        const nextStatus = feedbackTypeToStatus(readString(entry, ['feedback_type', 'type']));
-        if (!targetMeal || !nextStatus) return;
-
-        nextStatuses[targetMeal.id] = nextStatus;
-        if (nextStatus === 'modified') {
-          const draft = mapLogDraft(entry, targetMeal.id);
-          if (draft) nextRecords[targetMeal.id] = draft;
-        }
-      });
-
-      setStatusesByDate((current) => ({ ...current, [dateKey]: nextStatuses }));
-      setMealRecordsByDate((current) => ({ ...current, [dateKey]: nextRecords }));
+      const recommendationSnapshot = recommendationMealsByDateRef.current;
+      if (recommendationSnapshot.dateKey === dateKey && recommendationSnapshot.meals.length > 0) {
+        applyMealLogs(dateKey, recommendationSnapshot.meals, entries);
+      }
     } catch (error) {
       if (!isMountedRef.current || requestId !== mealLogsRequestRef.current) return;
       Alert.alert('식사 기록을 불러오지 못했어요', getDietApiErrorMessage(error));
     }
-  }, []);
+  }, [applyMealLogs]);
 
   const loadRecommendations = useCallback(async (dateKey: string) => {
     const requestId = ++recommendationRequestRef.current;
+    recommendationMealsByDateRef.current = { dateKey, meals: [] };
+    mealLogEntriesByDateRef.current.delete(dateKey);
     if (isMountedRef.current) {
       setRecommendationError(null);
       setRecommendationLoading(true);
@@ -1351,14 +1368,14 @@ export default function DietScreen() {
 
     try {
       const response = await getDietRecommendationsByDate(dateKey);
-      if (__DEV__) {
-        console.log('[Diet] recommendations by date response:', JSON.stringify(response, null, 2));
-      }
       const mappedMeals = mapRecommendationMeals(response.result);
 
       if (!isMountedRef.current || requestId !== recommendationRequestRef.current) return false;
 
       setRecommendedMeals(mappedMeals);
+      recommendationMealsByDateRef.current = { dateKey, meals: mappedMeals };
+      const mealLogEntries = mealLogEntriesByDateRef.current.get(dateKey);
+      if (mealLogEntries) applyMealLogs(dateKey, mappedMeals, mealLogEntries);
       return true;
     } catch (error) {
       if (!isMountedRef.current || requestId !== recommendationRequestRef.current) return false;
@@ -1371,15 +1388,12 @@ export default function DietScreen() {
         setRecommendationLoading(false);
       }
     }
-  }, []);
+  }, [applyMealLogs]);
 
   const loadNutritionSummary = useCallback(async (dateKey: string) => {
     const requestId = ++nutritionSummaryRequestRef.current;
     try {
-      const response = await getDietNutritionSummary(dateKey);
-      if (__DEV__) {
-        console.log('[Diet] nutrition summary response:', JSON.stringify(response, null, 2));
-      }
+      await getDietNutritionSummary(dateKey);
     } catch (error) {
       if (!isMountedRef.current || requestId !== nutritionSummaryRequestRef.current) return;
       if (__DEV__) console.error('[Diet] nutrition summary request failed:', error);
@@ -1403,20 +1417,19 @@ export default function DietScreen() {
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      void loadRecommendations(selectedDateKey);
-      void loadNutritionSummary(selectedDateKey);
       void loadInventory();
     });
     return () => cancelAnimationFrame(frame);
-  }, [loadInventory, loadNutritionSummary, loadRecommendations, selectedDateKey]);
+  }, [loadInventory]);
 
   useEffect(() => {
-    if (recommendationLoading) return;
     const frame = requestAnimationFrame(() => {
-      void restoreMealLogs(selectedDateKey, recommendedMeals);
+      void loadRecommendations(selectedDateKey);
+      void loadNutritionSummary(selectedDateKey);
+      void loadMealLogs(selectedDateKey);
     });
     return () => cancelAnimationFrame(frame);
-  }, [recommendedMeals, recommendationLoading, restoreMealLogs, selectedDateKey]);
+  }, [loadMealLogs, loadNutritionSummary, loadRecommendations, selectedDateKey]);
 
   const collapseMeal = useCallback((mealId: MealType) => {
     setExpandedMeals((current) => {
@@ -1522,9 +1535,6 @@ export default function DietScreen() {
       setRegeneratingMealIds((current) => new Set(current).add(mealId));
       try {
         const response = await regenerateDietMeal(dietMealId);
-        if (__DEV__) {
-          console.log('[Diet] regenerate meal response:', JSON.stringify(response, null, 2));
-        }
         if (!isMountedRef.current) return;
 
         const regeneratedMeal = mapRecommendationMeals(response.result).find(
@@ -1715,8 +1725,13 @@ export default function DietScreen() {
     );
     if (nextOffset === selectedDateOffset) return;
 
+    const nextDateKey = toDateKey(addDays(today, nextOffset));
+    recommendationMealsByDateRef.current = { dateKey: nextDateKey, meals: [] };
+    setRecommendedMeals([]);
+    setRecommendationError(null);
+    setRecommendationLoading(true);
     setSelectedDateOffset(nextOffset);
-    setSelectedDateKey(toDateKey(addDays(today, nextOffset)));
+    setSelectedDateKey(nextDateKey);
     setExpandedMeals(new Set());
   };
 
