@@ -35,6 +35,7 @@ from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
 from backend.app.chat_rate_limit import ChatRateLimiter
 from backend.app.health_documents import create_health_documents_router
+from backend.app.analysis_popups import create_analysis_popups_router
 from backend.app.meal_photos import attach_photos, create_meal_photos_router
 from backend.app.security import (
     BlockedPathMiddleware,
@@ -2768,6 +2769,7 @@ app = FastAPI(
     version="0.1.0",
     openapi_tags=[
         {"name": "Profile", "description": "프로필, 알레르기 및 온보딩"},
+        {"name": "Health Analysis", "description": "종합 분석의 체성분 추가 지표, 판정 기준 및 출처 팝업"},
         {"name": "health-documents", "description": "건강검진·인바디 파일 업로드, 수동 결과 수정 및 확정 저장 (자동 OCR 미지원)"},
         {"name": "Exercise", "description": "운동 선호도, 추천, 세션, 목표 및 진행 현황"},
         {"name": "Diet", "description": "식재료, 식단 추천, 영양 요약 및 식사 기록"},
@@ -2829,6 +2831,7 @@ app.add_middleware(
 )
 app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(create_meal_photos_router(get_current_user, get_settings))
+app.include_router(create_analysis_popups_router(get_current_user, get_settings))
 app.include_router(
     create_health_documents_router(
         current_user_dependency=get_current_user,

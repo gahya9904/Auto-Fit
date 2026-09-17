@@ -7,6 +7,10 @@
 전체 화면 연동은 [프론트엔드 협업용 API 안내](docs/frontend-api-handoff.md),
 [입력 필드 참조](docs/api-input-reference.md), [OpenAPI](docs/openapi.json)를 확인하세요.
 
+종합 분석의 체성분 추가 지표·판정 기준·출처 팝업 설계와 계산식은
+[종합 분석 팝업 명세](docs/total-analysis-popup-spec.md)를 확인하세요.
+팝업 API 조회·응답 매핑은 [종합 분석 팝업 API](docs/analysis-popup-api-contract.md)를 확인하세요.
+
 ## 로컬 OAuth 및 DB 왕복 테스트
 
 1. 백엔드 환경 파일을 준비합니다.

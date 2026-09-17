@@ -1,10 +1,25 @@
 # Auto-Fit 전체 API 입력 필드 참조
 
-기준: 2026-09-16 로컬 FastAPI OpenAPI. 총 49개 operation. 코드 자동 추출이며 실제 서버 배포 상태를 보증하지 않는다.
+기존 자동 추출 목록: 2026-09-16. 현재 로컬 OpenAPI는 2026-09-17 기준 총 53개 operation이다. 아래 신규 팝업 입력을 추가했으며 기존 업로드·식단 사진 입력은 해당 API 계약을 함께 참고한다. 실제 서버 배포 상태를 보증하지 않는다.
 
 인증·호출 순서·응답 형태·추가 검증은 [프론트엔드 협업 안내](frontend-api-handoff.md), 원본은 [openapi.json](openapi.json)을 참고한다.
 
 주의: 코드가 일반 Header로 인증을 받으므로 OpenAPI의 Authorization optional 표시는 인증 면제를 뜻하지 않는다. /health 외 모든 API에는 유효한 Bearer 토큰이 필요하다. 응답 스키마의 object는 아직 구체적인 응답 타입이 없음을 뜻한다.
+
+## GET /api/health-assessments/latest/popups
+
+인증 헤더 `Authorization: Bearer <token>` 필수. 요청 본문·쿼리 없음.
+응답은 `PopupResponse`. 상태 코드: 200, 401, 404, 502.
+
+## GET /api/health-assessments/{assessment_id}/popups
+
+| 위치 | 이름 | 필수 | 타입 | 조건 |
+|---|---|---|---|---|
+| path | assessment_id | 예 | string(uuid) | 본인 건강 평가 ID |
+| header | Authorization | 예 | string | Bearer 토큰 |
+
+요청 본문 없음. 응답은 `PopupResponse`. 상태 코드: 200, 401, 404, 422, 502.
+Swagger Authorize 사용 가능. [응답·판정 스냅샷 계약](analysis-popup-api-contract.md) 참고.
 
 ## GET /health
 

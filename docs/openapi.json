@@ -86,6 +86,143 @@
         }
       }
     },
+    "/api/health-assessments/latest/popups": {
+      "get": {
+        "tags": [
+          "Health Analysis"
+        ],
+        "summary": "최신 건강 평가의 팝업 데이터 조회",
+        "operationId": "latest_popups_api_health_assessments_latest_popups_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PopupResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "로그인 필요"
+          },
+          "404": {
+            "description": "평가 없음"
+          },
+          "502": {
+            "description": "자료 조회 실패"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health-assessments/{assessment_id}/popups": {
+      "get": {
+        "tags": [
+          "Health Analysis"
+        ],
+        "summary": "건강 평가의 체성분·판정 기준·출처 팝업 데이터 조회",
+        "description": "본인 평가만 조회합니다. 평가 당시 기준 스냅샷이 없으면 수치는 표시하고 판정은 보류합니다. 최신 프로필이나 예시 기준으로 과거 평가를 다시 판정하지 않습니다.",
+        "operationId": "assessment_popups_api_health_assessments__assessment_id__popups_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "assessment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assessment Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PopupResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "로그인 필요"
+          },
+          "404": {
+            "description": "본인 평가 또는 연결 자료 없음"
+          },
+          "502": {
+            "description": "자료 조회 실패"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health-documents": {
       "post": {
         "tags": [
@@ -3946,6 +4083,31 @@
         "type": "object",
         "title": "HealthScorePreviewRequest"
       },
+      "Interpretation": {
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "title": "Rule Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "evidence_metric_keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence Metric Keys"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule_id",
+          "text"
+        ],
+        "title": "Interpretation"
+      },
       "MealLogItemRequest": {
         "properties": {
           "food_name": {
@@ -4081,6 +4243,157 @@
         ],
         "title": "MealPhotoResponse"
       },
+      "Metric": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "raw_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Value"
+          },
+          "display_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Value"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "value_origin": {
+            "type": "string",
+            "enum": [
+              "reported",
+              "calculated"
+            ],
+            "title": "Value Origin",
+            "default": "reported"
+          },
+          "measured_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "caution",
+              "high",
+              "unknown",
+              "review_required"
+            ],
+            "title": "Status",
+            "default": "unknown"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label",
+            "default": "판정 보류"
+          },
+          "criteria_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Criteria Id"
+          },
+          "criteria_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Criteria Version"
+          },
+          "criteria_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Criteria Type"
+          },
+          "source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Ids"
+          },
+          "applied_conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Applied Conditions"
+          },
+          "ranges": {
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            },
+            "type": "array",
+            "title": "Ranges"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Fields"
+          },
+          "discrepancy": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discrepancy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "unit"
+        ],
+        "title": "Metric"
+      },
       "OCRResultUpdateRequest": {
         "properties": {
           "extracted_data": {
@@ -4095,6 +4408,74 @@
           "extracted_data"
         ],
         "title": "OCRResultUpdateRequest"
+      },
+      "PopupResponse": {
+        "properties": {
+          "assessment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assessment Id"
+          },
+          "calculation_version": {
+            "type": "string",
+            "title": "Calculation Version",
+            "default": "1.0.0"
+          },
+          "body_composition_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Composition Id"
+          },
+          "health_checkup_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Checkup Id"
+          },
+          "criteria_snapshot_available": {
+            "type": "boolean",
+            "title": "Criteria Snapshot Available",
+            "default": false
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/Metric"
+            },
+            "type": "array",
+            "title": "Metrics"
+          },
+          "interpretation": {
+            "$ref": "#/components/schemas/Interpretation"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assessment_id",
+          "metrics",
+          "interpretation",
+          "sources"
+        ],
+        "title": "PopupResponse"
       },
       "ProfileUpdateRequest": {
         "properties": {
@@ -4191,6 +4572,59 @@
         "type": "object",
         "title": "ProfileUpdateRequest"
       },
+      "Range": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "caution",
+              "high",
+              "unknown",
+              "review_required"
+            ],
+            "title": "Status"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "min_inclusive": {
+            "type": "boolean",
+            "title": "Min Inclusive",
+            "default": true
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "max_inclusive": {
+            "type": "boolean",
+            "title": "Max Inclusive",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "Range"
+      },
       "RegenerateDietMealRequest": {
         "properties": {},
         "additionalProperties": false,
@@ -4212,6 +4646,84 @@
           "message"
         ],
         "title": "RoundtripRequest"
+      },
+      "Source": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "publisher": {
+            "type": "string",
+            "title": "Publisher"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "revised_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revised At"
+          },
+          "verified_at": {
+            "type": "string",
+            "title": "Verified At",
+            "default": "2026-09-17"
+          },
+          "source_type": {
+            "type": "string",
+            "title": "Source Type"
+          },
+          "applied_metric_keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Applied Metric Keys"
+          },
+          "applied_excerpt_summary": {
+            "type": "string",
+            "title": "Applied Excerpt Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "publisher",
+          "title",
+          "source_type",
+          "applied_excerpt_summary"
+        ],
+        "title": "Source"
       },
       "StartExerciseSessionRequest": {
         "properties": {},
@@ -4294,12 +4806,22 @@
         ],
         "title": "ValidationError"
       }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
     }
   },
   "tags": [
     {
       "name": "Profile",
       "description": "프로필, 알레르기 및 온보딩"
+    },
+    {
+      "name": "Health Analysis",
+      "description": "종합 분석의 체성분 추가 지표, 판정 기준 및 출처 팝업"
     },
     {
       "name": "health-documents",

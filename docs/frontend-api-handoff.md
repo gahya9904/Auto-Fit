@@ -1,12 +1,13 @@
 # Auto-Fit 프론트엔드 협업용 전체 API 안내
 
-기준일: 2026-09-16. 근거: `backend/app/main.py`, 챗봇 모듈, 저장소 SQL, 기존 검증 기록.
-현재 FastAPI operation은 **49개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
+기준일: 2026-09-17. 근거: `backend/app/main.py`, 라우터·챗봇 모듈, 저장소 SQL, 기존 검증 기록.
+현재 FastAPI operation은 **53개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
+종합 분석 팝업의 신규 조회 2개는 [팝업 API 계약](analysis-popup-api-contract.md)을 확인한다.
 
 ## 공유 파일
 
 - 이 문서: 화면별 API, 호출 순서, 응답 주요 경로, 예제, 미구현 영역.
-- [입력 필드 전체 참조](api-input-reference.md): 49개 operation의 파라미터·본문 필드·제약.
+- [입력 필드 전체 참조](api-input-reference.md): 파라미터·본문 필드·제약과 신규 팝업 조회 입력.
 - [OpenAPI 원본](openapi.json): 코드에서 추출한 3.1 스키마. API 도구에 가져오기 가능.
 - [챗봇 상세 계약](chat-api-contract.md): 메시지·근거 전체 형식과 재전송 규칙.
 - [실연동 검증 기록](chat-integration-results.md): 실제 검증 범위와 한계.
