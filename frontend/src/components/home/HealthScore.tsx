@@ -18,15 +18,19 @@ const graphCircumference = 2 * Math.PI * graphRadius;
 const scoreArcRatio = 0.86;
 
 interface HealthScoreProps {
-  score: number;
-  totalScore: number;
-  status: string;
+  score: number | null;
+  totalScore: number | null;
+  status: string | null;
   style?: StyleProp<ViewStyle>;
 }
 
 export function HealthScore({ score, totalScore, status, style }: HealthScoreProps) {
+  const scoreText = score === null ? '-' : String(score);
+  const totalScoreText = totalScore === null ? '-' : String(totalScore);
+  const statusText = status ?? '-';
+
   return (
-    <View accessibilityLabel={`건강 점수 ${score}점, ${status}`} style={[styles.container, style]}>
+    <View accessibilityLabel={`건강 점수 ${scoreText}점, ${statusText}`} style={[styles.container, style]}>
       <Svg height={graphSize} style={styles.graph} viewBox="0 0 350 350" width={graphSize}>
         <Defs>
           <LinearGradient
@@ -50,17 +54,19 @@ export function HealthScore({ score, totalScore, status, style }: HealthScorePro
           stroke="#DFF4F0"
           strokeWidth={23}
         />
-        <Circle
-          cx={graphCenter}
-          cy={graphCenter}
-          fill="none"
-          r={graphRadius}
-          stroke="url(#score-ring-gradient)"
-          strokeDasharray={`${graphCircumference * scoreArcRatio} ${graphCircumference}`}
-          strokeLinecap="round"
-          strokeWidth={23}
-          transform={`rotate(-90 ${graphCenter} ${graphCenter})`}
-        />
+        {score !== null ? (
+          <Circle
+            cx={graphCenter}
+            cy={graphCenter}
+            fill="none"
+            r={graphRadius}
+            stroke="url(#score-ring-gradient)"
+            strokeDasharray={`${graphCircumference * scoreArcRatio} ${graphCircumference}`}
+            strokeLinecap="round"
+            strokeWidth={23}
+            transform={`rotate(-90 ${graphCenter} ${graphCenter})`}
+          />
+        ) : null}
       </Svg>
 
       <View style={styles.healthIconCircle}>
@@ -85,14 +91,14 @@ export function HealthScore({ score, totalScore, status, style }: HealthScorePro
             x={0}
             y={65}
           >
-            {String(score)}
+            {scoreText}
           </SvgText>
         </Svg>
-        <Text style={styles.totalScore}>/ {totalScore}</Text>
+        <Text style={styles.totalScore}>/ {totalScoreText}</Text>
       </View>
 
       <View style={styles.statusBadge}>
-        <Text style={styles.statusText}>{status}</Text>
+        <Text style={styles.statusText}>{statusText}</Text>
       </View>
 
       <View style={styles.starTop}>

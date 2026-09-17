@@ -5,15 +5,18 @@ import { AppCard } from '@/src/components/common';
 import { colors, fontFamilies } from '@/src/theme';
 
 interface WeeklyProgressCardProps {
-  change: number;
-  message: string;
+  change: number | null;
+  message: string | null;
   style?: StyleProp<ViewStyle>;
 }
 
 export function WeeklyProgressCard({ change, message, style }: WeeklyProgressCardProps) {
+  const changeText = change === null ? '-' : `+${change}`;
+  const messageText = message ?? '-';
+
   return (
     <AppCard
-      accessibilityLabel={`지난주보다 ${change}점 상승`}
+      accessibilityLabel={`지난주보다 ${changeText}점 상승`}
       padding="none"
       shadow
       style={[styles.card, style]}
@@ -22,10 +25,10 @@ export function WeeklyProgressCard({ change, message, style }: WeeklyProgressCar
         <TrendUpIcon color={colors.primary} fill={colors.primary} height={50} width={50} />
       </View>
       <Text numberOfLines={1} style={styles.title}>
-        지난주보다 <Text style={styles.change}>+{change}</Text>점 상승했어요!
+        지난주보다 <Text style={styles.change}>{changeText}</Text>점 상승했어요!
       </Text>
       <Text numberOfLines={1} style={styles.message}>
-        {message}
+        {messageText}
       </Text>
     </AppCard>
   );

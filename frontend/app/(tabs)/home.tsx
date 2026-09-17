@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Image, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   getHealthScorePreview,
-  getHomeApiErrorMessage,
   getProfile,
   getProfileName,
 } from '@/src/api/home';
@@ -34,17 +33,17 @@ const fallbackUserName = '회원';
 type ApiRecord = Record<string, unknown>;
 
 type HomeHealthScore = {
-  score: number;
-  status: string;
-  totalScore: number;
+  score?: number;
+  status?: string;
+  totalScore?: number;
 };
 
 type HomeWeeklyProgress = {
-  change: number;
-  message: string;
+  change?: number;
+  message?: string;
 };
 
-type HomeLoadState = 'empty' | 'error' | 'loading' | 'ready';
+type HomeLoadState = 'error' | 'loading' | 'ready';
 
 function isApiRecord(value: unknown): value is ApiRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -74,7 +73,7 @@ function getStructuredHealthScore(answer: unknown): HomeHealthScore | null {
   const score = readNumber(answer, ['health_score', 'score']);
   const totalScore = readNumber(answer, ['max_score', 'total_score']);
   const status = readString(answer, ['health_status', 'status']);
-  if (score === undefined || totalScore === undefined || !status) return null;
+  if (score === undefined && totalScore === undefined && !status) return null;
   return { score, status, totalScore };
 }
 
@@ -82,7 +81,7 @@ function getStructuredWeeklyProgress(answer: unknown): HomeWeeklyProgress | null
   if (!isApiRecord(answer)) return null;
   const change = readNumber(answer, ['change', 'health_score_change', 'weekly_change']);
   const message = readString(answer, ['change_message', 'message', 'weekly_message']);
-  if (change === undefined || !message) return null;
+  if (change === undefined && !message) return null;
   return { change, message };
 }
 
@@ -103,7 +102,6 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const [healthScore, setHealthScore] = useState<HomeHealthScore | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<HomeLoadState>('loading');
   const [userName, setUserName] = useState(fallbackUserName);
   const [weeklyProgress, setWeeklyProgress] = useState<HomeWeeklyProgress | null>(null);
@@ -114,7 +112,6 @@ export default function HomeScreen() {
     if (requestInFlightRef.current) return;
 
     requestInFlightRef.current = true;
-    setLoadError(null);
     setLoadState('loading');
 
     const [latestResult, changeResult, profileResult, sessionUserNameResult] =
@@ -150,18 +147,11 @@ export default function HomeScreen() {
 
     if (previewErrors.length > 0) {
       console.error('Home health-score preview request failed:', previewErrors);
-      setLoadError(getHomeApiErrorMessage(previewErrors[0].reason));
       setLoadState('error');
       return;
     }
 
-    if (nextHealthScore || nextWeeklyProgress) {
-      setLoadState('ready');
-      return;
-    }
-
-    // TODO(backend): expose structured score/status/change/message fields for the Home cards.
-    setLoadState('empty');
+    setLoadState('ready');
   }, []);
 
   useEffect(() => {
@@ -226,32 +216,21 @@ export default function HomeScreen() {
           userName={userName}
         />
         <View style={[styles.scoreSection, { top: graphSectionTop }]}>
-          {healthScore ? (
-            <HealthScore
-              score={healthScore.score}
-              status={healthScore.status}
-              totalScore={healthScore.totalScore}
-            />
+          {loadState === 'loading' && !healthScore ? (
+            <HomeDataPlaceholder style={styles.scorePlaceholder} />
           ) : (
-            <HomeDataPlaceholder
-              error={loadState === 'error' ? loadError : null}
-              loading={loadState === 'loading'}
-              onRetry={loadHomeData}
-              style={styles.scorePlaceholder}
+            <HealthScore
+              score={healthScore?.score ?? null}
+              status={healthScore?.status ?? null}
+              totalScore={healthScore?.totalScore ?? null}
             />
           )}
-          {weeklyProgress ? (
-            <WeeklyProgressCard
-              change={weeklyProgress.change}
-              message={weeklyProgress.message}
-              style={styles.weeklyProgress}
-            />
+          {loadState === 'loading' && !weeklyProgress ? (
+            <HomeDataPlaceholder compact style={styles.weeklyProgress} />
           ) : (
-            <HomeDataPlaceholder
-              compact
-              error={loadState === 'error' ? loadError : null}
-              loading={loadState === 'loading'}
-              onRetry={loadHomeData}
+            <WeeklyProgressCard
+              change={weeklyProgress?.change ?? null}
+              message={weeklyProgress?.message ?? null}
               style={styles.weeklyProgress}
             />
           )}
@@ -263,29 +242,14 @@ export default function HomeScreen() {
 
 function HomeDataPlaceholder({
   compact = false,
-  error,
-  loading,
-  onRetry,
   style,
 }: {
   compact?: boolean;
-  error: string | null;
-  loading: boolean;
-  onRetry: () => void;
   style?: object;
 }) {
-  const message = loading
-    ? '건강 정보를 불러오는 중이에요.'
-    : (error ?? '표시할 건강 정보가 아직 없어요.');
-
   return (
     <View style={[compact ? styles.weeklyPlaceholder : styles.scorePlaceholder, style]}>
-      <Text style={styles.placeholderText}>{message}</Text>
-      {error ? (
-        <Pressable accessibilityRole="button" onPress={onRetry} style={styles.retryButton}>
-          <Text style={styles.retryText}>다시 시도</Text>
-        </Pressable>
-      ) : null}
+      <Text style={styles.placeholderText}>건강 정보를 불러오는 중이에요.</Text>
     </View>
   );
 }
@@ -338,12 +302,5 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 13,
     textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 8,
-  },
-  retryText: {
-    color: colors.primary,
-    fontSize: 13,
   },
 });
