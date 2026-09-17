@@ -141,7 +141,7 @@ POST·개별 GET·PATCH 응답의 최상위 `original_file_name`을 표시하면
 
 원본 파일명·목록 API는 공유 개발 서버에 배포되었으며 POST·GET·목록·DB 보존을 실제 서버에서 검증했습니다. [배포·검증 결과](health-documents-deployment-results.md)를 참고하세요.
 
-## 로그인 초기 화면 분기 (로컬 구현, 배포 전)
+## 로그인 초기 화면 분기 (개발 서버 배포 완료)
 
 목록 items의 status는 awaiting_review | confirmed | failed이며 단건 조회와 같은 기준입니다. processing_status=manually_confirmed는 confirmed, 그 외 OCR 실패는 failed, 나머지는 awaiting_review입니다. OCR 결과가 없거나 처리 중인 문서도 awaiting_review입니다. 서버는 페이지 내 소유 문서의 OCR 상태를 일괄 조회하므로 프론트 단건 추가 요청은 필요하지 않습니다.
 

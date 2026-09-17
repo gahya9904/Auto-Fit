@@ -94,3 +94,21 @@ offset=2에서 이번 사용자의 나머지 이미지 한 개와 has_more=false
 요청 필드와 목록 경로, 기존 샘플 OCR 검토·수정·확정·건강 DB 저장도 검증했다.
 합성 계정 하나와 파일 세 개만 사용했고 종료 시 테스트 계정·파일·OCR·건강 데이터는 정리했다.
 실제 문서 판별 모델은 연결하지 않았으며 종류 생략 시 건강검진 샘플 정책을 유지한다.
+
+## 목록 상태·로그인 분기 필터 배포 (2026-09-17 17:11 KST)
+
+- 배포 커밋: [cf108e1](https://github.com/gahya9904/Auto-Fit/commit/cf108e13a4c937cfa2d3f7f8a6811f926adb9e30)
+- Render: [Deploy succeeded / Live](https://dashboard.render.com/web/srv-dafmuen40ujc73c0ermg/deploys/dep-dalq0n0ae00c73c8hcg0), 1분
+- 작업 환경 백엔드 테스트 486개 및 Bandit 통과.
+- 배포 API + 개발 Supabase + Storage 실연동 검사 44개 통과.
+
+GET /api/health-documents의 items.status에 awaiting_review | confirmed | failed를
+추가하고 OpenAPI에 반영했다. 확정 상태를 우선하며 OCR 실패·결과 없음 처리는 단건 조회와
+동일하다. 사용자 소유 문서 페이지의 OCR 상태는 서버에서 일괄 조회한다.
+
+GET /api/health-documents?status=confirmed&limit=1로 로그인 화면을 분기할 수 있다.
+이번 실행에서 생성한 합성 계정으로 미확정 문서만 있을 때 빈 목록, 확정 이후 confirmed 항목
+한 개 반환, 일반 목록의 confirmed/awaiting_review, 합성 문서의 OCR 실패 시 단건과 목록 모두
+failed 반환을 확인했다. 기존 원본명·검토·수정·확정·DB 저장 흐름도 통과했다.
+합성 계정과 생성 파일·OCR·건강 데이터는 종료 시 정리했다. 실제 사용자 데이터나 스키마는
+변경하지 않았고 샘플 OCR 정책을 유지했다.

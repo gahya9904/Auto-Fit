@@ -412,4 +412,4 @@ Render 공유 서버에 배포됐다. `/health` 200과 신규 5개 경로의 인
 | 모델 담당 | 모델 호출 주소 또는 Python 실행 방식, 입력·출력 JSON, 인증·제한·타임아웃 전달 |
 | 공동 | 날짜 기준 통일, 응답 샘플 확인, 실제 화면 시나리오 테스트, 보관기간 기산점 확정 |
 
-건강 문서 목록 상태 추가 (배포 전): items.status는 awaiting_review | confirmed | failed입니다. 로그인 분기는 GET /api/health-documents?status=confirmed&limit=1의 items 유무로 판단합니다. 일반 목록 첫 페이지만으로 전체 확정 데이터 부재를 판단하면 안 됩니다.
+건강 문서 목록 상태 추가 (개발 서버 배포 완료): items.status는 awaiting_review | confirmed | failed입니다. 로그인 분기는 GET /api/health-documents?status=confirmed&limit=1의 items 유무로 판단합니다. 일반 목록 첫 페이지만으로 전체 확정 데이터 부재를 판단하면 안 됩니다.
