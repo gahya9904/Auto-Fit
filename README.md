@@ -7,6 +7,8 @@
 전체 화면 연동은 [프론트엔드 협업용 API 안내](docs/frontend-api-handoff.md),
 [입력 필드 참조](docs/api-input-reference.md), [OpenAPI](docs/openapi.json)를 확인하세요.
 
+홈 화면 로딩 개선용 `GET /api/home` 연동은 [홈 API 전달사항](docs/frontend-home-api-handoff.md)을 확인하세요.
+
 종합 분석의 체성분 추가 지표·판정 기준·출처 팝업 설계와 계산식은
 [종합 분석 팝업 명세](docs/total-analysis-popup-spec.md)를 확인하세요.
 팝업 API 조회·응답 매핑은 [종합 분석 팝업 API](docs/analysis-popup-api-contract.md)를 확인하세요.
@@ -77,6 +79,7 @@ backend/.venv/bin/python -m backend.tests.diet_live_integration \
 ## API
 
 - `GET /health`: FastAPI 실행 상태 확인
+- `GET /api/home`: 본인 이름·최근 건강 점수·이전 평가 대비 변화량을 한 번에 조회
 - `POST /api/test/roundtrip`: Supabase JWT 검증 후 로그인 사용자의 프로필 조회
 - `GET /api/profile`: 로그인 사용자의 기본 프로필·온보딩 상태와 연결된 운동 설정 조회
 - `PATCH /api/profile`: 검증된 JWT의 사용자 ID로 본인 프로필 저장 후 재조회

@@ -6,6 +6,7 @@ from typing import Literal
 from uuid import UUID
 
 import httpx
+from backend.app.http_client import client_scope
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -34,9 +35,11 @@ class AssessmentItem(BaseModel):
     sequence_order: int = Field(ge=0)
 
 
-async def fetch_scores(url: str, headers: dict, user_id: str) -> list[Assessment]:
+async def fetch_scores(
+    url: str, headers: dict, user_id: str, client: httpx.AsyncClient | None = None,
+) -> list[Assessment]:
     try:
-        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+        async with client_scope(client) as client:
             response = await client.get(
                 f"{url}/rest/v1/health_assessments",
                 headers=headers,

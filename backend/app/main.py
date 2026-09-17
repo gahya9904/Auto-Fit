@@ -14,7 +14,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import http_exception_handler
@@ -34,6 +34,8 @@ from backend.app.chat_model import get_model_config
 from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
 from backend.app.chat_rate_limit import ChatRateLimiter
+from backend.app.http_client import client_scope
+from backend.app.home import HomeResponse, build_home_response
 from backend.app.health_documents import create_health_documents_router
 from backend.app.analysis_popups import create_analysis_popups_router
 from backend.app.meal_photos import attach_photos, create_meal_photos_router
@@ -486,6 +488,7 @@ class AuthenticatedUser(BaseModel):
 async def get_current_user(
     authorization: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
+    request: Request = None,
 ) -> AuthenticatedUser:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
@@ -499,7 +502,8 @@ async def get_current_user(
         "Authorization": f"Bearer {token}",
     }
 
-    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+    shared_client = getattr(request.app.state, "supabase_http_client", None) if request else None
+    async with client_scope(shared_client) as client:
         response = await client.get(
             f"{settings.supabase_url}/auth/v1/user",
             headers=headers,
@@ -525,7 +529,9 @@ def service_headers(settings: Settings, *, return_representation: bool = False) 
     return headers
 
 
-async def fetch_profile(user_id: str, settings: Settings) -> dict[str, Any]:
+async def fetch_profile(
+    user_id: str, settings: Settings, client: httpx.AsyncClient | None = None,
+) -> dict[str, Any]:
     params = {
         "select": (
             "user_id,name,nickname,birth_date,gender,target_weight,"
@@ -535,7 +541,7 @@ async def fetch_profile(user_id: str, settings: Settings) -> dict[str, Any]:
         "limit": "1",
     }
 
-    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+    async with client_scope(client) as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/profiles",
             headers=service_headers(settings),
@@ -2760,7 +2766,12 @@ def build_exercise_session_analysis(result: dict[str, Any]) -> dict[str, Any]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_model_config()  # Fail early on invalid opt-in configuration; no network call.
-    yield
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+        app.state.supabase_http_client = client
+        try:
+            yield
+        finally:
+            del app.state.supabase_http_client
 
 
 api_docs_enabled = environment_flag(os.getenv("API_DOCS_ENABLED"), default=True)
@@ -2859,6 +2870,23 @@ async def roundtrip(
         "user_id": user.id,
         "profile": profile,
     }
+
+
+@app.get("/api/home", tags=["Profile"], response_model=HomeResponse)
+async def get_home(
+    request: Request,
+    response: Response,
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> HomeResponse:
+    response.headers["Cache-Control"] = "no-store"
+    shared_client = getattr(request.app.state, "supabase_http_client", None)
+    async with client_scope(shared_client) as client:
+        profile, rows = await asyncio.gather(
+            fetch_profile(user.id, settings, client),
+            fetch_scores(settings.supabase_url, service_headers(settings), user.id, client),
+        )
+    return build_home_response(profile, rows)
 
 
 @app.get("/api/profile", tags=["Profile"])

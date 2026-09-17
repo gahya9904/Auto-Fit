@@ -563,6 +563,55 @@
         }
       }
     },
+    "/api/home": {
+      "get": {
+        "tags": [
+          "Profile"
+        ],
+        "summary": "Get Home",
+        "operationId": "get_home_api_home_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/profile": {
       "get": {
         "tags": [
@@ -4082,6 +4131,120 @@
         "additionalProperties": false,
         "type": "object",
         "title": "HealthScorePreviewRequest"
+      },
+      "HomeHealthScore": {
+        "properties": {
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "total_score": {
+            "type": "integer",
+            "title": "Total Score",
+            "default": 100
+          },
+          "assessed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "score",
+          "assessed_at"
+        ],
+        "title": "HomeHealthScore"
+      },
+      "HomeResponse": {
+        "properties": {
+          "user_name": {
+            "type": "string",
+            "title": "User Name"
+          },
+          "health_score": {
+            "$ref": "#/components/schemas/HomeHealthScore"
+          },
+          "score_change": {
+            "$ref": "#/components/schemas/HomeScoreChange"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_name",
+          "health_score",
+          "score_change"
+        ],
+        "title": "HomeResponse"
+      },
+      "HomeScoreChange": {
+        "properties": {
+          "change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change"
+          },
+          "previous_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Score"
+          },
+          "previous_assessed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Assessed At"
+          },
+          "comparison": {
+            "type": "string",
+            "title": "Comparison",
+            "default": "previous_assessment"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "change",
+          "previous_score",
+          "previous_assessed_at",
+          "message"
+        ],
+        "title": "HomeScoreChange"
       },
       "Interpretation": {
         "properties": {
