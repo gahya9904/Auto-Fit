@@ -34,7 +34,7 @@ OpenAPI는 요청 스키마에 유용하지만 대부분 응답은 아직 `dict[
 | ID | 응답에서 받은 UUID를 재사용. session_id와 exercise_item_id 등 서로 다른 ID를 혼용하지 않음 |
 | 날짜 | `YYYY-MM-DD`; 시각은 timezone 포함 ISO 8601로 전송 |
 | 수치 | 응답은 직접 DB JSON 또는 Decimal 직렬화에 따라 숫자/문자열 가능. 표시 계층에서 안전하게 변환 |
-| 건강 문서 업로드 | `multipart/form-data`, 파일 필드 `file`, 문서 구분 `document_type`; PDF/PNG/JPEG/HEIC, 최대 10 MiB |
+| 건강 문서 업로드 | `multipart/form-data`, 파일 필드 `file`만 필수, `document_type` 생략 시 자동 판별; PDF/PNG/JPEG/HEIC, 최대 10 MiB |
 
 GET은 JSON 본문 없이 호출한다. 아래 표의 `{}`는 빈 객체 본문을 보내야 하는 POST다.
 POST라고 모두 201은 아니다. 코드가 지정한 성공 코드를 표에 명시했다.
@@ -274,17 +274,16 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 
 ## 7. 건강 문서 업로드·검토 (4개)
 
-파일 저장 후 설정된 OCR 어댑터를 동기로 호출한다. URL이 없으면 기본적으로 건강검진/체성분별
-고정 샘플을 `ocr_status=completed`로 반환한다. 실제 OCR 호출 실패는 `failed`로 반환한다. 상세 타입·단위·상태·오류·재업로드 계약은 [건강 문서 API](health-documents-api.md)를 참고한다.
+파일만 전송하면 서버가 문서 종류를 판별하고 응답의 `document_type`에 따라 화면을 분기한다. 실제 OCR 연결 후 판별 불가 시 저장 없이 422 `UNKNOWN_DOCUMENT`/`UNSUPPORTED_DOCUMENT`를 반환한다. URL이 없는 임시 모드는 종류 판별 없이 PDF/이미지 모두 고정 샘플을 반환한다. 종류 생략 시 기본 건강검진 샘플이며 서버 HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE=body_composition 설정으로 체성분 샘플도 테스트한다. 실제 판별은 OCR 서버 연결 후 수행한다. 상세 타입·단위·상태·오류·재업로드 계약은 [건강 문서 API](health-documents-api.md)를 참고한다.
 
 | Method | 경로 | 입력 | 성공 응답 | 코드 |
 |---|---|---|---|---|
-| POST | `/api/health-documents` | multipart `file`, `document_type` | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 201 |
+| POST | `/api/health-documents` | multipart `file` 필수, `document_type` 선택 | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 201 |
 | GET | `/api/health-documents/{uploaded_file_id}` | 경로 UUID | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
 | PATCH | `/api/health-documents/{uploaded_file_id}/ocr-result` | `extracted_data` | `uploaded_file_id, document_type, file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
 | POST | `/api/health-documents/{uploaded_file_id}/confirm` | 본문 없음 | `uploaded_file_id, document_type, status, health_checkup_id, body_composition_id, already_confirmed` | 200 |
 
-- `document_type`: `health_checkup` 또는 `body_composition` (`inbody`가 아님).
+- 응답의 `document_type`: 서버가 결정한 `health_checkup` 또는 `body_composition` (`inbody`가 아님). 업로드·재업로드 요청에서는 생략한다.
 - 업로드 응답의 `extracted_data`는 문서 종류별 명시적 타입이며 Decimal은 문자열로 반환한다.
 - PATCH는 보낸 필드만 변경하며 null은 값을 비운다. 확정 문서 수정은 409다.
 - 확정 전 건강검진은 `checkup_date`, 인바디는 timezone을 포함한 `measured_at`이 필수다.
@@ -294,7 +293,6 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 ```bash
 curl -X POST "$API_BASE/api/health-documents" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -F "document_type=health_checkup" \
   -F "file=@./checkup.pdf"
 ```
 

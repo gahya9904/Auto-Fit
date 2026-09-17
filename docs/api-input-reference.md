@@ -501,7 +501,7 @@ OpenAPI에 명시된 상태 코드: 201, 422. 런타임 인증·상태·DB 오�
 | 필드 | 필수 | 타입 | 조건 |
 |---|---|---|---|
 | file | 예 | binary | PDF, PNG, JPEG, HEIC; 파일 자체 최대 10 MiB |
-| document_type | 예 | string | enum=["health_checkup","body_composition"] |
+| document_type | 아니오 | string 또는 null | 생략 시 파일 내용으로 서버 자동 판별; enum=["health_checkup","body_composition"] |
 
 OpenAPI에 201, 401, 404, 409, 413, 415, 422, 502와 오류 스키마를 정의한다.
 응답 타입·단위·호출 흐름은 [건강 문서 API](health-documents-api.md)를 참고한다.

@@ -1,10 +1,10 @@
 # 건강 문서 업로드·OCR·확정 API
 
-Bearer 인증이 필요합니다. 각 파일은 `POST /api/health-documents`를 한 번 호출합니다. 요청은 multipart/form-data이며 `file`과 `document_type`(`health_checkup` 또는 `body_composition`)을 보냅니다. PDF/PNG/JPEG(JPG)/HEIC, 최대 10 MiB(10,485,760 bytes)를 지원하며 확장자 대신 파일 시그니처로 검사합니다.
+Bearer 인증이 필요합니다. 각 파일은 `POST /api/health-documents`를 한 번 호출합니다. 요청은 multipart/form-data이며 `file`만 보내면 됩니다. `document_type`은 선택 입력이며 기존 클라이언트 호환용입니다. 생략하면 실제 OCR 연결 시 서버가 파일 내용으로 `health_checkup` 또는 `body_composition`을 판별하며, 임시 모드는 아래 샘플 정책을 사용합니다. 빈 문자열 대신 필드 자체를 생략하세요. PDF/PNG/JPEG(JPG)/HEIC, 최대 10 MiB(10,485,760 bytes)를 지원하며 확장자 대신 파일 시그니처로 검사합니다.
 
 ## 업로드와 조회
 
-파일을 비공개 저장소에 저장한 뒤 동기 OCR을 실행합니다. OCR URL이 없으면 기본적으로 문서 종류별 고정 샘플을 `ocr_status=completed`, `status=awaiting_review`, `error=null`로 반환합니다. 샘플은 파일 내용과 무관하며 건강검진 날짜·혈압·혈액검사 값과 체성분 측정 시각·근육량·체지방 값이 포함됩니다. 따라서 실제 OCR 서버 없이 POST → GET → PATCH → confirm을 호출할 수 있습니다. confirm은 수정한 샘플도 실제 DB에 저장합니다. 업로드 성공은 201, 조회 성공은 200입니다. POST와 GET 및 PATCH는 동일한 문서별 응답 스키마를 사용합니다. `document_type`을 discriminator로 타입을 구분합니다.
+실제 OCR 연결 후 종류 생략 시 서버가 동기 판별·추출을 먼저 수행하고 판별된 종류로 파일과 OCR 결과를 저장합니다. 판별 불가 시 저장하지 않고 422 오류를 반환합니다. OCR URL이 없는 임시 모드에서는 실제 종류 판별을 수행하지 않습니다. 지원하는 PDF/PNG/JPEG/HEIC 파일이면 내용과 무관하게 고정 샘플을 `ocr_status=completed`, `status=awaiting_review`, `error=null`로 반환합니다. 종류 생략 시 기본 `health_checkup` 샘플을 사용합니다. 서버 환경 변수 `HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE=body_composition`으로 체성분 샘플을 테스트할 수 있으며 프론트는 계속 파일만 전송합니다. 기존 명시적 `document_type` 지정은 해당 종류 샘플을 반환합니다. 임시 응답의 document_type은 판별 결과가 아니라 샘플 종류입니다. 샘플은 파일 내용과 무관하며 건강검진 날짜·혈압·혈액검사 값과 체성분 측정 시각·근육량·체지방 값이 포함됩니다. 따라서 실제 OCR 서버 없이 POST → GET → PATCH → confirm을 호출할 수 있습니다. confirm은 수정한 샘플도 실제 DB에 저장합니다. 업로드 성공은 201, 조회 성공은 200입니다. POST와 GET 및 PATCH는 동일한 문서별 응답 스키마를 사용합니다. `document_type`을 discriminator로 타입을 구분합니다.
 
 ```json
 {
@@ -108,13 +108,15 @@ HTTP 오류는 아래 형태입니다. 입력값이나 OCR 원문을 오류에 �
 | 413 | FILE_TOO_LARGE | 파일 10 MiB 초과 |
 | 415 | UNSUPPORTED_FILE_TYPE | 지원하지 않는 파일 시그니처 |
 | 422 | VALIDATION_ERROR | 문서 종류/필드/범위/확정 날짜 검증 실패 |
+| 422 | UNKNOWN_DOCUMENT / UNSUPPORTED_DOCUMENT | 실제 OCR 연결 시 종류 판별 불가 또는 지원하지 않는 문서; 저장하지 않음 |
+| 502 | OCR_FAILED / OCR_INVALID_RESPONSE / OCR_NOT_CONFIGURED | 자동 판별 서버 실패/잘못된 응답/설정 없음; 저장하지 않음 |
 | 502 | DATA_SOURCE_ERROR | 저장소/DB 응답 실패 |
 
-OCR 오류는 저장된 문서를 조회할 수 있도록 HTTP 201/200 응답의 `ocr_status=failed`, `error`로 전달합니다. 코드: `OCR_NOT_CONFIGURED`(처리 서버 설정 없음 및 샘플 모드 비활성), `OCR_FAILED`(처리 서버 실패/타임아웃), `DOCUMENT_TYPE_MISMATCH`(종류 불일치), `EXTRACTION_FAILED`(추출 데이터 없음 또는 스키마 검증 실패).
+문서 종류가 결정된 이후 추출 오류는 저장된 문서를 조회할 수 있도록 HTTP 201/200 응답의 `ocr_status=failed`, `error`로 전달합니다. 코드: `OCR_NOT_CONFIGURED`(처리 서버 설정 없음 및 샘플 모드 비활성), `OCR_FAILED`(처리 서버 실패/타임아웃), `DOCUMENT_TYPE_MISMATCH`(종류 불일치), `EXTRACTION_FAILED`(추출 데이터 없음 또는 스키마 검증 실패).
 
 ## 서버 OCR 연결 설정
 
-`HEALTH_DOCUMENT_OCR_URL`은 신뢰할 수 있는 내부 OCR 어댑터의 URL입니다. 선택 설정 `HEALTH_DOCUMENT_OCR_TOKEN`은 이 서버에만 Bearer 토큰으로 전달합니다. Supabase 키나 사용자 인증 토큰은 전달하지 않습니다. 서버는 원본 파일과 document_type을 multipart로 전송하며 최대 60초 대기합니다. 어댑터는 다음 JSON을 반환해야 합니다.
+`HEALTH_DOCUMENT_OCR_URL`은 신뢰할 수 있는 내부 OCR 어댑터의 URL입니다. 선택 설정 `HEALTH_DOCUMENT_OCR_TOKEN`은 이 서버에만 Bearer 토큰으로 전달합니다. Supabase 키나 사용자 인증 토큰은 전달하지 않습니다. 서버는 원본 파일을 multipart로 전송하며 최대 60초 대기합니다. 자동 판별 요청에는 document_type을 보내지 않고 판별·추출을 한 번에 요청합니다. 기존 명시적 지정 요청에만 document_type을 전달합니다. unknown/unsupported 문서는 어댑터가 422를 반환하거나 document_type=unknown/unsupported를 반환해야 합니다. 별도 판별 실패 시 클라이언트에 422를 반환하며 임의 종류로 대체하지 않습니다. 어댑터는 다음 JSON을 반환해야 합니다.
 
 ```json
 {"document_type": "health_checkup", "extracted_data": {"checkup_date": "2026-09-17", "weight_kg": "70"}}
@@ -122,6 +124,6 @@ OCR 오류는 저장된 문서를 조회할 수 있도록 HTTP 201/200 응답의
 
 `HEALTH_DOCUMENT_OCR_MOCK_ENABLED`는 기본 `true`입니다. URL이 없을 때만 샘플을 사용하며, `false`로 설정하면 기존처럼 `OCR_NOT_CONFIGURED`를 반환합니다. 실제 URL이 설정되어 있으면 샘플 설정과 무관하게 실제 OCR을 호출하고, 실제 호출 실패를 샘플로 대체하지 않습니다.
 
-서버가 준비되면 `HEALTH_DOCUMENT_OCR_URL=https://<실제 서버>/ai/ocr`와 필요한 토큰을 설정합니다. 위 응답 형식과 다른 실제 서버 응답은 `_extract_document` 내부에서 DB 필드명으로 매핑하면 됩니다. 프론트의 네 경로와 요청·응답 스키마는 유지합니다. 현재 ai 브랜치의 `fields/extracted_text` 응답은 이 정규화 형식과 다르므로 실제 서버 완성 시 내부 매핑이 필요합니다.
+서버가 준비되면 `HEALTH_DOCUMENT_OCR_URL=https://<실제 서버>/ai/ocr`와 필요한 토큰을 설정합니다. 위 응답 형식과 다른 실제 서버 응답은 내부 OCR 어댑터에서 DB 필드명으로 매핑하면 됩니다. 프론트의 네 경로와 요청·응답 스키마는 유지합니다. 현재 ai 브랜치의 `fields/extracted_text` 응답은 이 정규화 형식과 다르므로 실제 서버 완성 시 내부 매핑이 필요합니다.
 
-OCR 엔진 자체는 저장소에 포함되지 않습니다. 샘플 데이터는 실제 파일 판독 결과가 아닙니다. 이 API는 공유 개발 서버에 배포했고 실제 API 흐름을 검증했습니다. [배포·검증 결과](health-documents-deployment-results.md)를 참고하세요.
+OCR 엔진 자체는 저장소에 포함되지 않습니다. 샘플 데이터는 실제 파일 판독 결과가 아닙니다. 기존 필수 document_type 버전은 공유 개발 서버에서 검증했습니다. 이 문서의 자동 판별 변경은 로컬 구현·검증 기준이며 이전 배포 검증이 새 계약의 배포를 의미하지 않습니다. [배포·검증 결과](health-documents-deployment-results.md)를 참고하세요.

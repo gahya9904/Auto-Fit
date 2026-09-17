@@ -147,8 +147,8 @@ DOCUMENT_ERRORS = {
         409: "DOCUMENT_CONFIRMED / OCR_NOT_READY: 확정 문서 수정 또는 OCR 미완료",
         413: "FILE_TOO_LARGE: 최대 10 MiB",
         415: "UNSUPPORTED_FILE_TYPE: PDF/PNG/JPEG/HEIC만 허용",
-        422: "VALIDATION_ERROR: 종류별 필드/값 오류 또는 확정 필수 날짜 누락",
-        502: "DATA_SOURCE_ERROR: 저장소/DB 호출 실패",
+        422: "VALIDATION_ERROR / UNKNOWN_DOCUMENT / UNSUPPORTED_DOCUMENT: 입력 오류 또는 문서 종류 판별 불가",
+        502: "DATA_SOURCE_ERROR / OCR_FAILED / OCR_INVALID_RESPONSE / OCR_NOT_CONFIGURED: 저장소/DB/OCR 호출 실패",
     }.items()
 }
 
@@ -181,17 +181,8 @@ async def _extract_document(content: bytes, media_type: str, document_type: Docu
         if os.getenv("HEALTH_DOCUMENT_OCR_MOCK_ENABLED", "true").lower() == "true":
             return _mock_extracted_data(document_type), None
         return _empty_extracted_data(document_type), "OCR_NOT_CONFIGURED"
-    headers = {}
-    token = os.getenv("HEALTH_DOCUMENT_OCR_TOKEN", "")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     try:
-        async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
-            response = await client.post(endpoint, headers=headers,
-                files={"file": ("document", content, media_type)},
-                data={"document_type": document_type})
-        response.raise_for_status()
-        result = response.json()
+        result = await _request_ocr(content, media_type, document_type)
         if not isinstance(result, dict):
             return _empty_extracted_data(document_type), "EXTRACTION_FAILED"
         if result.get("document_type") != document_type:
@@ -204,6 +195,53 @@ async def _extract_document(content: bytes, media_type: str, document_type: Docu
         return _empty_extracted_data(document_type), "EXTRACTION_FAILED"
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
         return _empty_extracted_data(document_type), "OCR_FAILED"
+
+
+async def _request_ocr(content: bytes, media_type: str, document_type: DocumentType | None) -> Any:
+    headers = {}
+    if token := os.getenv("HEALTH_DOCUMENT_OCR_TOKEN", ""):
+        headers["Authorization"] = f"Bearer {token}"
+    async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+        response = await client.post(os.environ["HEALTH_DOCUMENT_OCR_URL"], headers=headers,
+            files={"file": ("document", content, media_type)},
+            data={"document_type": document_type} if document_type is not None else {})
+    response.raise_for_status()
+    return response.json()
+
+
+def _classification_error(code: str, message: str, status_code: int = 422) -> HTTPException:
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+async def _auto_extract_document(content: bytes, media_type: str) -> tuple[DocumentType, dict[str, Any], str | None]:
+    if not os.getenv("HEALTH_DOCUMENT_OCR_URL", ""):
+        if os.getenv("HEALTH_DOCUMENT_OCR_MOCK_ENABLED", "true").lower() != "true":
+            raise _classification_error("OCR_NOT_CONFIGURED", "문서 자동 판별 OCR 서버가 설정되지 않았습니다.", 502)
+        detected = os.getenv("HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE", "health_checkup")
+        if detected not in ("health_checkup", "body_composition"):
+            raise _classification_error("OCR_NOT_CONFIGURED", "임시 OCR 문서 종류 설정이 올바르지 않습니다.", 502)
+        return detected, _mock_extracted_data(detected), None
+    try:
+        result = await _request_ocr(content, media_type, None)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 422:
+            # OCR adapters use 422 for unknown/unsupported documents. Never expose their raw payload.
+            raise _classification_error("UNSUPPORTED_DOCUMENT", "지원하는 건강검진/체성분 문서가 아닙니다.") from exc
+        raise _classification_error("OCR_FAILED", "OCR 서버 호출에 실패했습니다. 다시 시도해 주세요.", 502) from exc
+    except (httpx.HTTPError, ValueError):
+        raise _classification_error("OCR_FAILED", "OCR 서버 호출 또는 응답 해석에 실패했습니다.", 502)
+    if not isinstance(result, dict):
+        raise _classification_error("OCR_INVALID_RESPONSE", "OCR 서버 응답 형식이 올바르지 않습니다.", 502)
+    detected = result.get("document_type")
+    if detected in (None, "unknown", "unsupported", "other"):
+        raise _classification_error("UNKNOWN_DOCUMENT", "건강검진 또는 체성분 문서로 판별할 수 없습니다.")
+    if detected not in ("health_checkup", "body_composition"):
+        raise _classification_error("OCR_INVALID_RESPONSE", "OCR 서버가 유효하지 않은 문서 종류를 반환했습니다.", 502)
+    try:
+        validated = _validate_extracted_data(detected, result["extracted_data"], require_measurement_date=False)
+    except (HTTPException, KeyError, TypeError):
+        return detected, _empty_extracted_data(detected), "EXTRACTION_FAILED"
+    return detected, validated, None if any(value is not None for value in validated.values()) else "EXTRACTION_FAILED"
 
 
 def _mock_extracted_data(document_type: DocumentType) -> dict[str, Any]:
@@ -369,11 +407,15 @@ async def _delete_upload_row(uploaded_file_id: UUID, settings: Any) -> None:
 async def _create_document(
     *,
     file: UploadFile,
-    document_type: DocumentType,
+    document_type: DocumentType | None,
     user_id: str,
     settings: Any,
 ) -> dict[str, Any]:
     content, media_type, extension = await _read_validated_upload(file)
+    automatic_result = None
+    if document_type is None:
+        document_type, extracted_data, ocr_error = await _auto_extract_document(content, media_type)
+        automatic_result = extracted_data, ocr_error
     uploaded_file_id = uuid4()
     now = datetime.now(UTC)
     storage_path = f"{user_id}/{now:%Y/%m}/{uploaded_file_id}{extension}"
@@ -416,7 +458,7 @@ async def _create_document(
         await _delete_storage_object(storage_path, settings)
         raise HTTPException(status_code=502, detail="Health document metadata creation failed")
 
-    extracted_data, ocr_error = await _extract_document(content, media_type, document_type)
+    extracted_data, ocr_error = automatic_result if automatic_result is not None else await _extract_document(content, media_type, document_type)
     ocr_payload = {
         "ocr_result_id": str(uuid4()),
         "uploaded_file_id": str(uploaded_file_id),
@@ -571,10 +613,10 @@ def create_health_documents_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api/health-documents", tags=["health-documents"], route_class=HealthDocumentRoute)
 
-    @router.post("", status_code=status.HTTP_201_CREATED, response_model=DocumentResponse, responses=DOCUMENT_ERRORS, description="파일 1개당 호출. 저장 후 동기 OCR 실행. OCR URL 미설정 시 기본적으로 문서 종류별 고정 샘플을 completed로 반환; HEALTH_DOCUMENT_OCR_MOCK_ENABLED=false로 비활성화. 실패도 파일 ID와 ocr_status=failed 반환. 재업로드는 새 ID 생성; 이전 문서는 유지되고 confirm 전에는 분석 DB에 저장되지 않음.")
+    @router.post("", status_code=status.HTTP_201_CREATED, response_model=DocumentResponse, responses=DOCUMENT_ERRORS, description="파일 1개당 호출. document_type 생략 시 서버가 종류 판별과 동기 OCR을 수행해 판별된 document_type과 extracted_data 반환. 판별 불가 시 422 UNKNOWN_DOCUMENT/UNSUPPORTED_DOCUMENT이며 파일/DB에 저장하지 않음. OCR URL 미설정 시 임시 모드는 파일 내용 판별 없이 고정 샘플 반환. 종류 생략 시 HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE(기본 health_checkup) 사용; PDF/PNG/JPEG/HEIC 모두 동일하게 처리. 실제 판별은 OCR 서버 연결 후 수행. 명시적 document_type은 기존 호환 유지. 종류 판별 후 추출 실패는 파일 ID와 ocr_status=failed 반환. 재업로드는 파일만 다시 전송하며 새 ID 생성; 이전 문서는 유지되고 confirm 전에는 분석 DB에 저장되지 않음.")
     async def upload_health_document(
         file: Annotated[UploadFile, File(description="PDF, PNG, JPEG, or HEIC; max 10 MB")],
-        document_type: Annotated[DocumentType, Form()],
+        document_type: Annotated[DocumentType | None, Form(description="선택: 생략하면 파일 내용으로 서버가 자동 판별합니다. 기존 클라이언트 호환을 위한 명시적 종류 지정.")] = None,
         user: Any = Depends(current_user_dependency),
         settings: Any = Depends(settings_dependency),
     ) -> dict[str, Any]:

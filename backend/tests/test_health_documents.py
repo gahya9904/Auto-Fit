@@ -1,4 +1,5 @@
 import asyncio
+from io import BytesIO
 import httpx
 import pytest
 from fastapi import HTTPException, UploadFile
@@ -65,7 +66,6 @@ def test_upload_endpoint_rejects_unknown_document_type() -> None:
 
 def test_upload_validation_uses_magic_bytes_not_filename() -> None:
     # Starlette expects a file-like object; BytesIO keeps this unit test in memory.
-    from io import BytesIO
 
     valid = UploadFile(filename="wrong.txt", file=BytesIO(b"%PDF-1.7\n"))
     content, media_type, extension = asyncio.run(
@@ -370,10 +370,12 @@ def test_document_openapi_has_discriminator_units_and_errors():
     ("health_checkup", "health_checkup_id", "checkup_date"),
     ("body_composition", "body_composition_id", "measured_at"),
 ])
-def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, id_field, date_field):
+@pytest.mark.parametrize("automatic", [False, True])
+def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, id_field, date_field, automatic):
     """Real route/service flow; only external Storage/PostgREST are in memory."""
     monkeypatch.delenv("HEALTH_DOCUMENT_OCR_URL", raising=False)
     monkeypatch.delenv("HEALTH_DOCUMENT_OCR_MOCK_ENABLED", raising=False)
+    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE", document_type)
     rows = {"upload_files": [], "ocr_results": [], "health_checkups": [], "body_compositions": []}
     uploads = []
 
@@ -407,10 +409,12 @@ def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, 
     override_dependencies()
     try:
         client = TestClient(main.app)
-        upload = client.post("/api/health-documents", data={"document_type": document_type},
-            files={"file": ("sample.pdf", b"%PDF-1.7\n", "application/pdf")})
+        content = b"%PDF-1.7\n"
+        upload = client.post("/api/health-documents", data={} if automatic else {"document_type": document_type},
+            files={"file": ("sample.pdf", content, "application/pdf")})
         assert upload.status_code == 201
         initial = upload.json()
+        assert initial["document_type"] == document_type
         assert initial["ocr_status"] == "completed"
         assert initial["error"] is None
         assert initial["extracted_data"][date_field] is not None
@@ -437,5 +441,102 @@ def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, 
         forbidden = client.patch(path + "/ocr-result", json={"extracted_data": {"weight_kg": "68"}})
         assert forbidden.status_code == 409
         assert forbidden.json()["detail"]["code"] == "DOCUMENT_CONFIRMED"
+        if automatic:
+            reupload = client.post("/api/health-documents", files={"file": ("sample.pdf", content, "application/pdf")})
+            assert reupload.status_code == 201
+            assert reupload.json()["uploaded_file_id"] != initial["uploaded_file_id"]
+            assert client.get(path).json()["status"] == "confirmed"
     finally:
         main.app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("content,media_type", [(b"%PDF-1.7\n", "application/pdf"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"),
+    (b"not a recognized health document", "image/heic")])
+def test_mock_auto_upload_uses_sample_without_classifying_content(monkeypatch, content, media_type):
+    monkeypatch.delenv("HEALTH_DOCUMENT_OCR_URL", raising=False)
+    monkeypatch.delenv("HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE", raising=False)
+    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_MOCK_ENABLED", "true")
+    kind, data, error = asyncio.run(health_documents._auto_extract_document(content, media_type))
+    assert kind == "health_checkup"
+    assert data["weight_kg"] == "70"
+    assert error is None
+
+
+@pytest.mark.parametrize("result,code", [
+    ({"document_type": "body_composition", "extracted_data": {"weight_kg": "70"}}, None),
+    ({"document_type": "unknown"}, "UNKNOWN_DOCUMENT"),
+    ({"document_type": "unsupported"}, "UNKNOWN_DOCUMENT"),
+    ({"document_type": "invoice"}, "OCR_INVALID_RESPONSE"),
+    ([], "OCR_INVALID_RESPONSE"),
+])
+def test_remote_auto_detection_sends_file_without_type(monkeypatch, result, code):
+    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_URL", "https://ocr.internal/ai/ocr")
+    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_TOKEN", "ocr-only-token")
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, **kwargs):
+            assert kwargs["data"] == {}
+            assert kwargs["headers"] == {"Authorization": "Bearer ocr-only-token"}
+            assert kwargs["files"]["file"][1] == b"image bytes"
+            return httpx.Response(200, json=result, request=httpx.Request("POST", url))
+    monkeypatch.setattr(health_documents.httpx, "AsyncClient", Client)
+    if code:
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(health_documents._auto_extract_document(b"image bytes", "image/jpeg"))
+        assert exc.value.detail["code"] == code
+    else:
+        kind, data, error = asyncio.run(health_documents._auto_extract_document(b"image bytes", "image/jpeg"))
+        assert kind == "body_composition"
+        assert data["weight_kg"] == "70"
+        assert error is None
+
+
+def test_upload_openapi_document_type_is_optional():
+    spec = main.app.openapi()
+    body = spec["paths"]["/api/health-documents"]["post"]["requestBody"]["content"]["multipart/form-data"]["schema"]
+    schema = spec["components"]["schemas"][body["$ref"].rsplit("/", 1)[-1]]
+    assert schema["required"] == ["file"]
+
+
+def test_auto_detection_disabled_without_server(monkeypatch):
+    monkeypatch.delenv("HEALTH_DOCUMENT_OCR_URL", raising=False)
+    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_MOCK_ENABLED", "false")
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(health_documents._auto_extract_document(b"%PDF-1.7\n", "application/pdf"))
+    assert exc.value.status_code == 502
+    assert exc.value.detail["code"] == "OCR_NOT_CONFIGURED"
+
+
+@pytest.mark.parametrize("failure,status_code,code", [
+    (422, 422, "UNSUPPORTED_DOCUMENT"),
+    (500, 502, "OCR_FAILED"),
+    ("timeout", 502, "OCR_FAILED"),
+])
+def test_remote_classification_failure_never_falls_back_to_mock(monkeypatch, failure, status_code, code):
+    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_URL", "https://ocr.internal/ai/ocr")
+    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_MOCK_ENABLED", "true")
+    async def request(*args):
+        if failure == "timeout":
+            raise httpx.ReadTimeout("OCR timed out")
+        response = httpx.Response(failure, request=httpx.Request("POST", "https://ocr.internal/ai/ocr"))
+        response.raise_for_status()
+    monkeypatch.setattr(health_documents, "_request_ocr", request)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(health_documents._auto_extract_document(b"%PDF-1.7\n", "application/pdf"))
+    assert exc.value.status_code == status_code
+    assert exc.value.detail["code"] == code
+
+
+@pytest.mark.parametrize("data", [{}, {"injected": "field"}, None])
+def test_detected_document_with_invalid_extraction_keeps_type_and_failed_status(monkeypatch, data):
+    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_URL", "https://ocr.internal/ai/ocr")
+    async def request(*args):
+        return {"document_type": "body_composition", "extracted_data": data}
+    monkeypatch.setattr(health_documents, "_request_ocr", request)
+    kind, extracted, error = asyncio.run(health_documents._auto_extract_document(b"image", "image/jpeg"))
+    assert kind == "body_composition"
+    assert error == "EXTRACTION_FAILED"
+    assert all(value is None for value in extracted.values())

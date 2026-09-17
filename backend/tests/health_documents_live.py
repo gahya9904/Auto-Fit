@@ -40,6 +40,12 @@ async def run(api_base: str) -> None:
     async with httpx.AsyncClient(base_url=PROJECT_URL, timeout=30, trust_env=False) as db, \
             httpx.AsyncClient(base_url=API_BASE, timeout=90, trust_env=False) as api:
         try:
+            schema_response = await api.get("/openapi.json")
+            check(schema_response.status_code == 200, "deployed OpenAPI available")
+            schema = schema_response.json()
+            upload_schema = schema["paths"]["/api/health-documents"]["post"]["requestBody"]["content"]["multipart/form-data"]["schema"]
+            upload_fields = schema["components"]["schemas"][upload_schema["$ref"].rsplit("/", 1)[-1]]
+            check(upload_fields["required"] == ["file"], "document_type optional in deployed contract")
             email = f"autofit-health-test-{uuid4().hex}@example.com"
             password = "Af9!" + secrets.token_urlsafe(32)
             created = await db.post("/auth/v1/admin/users", headers=admin, json={
@@ -64,12 +70,19 @@ async def run(api_base: str) -> None:
                 files={"file": ("invalid.pdf", b"not a document", "application/pdf")})
             check(unsupported.status_code == 415 and unsupported.json()["detail"]["code"] == "UNSUPPORTED_FILE_TYPE",
                   "reject unsupported file contents")
+            image_upload = await api.post("/api/health-documents", headers=owner,
+                files={"file": ("synthetic-image.png", b"\x89PNG\r\n\x1a\nsynthetic mock fixture", "image/png")})
+            check(image_upload.status_code == 201, "image upload without document_type")
+            image_result = image_upload.json()
+            file_ids.append(image_result["uploaded_file_id"])
+            check(image_result["document_type"] == "health_checkup" and image_result["ocr_status"] == "completed"
+                  and image_result["extracted_data"]["weight_kg"] == "70", "image returns default sample without classification")
             for kind, table, id_field, date_field in [
                 ("health_checkup", "health_checkups", "health_checkup_id", "checkup_date"),
                 ("body_composition", "body_compositions", "body_composition_id", "measured_at"),
             ]:
                 upload = await api.post("/api/health-documents", headers=owner,
-                    data={"document_type": kind},
+                    data={} if kind == "health_checkup" else {"document_type": kind},
                     files={"file": (f"synthetic-{kind}.pdf", b"%PDF-1.4\n% synthetic mock OCR fixture\n%%EOF", "application/pdf")})
                 check(upload.status_code == 201, f"{kind}: upload")
                 initial = upload.json()
