@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
+from backend.app.diet_timing import timed_http_client
 
 BUCKET = "meal-photos"
 MAX_BYTES = 5 * 1024 * 1024
@@ -53,7 +54,7 @@ async def attach_photos(logs: list[dict[str, Any]], user_id: str, settings: Any)
         log.update(image_storage_path=None, image_url=None, image_url_expires_in=None)
     if not logs:
         return
-    async with httpx.AsyncClient(timeout=20, trust_env=False) as client:
+    async with timed_http_client("meal_photos", timeout=20) as client:
         for log in logs:
             if path := log.get("photo_storage_path"):
                 log.update(await signed_photo(client, path, settings))

@@ -35,6 +35,7 @@ from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
 from backend.app.chat_rate_limit import ChatRateLimiter
 from backend.app.http_client import client_scope
+from backend.app.diet_timing import DietTimingMiddleware, timed_http_client
 from backend.app.home import HomeResponse, build_home_response
 from backend.app.health_documents import create_health_documents_router
 from backend.app.analysis_popups import create_analysis_popups_router
@@ -503,7 +504,7 @@ async def get_current_user(
     }
 
     shared_client = getattr(request.app.state, "supabase_http_client", None) if request else None
-    async with client_scope(shared_client) as client:
+    async with timed_http_client("auth", shared_client) as client:
         response = await client.get(
             f"{settings.supabase_url}/auth/v1/user",
             headers=headers,
@@ -2179,7 +2180,7 @@ async def fetch_diet_recommendation(
         recommendation_params["status"] = "eq.active"
     else:
         recommendation_params["recommendation_date"] = f"eq.{recommendation_date.isoformat()}"
-    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+    async with timed_http_client("recommendation") as client:
         recommendation_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_recommendations",
             headers=service_headers(settings),
@@ -2203,7 +2204,7 @@ async def fetch_diet_recommendation(
         "diet_recommendation_id": f"eq.{recommendation['diet_recommendation_id']}",
         "order": "meal_order.asc",
     }
-    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+    async with timed_http_client("meals") as client:
         meal_response = await client.get(
             f"{settings.supabase_url}/rest/v1/diet_meals",
             headers=service_headers(settings),
@@ -2218,7 +2219,7 @@ async def fetch_diet_recommendation(
     meal_ids = [row["diet_meal_id"] for row in meals]
     foods_by_meal: dict[str, list[dict[str, Any]]] = defaultdict(list)
     if meal_ids:
-        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+        async with timed_http_client("foods") as client:
             food_response = await client.get(
                 f"{settings.supabase_url}/rest/v1/diet_meal_foods",
                 headers=service_headers(settings),
@@ -2243,7 +2244,7 @@ async def fetch_diet_recommendation(
     )
     cached_images: dict[str, dict[str, Any]] = {}
     if menu_image_keys:
-        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+        async with timed_http_client("menu_images") as client:
             image_response = await client.get(
                 f"{settings.supabase_url}/rest/v1/menu_images",
                 headers=service_headers(settings),
@@ -2614,7 +2615,7 @@ async def fetch_meal_logs(
         "and": f"(eaten_at.lt.{end.isoformat()})",
         "order": "eaten_at.desc",
     }
-    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+    async with timed_http_client("meal_logs") as client:
         response = await client.get(
             f"{settings.supabase_url}/rest/v1/meal_logs",
             headers=service_headers(settings),
@@ -2629,7 +2630,7 @@ async def fetch_meal_logs(
     log_ids = [row["meal_log_id"] for row in logs]
     items_by_log: dict[str, list[dict[str, Any]]] = defaultdict(list)
     if log_ids:
-        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+        async with timed_http_client("meal_log_items") as client:
             item_response = await client.get(
                 f"{settings.supabase_url}/rest/v1/meal_log_items",
                 headers=service_headers(settings),
@@ -2841,6 +2842,7 @@ app.add_middleware(
     allowed_hosts=parse_allowed_hosts(os.getenv("BACKEND_ALLOWED_HOSTS")),
 )
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(DietTimingMiddleware)
 app.include_router(create_meal_photos_router(get_current_user, get_settings))
 app.include_router(create_analysis_popups_router(get_current_user, get_settings))
 app.include_router(
