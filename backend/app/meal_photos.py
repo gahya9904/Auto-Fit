@@ -43,9 +43,18 @@ async def signed_photo(client: httpx.AsyncClient, path: str, settings: Any) -> d
         headers=headers(settings), json={"expiresIn": URL_TTL},
     )
     if not response.is_success:
+        logger.warning("[diet-photo] URL signing rejected upstream_status=%s", response.status_code)
         raise HTTPException(502, "Meal photo URL signing failed")
+    try:
+        payload = response.json()
+        signed_url = payload.get("signedURL") if isinstance(payload, dict) else None
+        if not isinstance(signed_url, str) or not signed_url.startswith("/") or signed_url.startswith("//"):
+            raise ValueError("Invalid signed URL")
+    except ValueError:
+        logger.warning("[diet-photo] URL signing returned invalid response upstream_status=%s", response.status_code)
+        raise HTTPException(502, "Meal photo URL signing failed") from None
     return {"image_storage_path": path,
-            "image_url": f"{settings.supabase_url}/storage/v1{response.json()['signedURL']}",
+            "image_url": f"{settings.supabase_url}/storage/v1{signed_url}",
             "image_url_expires_in": URL_TTL}
 
 
