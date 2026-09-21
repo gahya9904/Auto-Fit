@@ -6,7 +6,7 @@ from app.routers.chat_router import router as chat_router
 from app.routers.food_router import router as food_router
 from app.routers.health_router import router as health_router
 from app.routers.ocr_router import router as ocr_router
-
+from app.routers.rag_router import router as rag_router
 
 app = FastAPI(
     title="Healthcare AI Server",
@@ -24,6 +24,7 @@ app.include_router(body_router)
 app.include_router(ocr_router)
 app.include_router(food_router)
 app.include_router(analysis_router)
+app.include_router(rag_router)
 
 
 @app.get("/")

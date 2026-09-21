@@ -7,3 +7,8 @@ pydantic-settings>=2.0.0
 python-multipart>=0.0.9
 joblib>=1.4.0
 scikit-learn>=1.5.0
+numpy
+pandas
+tabpfn
+langgraph
+chromadb
