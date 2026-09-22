@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Dimensions,
   Alert,
@@ -25,6 +25,7 @@ import UserIcon from '@/assets/icons/input/User.svg';
 import CheckIcon from '@/assets/icons/system/Check.svg';
 import { BirthDatePicker, SignUpScreenLayout, SignUpSection } from '@/src/components/auth';
 import { AppTextField, IconButton, SelectField } from '@/src/components/common';
+import { getSignupApiErrorMessage, saveProfile } from '@/src/api/onboarding';
 import { useSignup, type SignupGender } from '@/src/features/signup/SignupContext';
 import { getSignupAuthErrorMessage } from '@/src/features/signup/signupAuthError';
 import { getSupabaseClient } from '@/src/lib/supabase';
@@ -98,7 +99,9 @@ function getValidationMessage({
 
 export default function SignUpStep1Screen() {
   const router = useRouter();
+  const { flow } = useLocalSearchParams<{ flow?: string }>();
   const { draft, updateDraft } = useSignup();
+  const isPostLoginOnboarding = flow === 'post-login';
   const { height: windowHeight } = useWindowDimensions();
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
@@ -112,7 +115,9 @@ export default function SignUpStep1Screen() {
   const [name, setName] = useState(draft.name);
   const [birthday, setBirthday] = useState<Date | undefined>(() => parseBirthDate(draft.birthDate));
   const [birthdayPickerVisible, setBirthdayPickerVisible] = useState(false);
-  const [gender, setGender] = useState<Gender>(draft.gender);
+  const [gender, setGender] = useState<Gender | undefined>(() =>
+    isPostLoginOnboarding ? undefined : draft.gender,
+  );
   const [agreed, setAgreed] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
@@ -179,27 +184,40 @@ export default function SignUpStep1Screen() {
   const goNext = async () => {
     if (submitInFlightRef.current) return;
 
-    const validationMessage = getValidationMessage({
-      email,
-      password,
-      confirmPassword,
-      name,
-      birthday,
-      gender,
-      agreed,
-    });
+    const validationMessage = isPostLoginOnboarding
+      ? !birthday
+        ? '생년월일을 선택해 주세요.'
+        : !gender
+          ? '성별을 선택해 주세요.'
+          : undefined
+      : getValidationMessage({
+          email,
+          password,
+          confirmPassword,
+          name,
+          birthday,
+          gender,
+          agreed,
+        });
     if (validationMessage) {
       Alert.alert('입력 정보를 확인해 주세요', validationMessage);
       return;
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
     const birthDate = formatBirthDateForApi(birthday!);
     submitInFlightRef.current = true;
     setIsSubmitting(true);
     Keyboard.dismiss();
 
     try {
+      if (isPostLoginOnboarding) {
+        await saveProfile({ birthDate, gender: gender! });
+        updateDraft({ birthDate, gender: gender! });
+        router.push({ pathname: '/signup/step3', params: { flow: 'post-login' } });
+        return;
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
       console.log('회원가입 요청 확인', {
         rawEmail: email,
         normalizedEmail,
@@ -223,11 +241,16 @@ export default function SignUpStep1Screen() {
         router.push({ pathname: '/signup/step2', params: { email: normalizedEmail } });
       }
     } catch (error) {
-      console.error('회원가입 시작 실패:', error);
-      Alert.alert(
-        '회원가입을 시작하지 못했습니다',
-        getSignupAuthErrorMessage(error, '잠시 후 다시 시도해 주세요.'),
-      );
+      if (isPostLoginOnboarding) {
+        console.error('소셜 로그인 프로필 저장 실패:', error);
+        Alert.alert('프로필 정보를 저장하지 못했습니다', getSignupApiErrorMessage(error));
+      } else {
+        console.error('회원가입 시작 실패:', error);
+        Alert.alert(
+          '회원가입을 시작하지 못했습니다',
+          getSignupAuthErrorMessage(error, '잠시 후 다시 시도해 주세요.'),
+        );
+      }
     } finally {
       submitInFlightRef.current = false;
       setIsSubmitting(false);
@@ -249,77 +272,83 @@ export default function SignUpStep1Screen() {
       onContinue={goNext}
     >
       <SignUpSection innerStyle={styles.form} top={formTop}>
-        <AppTextField
-          ref={emailRef}
-          accessibilityLabel="이메일"
-          autoCapitalize="none"
-          autoComplete="email"
-          autoCorrect={false}
-          keyboardType="email-address"
-          leftElement={
-            <FieldIcon icon={<EmailIcon color={colors.textNavigator} height={18} width={18} />} />
-          }
-          onChangeText={setEmail}
-          onFocus={() => handleInputFocus('email', emailRef.current)}
-          onSubmitEditing={() => passwordRef.current?.focus()}
-          placeholder="이메일을 입력해주세요"
-          returnKeyType="next"
-          style={styles.textFieldInput}
-          textContentType="emailAddress"
-          value={email}
-        />
-        <AppTextField
-          ref={passwordRef}
-          accessibilityLabel="비밀번호"
-          autoCapitalize="none"
-          autoComplete="new-password"
-          leftElement={
-            <FieldIcon
-              icon={<PasswordIcon color={colors.textNavigator} height={18} width={18} />}
+        {!isPostLoginOnboarding ? (
+          <>
+            <AppTextField
+              ref={emailRef}
+              accessibilityLabel="이메일"
+              autoCapitalize="none"
+              autoComplete="email"
+              autoCorrect={false}
+              keyboardType="email-address"
+              leftElement={
+                <FieldIcon
+                  icon={<EmailIcon color={colors.textNavigator} height={18} width={18} />}
+                />
+              }
+              onChangeText={setEmail}
+              onFocus={() => handleInputFocus('email', emailRef.current)}
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              placeholder="이메일을 입력해주세요"
+              returnKeyType="next"
+              style={styles.textFieldInput}
+              textContentType="emailAddress"
+              value={email}
             />
-          }
-          onChangeText={setPassword}
-          onFocus={() => handleInputFocus('password', passwordRef.current)}
-          onSubmitEditing={() => confirmPasswordRef.current?.focus()}
-          placeholder="비밀번호를 입력해주세요"
-          returnKeyType="next"
-          rightElement={
-            <PasswordVisibilityButton
-              onPress={() => setPasswordVisible((visible) => !visible)}
-              visible={passwordVisible}
+            <AppTextField
+              ref={passwordRef}
+              accessibilityLabel="비밀번호"
+              autoCapitalize="none"
+              autoComplete="new-password"
+              leftElement={
+                <FieldIcon
+                  icon={<PasswordIcon color={colors.textNavigator} height={18} width={18} />}
+                />
+              }
+              onChangeText={setPassword}
+              onFocus={() => handleInputFocus('password', passwordRef.current)}
+              onSubmitEditing={() => confirmPasswordRef.current?.focus()}
+              placeholder="비밀번호를 입력해주세요"
+              returnKeyType="next"
+              rightElement={
+                <PasswordVisibilityButton
+                  onPress={() => setPasswordVisible((visible) => !visible)}
+                  visible={passwordVisible}
+                />
+              }
+              secureTextEntry={!passwordVisible}
+              style={styles.textFieldInput}
+              textContentType="newPassword"
+              value={password}
             />
-          }
-          secureTextEntry={!passwordVisible}
-          style={styles.textFieldInput}
-          textContentType="newPassword"
-          value={password}
-        />
-        <AppTextField
-          ref={confirmPasswordRef}
-          accessibilityLabel="비밀번호 확인"
-          autoCapitalize="none"
-          autoComplete="new-password"
-          leftElement={
-            <FieldIcon
-              icon={<PasswordIcon color={colors.textNavigator} height={18} width={18} />}
+            <AppTextField
+              ref={confirmPasswordRef}
+              accessibilityLabel="비밀번호 확인"
+              autoCapitalize="none"
+              autoComplete="new-password"
+              leftElement={
+                <FieldIcon
+                  icon={<PasswordIcon color={colors.textNavigator} height={18} width={18} />}
+                />
+              }
+              onChangeText={setConfirmPassword}
+              onFocus={() => handleInputFocus('confirm-password', confirmPasswordRef.current)}
+              onSubmitEditing={() => nameRef.current?.focus()}
+              placeholder="비밀번호를 다시 입력해주세요"
+              returnKeyType="next"
+              rightElement={
+                <PasswordVisibilityButton
+                  onPress={() => setConfirmPasswordVisible((visible) => !visible)}
+                  visible={confirmPasswordVisible}
+                />
+              }
+              secureTextEntry={!confirmPasswordVisible}
+              style={styles.textFieldInput}
+              textContentType="newPassword"
+              value={confirmPassword}
             />
-          }
-          onChangeText={setConfirmPassword}
-          onFocus={() => handleInputFocus('confirm-password', confirmPasswordRef.current)}
-          onSubmitEditing={() => nameRef.current?.focus()}
-          placeholder="비밀번호를 다시 입력해주세요"
-          returnKeyType="next"
-          rightElement={
-            <PasswordVisibilityButton
-              onPress={() => setConfirmPasswordVisible((visible) => !visible)}
-              visible={confirmPasswordVisible}
-            />
-          }
-          secureTextEntry={!confirmPasswordVisible}
-          style={styles.textFieldInput}
-          textContentType="newPassword"
-          value={confirmPassword}
-        />
+          </>
+        ) : null}
         <SelectField
           accessibilityLabel="생년월일 선택"
           fieldStyle={styles.selectField}
@@ -334,21 +363,23 @@ export default function SignUpStep1Screen() {
           valueStyle={styles.selectFieldText}
           value={birthday ? formatBirthday(birthday) : undefined}
         />
-        <AppTextField
-          ref={nameRef}
-          accessibilityLabel="이름"
-          autoComplete="name"
-          leftElement={
-            <FieldIcon icon={<UserIcon color={colors.textNavigator} height={17} width={17} />} />
-          }
-          onChangeText={setName}
-          onFocus={() => handleInputFocus('name', nameRef.current)}
-          placeholder="이름을 입력해주세요"
-          returnKeyType="done"
-          style={styles.textFieldInput}
-          textContentType="name"
-          value={name}
-        />
+        {!isPostLoginOnboarding ? (
+          <AppTextField
+            ref={nameRef}
+            accessibilityLabel="이름"
+            autoComplete="name"
+            leftElement={
+              <FieldIcon icon={<UserIcon color={colors.textNavigator} height={17} width={17} />} />
+            }
+            onChangeText={setName}
+            onFocus={() => handleInputFocus('name', nameRef.current)}
+            placeholder="이름을 입력해주세요"
+            returnKeyType="done"
+            style={styles.textFieldInput}
+            textContentType="name"
+            value={name}
+          />
+        ) : null}
         <View style={styles.genderField}>
           <Text style={styles.genderLabel}>성별</Text>
           <View style={styles.genderActions}>
@@ -378,21 +409,23 @@ export default function SignUpStep1Screen() {
             />
           </View>
         </View>
-        <Pressable
-          accessibilityLabel="모든 약관 동의"
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: agreed }}
-          onPress={() => setAgreed((value) => !value)}
-          style={({ pressed }) => [styles.termsField, pressed && styles.pressed]}
-        >
-          <View style={styles.termsLeft}>
-            <View style={[styles.checkbox, agreed && styles.checkboxSelected]}>
-              {agreed ? <CheckIcon color={colors.primaryDark} height={11} width={11} /> : null}
+        {!isPostLoginOnboarding ? (
+          <Pressable
+            accessibilityLabel="모든 약관 동의"
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: agreed }}
+            onPress={() => setAgreed((value) => !value)}
+            style={({ pressed }) => [styles.termsField, pressed && styles.pressed]}
+          >
+            <View style={styles.termsLeft}>
+              <View style={[styles.checkbox, agreed && styles.checkboxSelected]}>
+                {agreed ? <CheckIcon color={colors.primaryDark} height={11} width={11} /> : null}
+              </View>
+              <Text style={styles.termsText}>모든 약관에 동의합니다</Text>
             </View>
-            <Text style={styles.termsText}>모든 약관에 동의합니다</Text>
-          </View>
-          <DownIcon color={colors.textSecondary} height={17} width={17} />
-        </Pressable>
+            <DownIcon color={colors.textSecondary} height={17} width={17} />
+          </Pressable>
+        ) : null}
       </SignUpSection>
       <BirthDatePicker
         maximumDate={new Date()}

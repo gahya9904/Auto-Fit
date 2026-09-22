@@ -22,7 +22,7 @@ let inFlight: Promise<ChatSessionSnapshot> | null = null;
 
 function logDuration(label: string, startedAt: number) {
   if (__DEV__) {
-    console.info(`[ChatPrefetch] ${label}: ${Date.now() - startedAt}ms`);
+    //console.info(`[ChatPrefetch] ${label}: ${Date.now() - startedAt}ms`);
   }
 }
 
@@ -102,7 +102,7 @@ export function prefetchActiveChat() {
       };
       return snapshot;
     } catch (error) {
-      if (__DEV__) console.warn('[ChatPrefetch] background prefetch failed', error);
+      //if (__DEV__) console.warn('[ChatPrefetch] background prefetch failed', error);
       snapshot = { ...snapshot, status: 'error' };
       return snapshot;
     } finally {

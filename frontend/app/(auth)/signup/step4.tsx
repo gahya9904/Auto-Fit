@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ComponentType, type RefObject } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Alert,
   Dimensions,
@@ -30,6 +30,7 @@ import {
   type ExerciseGoalType,
 } from '@/src/api/onboarding';
 import { SignUpScreenLayout, SignUpSection } from '@/src/components/auth';
+import { getPostLoginDestination } from '@/src/features/auth/postLoginDestination';
 import {
   useSignup,
   type SignupExerciseExperience,
@@ -112,6 +113,7 @@ const exerciseGoalApiMap: Record<ExerciseGoal, ExerciseGoalType> = {
 
 export default function SignUpStep4Screen() {
   const router = useRouter();
+  const { flow } = useLocalSearchParams<{ flow?: string }>();
   const { draft, resetDraft, updateDraft } = useSignup();
   const { height: windowHeight } = useWindowDimensions();
   const customGoalInputRef = useRef<TextInput>(null);
@@ -125,6 +127,7 @@ export default function SignUpStep4Screen() {
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [keyboardContentOffset, setKeyboardContentOffset] = useState(0);
   const [isCompleting, setIsCompleting] = useState(false);
+  const isPostLoginOnboarding = flow === 'post-login';
   const screenHeight = Dimensions.get('screen').height;
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : screenHeight;
   const heightProgress = Math.max(
@@ -198,7 +201,7 @@ export default function SignUpStep4Screen() {
     }
     const goalType = exerciseGoalApiMap[exerciseGoal];
     const customGoalForRequest = exerciseGoal === 'custom' ? trimmedCustomGoal : null;
-    if (!draft.name || !draft.birthDate) {
+    if (!isPostLoginOnboarding && (!draft.name || !draft.birthDate)) {
       Alert.alert('회원가입 정보가 없습니다', 'Step1부터 회원가입 정보를 다시 입력해 주세요.');
       router.replace('/signup/step1');
       return;
@@ -209,15 +212,17 @@ export default function SignUpStep4Screen() {
     Keyboard.dismiss();
     try {
       updateDraft({ exerciseGoal, exerciseExperience, customGoal: trimmedCustomGoal });
-      await saveProfile({
-        name: draft.name,
-        birthDate: draft.birthDate,
-        gender: draft.gender,
-      });
+      if (!isPostLoginOnboarding) {
+        await saveProfile({
+          name: draft.name,
+          birthDate: draft.birthDate!,
+          gender: draft.gender,
+        });
+      }
       await saveExercisePreferences(goalType, exerciseExperience, customGoalForRequest);
       await completeOnboarding();
       resetDraft();
-      router.replace('/login');
+      router.replace(isPostLoginOnboarding ? await getPostLoginDestination() : '/login');
     } catch (error) {
       console.error('회원가입 완료 처리 실패:', error);
       Alert.alert('회원가입을 완료하지 못했습니다', getSignupApiErrorMessage(error));

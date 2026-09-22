@@ -4,8 +4,12 @@ export type ExerciseGoalType =
   'weight_loss' | 'muscle_gain' | 'endurance' | 'maintenance' | 'rehabilitation' | 'other';
 export type ExerciseExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
 
+export type OnboardingStatusResponse = {
+  completed: boolean;
+};
+
 interface ProfileInput {
-  name: string;
+  name?: string;
   birthDate: string;
   gender: 'male' | 'female';
 }
@@ -31,7 +35,7 @@ const allergyAliases: Record<string, string[]> = {
   nuts: ['nuts', 'tree nuts', '견과류'],
   wheat: ['wheat', 'gluten', '밀', '밀(글루텐)'],
   buckwheat: ['buckwheat', '메밀'],
-  soybean: ['soybean', 'soy', '대두', '콩(대두)'],
+  soybean: ['soybean', 'soy', '대두', '콩', '콩(대두)'],
   peach: ['peach', '복숭아'],
   fish: ['fish', '생선'],
   crab: ['crab', 'crustacean', '갑각류'],
@@ -59,7 +63,11 @@ function catalogMatches(item: AllergyCatalogItem, allergen: string) {
 export async function saveProfile({ name, birthDate, gender }: ProfileInput) {
   return apiRequest('/api/profile', {
     method: 'PATCH',
-    body: JSON.stringify({ name, birth_date: birthDate, gender }),
+    body: JSON.stringify({
+      ...(name === undefined ? {} : { name }),
+      birth_date: birthDate,
+      gender,
+    }),
   });
 }
 
@@ -111,6 +119,10 @@ export async function completeOnboarding() {
     method: 'POST',
     body: JSON.stringify({}),
   });
+}
+
+export function getOnboardingStatus() {
+  return apiRequest<OnboardingStatusResponse>('/api/onboarding/status');
 }
 
 export function getSignupApiErrorMessage(error: unknown) {

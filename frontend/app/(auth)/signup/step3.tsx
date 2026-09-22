@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ComponentType } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Alert,
   Dimensions,
@@ -78,6 +78,7 @@ const signUpBrandVisualHeight = 144;
 
 export default function SignUpStep3Screen() {
   const router = useRouter();
+  const { flow } = useLocalSearchParams<{ flow?: string }>();
   const { draft, updateDraft } = useSignup();
   const { height: windowHeight } = useWindowDimensions();
   const otherAllergyInputRef = useRef<TextInput>(null);
@@ -171,7 +172,11 @@ export default function SignUpStep3Screen() {
     try {
       await saveAllergies(selectedAllergens, otherAllergy);
       updateDraft({ selectedAllergens, otherAllergy: otherAllergy.trim() });
-      router.push('/signup/step4');
+      router.push(
+        flow === 'post-login'
+          ? { pathname: '/signup/step4', params: { flow: 'post-login' } }
+          : '/signup/step4',
+      );
     } catch (error) {
       console.error('알레르기 저장 실패:', error);
       Alert.alert('알레르기 정보를 저장하지 못했습니다', getSignupApiErrorMessage(error));
