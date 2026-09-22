@@ -5,10 +5,13 @@ import {
   BackHandler,
   Dimensions,
   Image,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
   type ImageSourcePropType,
@@ -20,6 +23,7 @@ import BarbellIcon from '@/assets/icons/deco/Barbell.svg';
 import FireIcon from '@/assets/icons/deco/Fire.svg';
 import ClockIcon from '@/assets/icons/input/Clock.svg';
 import LightbulbIcon from '@/assets/icons/system/Lightbulb.svg';
+import CheckIcon from '@/assets/icons/system/Check.svg';
 import SpeakerHighIcon from '@/assets/icons/system/SpeakerSimpleHigh.svg';
 import SpeakerSlashIcon from '@/assets/icons/system/SpeakerSimpleSlash.svg';
 import WarningIcon from '@/assets/icons/system/WarningCircle.svg';
@@ -52,6 +56,18 @@ const skipBadgeImage = require('@/assets/images/illustrations/exercise/Skip_Badg
 
 const referenceHeight = 917;
 const minimumScreenHeight = 740;
+
+type DiscomfortFeedbackType = 'pain' | 'fatigue' | 'dizziness' | 'other';
+type FollowUpChoice = 'adjust' | 'end';
+
+const discomfortFeedbackOptions: { label: string; value: DiscomfortFeedbackType }[] = [
+  { label: '통증 증가', value: 'pain' },
+  { label: '피로 증가', value: 'fatigue' },
+  { label: '어지럼', value: 'dizziness' },
+  { label: '기타', value: 'other' },
+];
+
+const painAreaOptions = ['무릎', '허리', '어깨', '가슴', '전신', '기타'];
 
 function formatClock(totalSeconds: number, spaced = false) {
   const safeSeconds = Math.max(0, Math.floor(totalSeconds));
@@ -90,6 +106,7 @@ export default function ExerciseSessionScreen() {
     togglePause,
   } = useExerciseSession();
   const [isCompleting, setIsCompleting] = useState(false);
+  const [discomfortRecordVisible, setDiscomfortRecordVisible] = useState(false);
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
   const heightProgress = Math.max(
     0,
@@ -131,6 +148,7 @@ export default function ExerciseSessionScreen() {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (skipConfirmationVisible) closeSkipConfirmation();
       else if (exitConfirmationVisible) closeExitConfirmation();
+      else if (discomfortRecordVisible) setDiscomfortRecordVisible(false);
       else openExitConfirmation();
       return true;
     });
@@ -138,6 +156,7 @@ export default function ExerciseSessionScreen() {
   }, [
     closeExitConfirmation,
     closeSkipConfirmation,
+    discomfortRecordVisible,
     exitConfirmationVisible,
     hasSession,
     openExitConfirmation,
@@ -212,6 +231,7 @@ export default function ExerciseSessionScreen() {
         cycleCountSpeed={cycleCountSpeed}
         exercise={currentExercise}
         layout={layout}
+        onRecordDiscomfort={() => setDiscomfortRecordVisible(true)}
         onSkip={openSkipConfirmation}
         session={session}
         toggleGuide={toggleGuide}
@@ -229,6 +249,12 @@ export default function ExerciseSessionScreen() {
         togglePause={togglePause}
       />
       {content}
+      {discomfortRecordVisible ? (
+        <DiscomfortRecordModal
+          contentHeight={layout.contentHeight}
+          onClose={() => setDiscomfortRecordVisible(false)}
+        />
+      ) : null}
       {session.skipConfirmationVisible ? (
         <ConfirmationModal
           cancelLabel="취소"
@@ -323,6 +349,7 @@ function ExerciseContent({
   cycleCountSpeed,
   exercise,
   layout,
+  onRecordDiscomfort,
   onSkip,
   session,
   toggleGuide,
@@ -332,6 +359,7 @@ function ExerciseContent({
   cycleCountSpeed: () => void;
   exercise: ExerciseSessionExercise;
   layout: SessionLayout;
+  onRecordDiscomfort: () => void;
   onSkip: () => void;
   session: ExerciseSessionState;
   toggleGuide: () => void;
@@ -369,6 +397,7 @@ function ExerciseContent({
       <TipCard height={layout.tipHeight} instruction={exercise.instruction} top={layout.tipTop} />
       <ExerciseControls
         onCompleteSet={completeCurrentSet}
+        onRecordDiscomfort={onRecordDiscomfort}
         onSkip={onSkip}
         set={session.currentSet}
         totalSets={exercise.totalSets}
@@ -549,12 +578,14 @@ function TipCard({
 
 function ExerciseControls({
   onCompleteSet,
+  onRecordDiscomfort,
   onSkip,
   set,
   totalSets,
   top,
 }: {
   onCompleteSet: () => void;
+  onRecordDiscomfort: () => void;
   onSkip: () => void;
   set: number;
   totalSets: number;
@@ -565,9 +596,9 @@ function ExerciseControls({
   return (
     <View style={[styles.controls, { top }]}>
       <View style={styles.controlRow}>
-        <View style={styles.secondaryControl}>
+        <Pressable onPress={onRecordDiscomfort} style={styles.secondaryControl}>
           <Text style={styles.secondaryControlText}>불편함 기록</Text>
-        </View>
+        </Pressable>
         <Pressable onPress={onCompleteSet} style={styles.primaryControl}>
           <Text style={styles.primaryControlText}>{isLastSet ? '세트 완료' : '다음'}</Text>
         </Pressable>
@@ -834,6 +865,311 @@ function AllCompletedContent({
   );
 }
 
+function DiscomfortRecordModal({
+  contentHeight,
+  onClose,
+}: {
+  contentHeight: number;
+  onClose: () => void;
+}) {
+  const [selectedFeedbackType, setSelectedFeedbackType] = useState<DiscomfortFeedbackType>('pain');
+  const [selectedPainAreas, setSelectedPainAreas] = useState<string[]>([]);
+  const [customPainArea, setCustomPainArea] = useState('');
+  const [customPainAreaDialogVisible, setCustomPainAreaDialogVisible] = useState(false);
+  const [painLevel, setPainLevel] = useState(6);
+  const [fatigueLevel, setFatigueLevel] = useState(6);
+  const [dizzinessLevel, setDizzinessLevel] = useState(6);
+  const [otherDescription, setOtherDescription] = useState('');
+  const [followUpChoice, setFollowUpChoice] = useState<FollowUpChoice>('adjust');
+
+  const selectFeedbackType = (type: DiscomfortFeedbackType) => {
+    setSelectedFeedbackType(type);
+    setSelectedPainAreas([]);
+    setCustomPainArea('');
+    setPainLevel(6);
+    setFatigueLevel(6);
+    setDizzinessLevel(6);
+    setOtherDescription('');
+  };
+
+  const togglePainArea = (area: string) => {
+    if (area === '기타') {
+      setCustomPainAreaDialogVisible(true);
+      return;
+    }
+
+    setSelectedPainAreas((current) =>
+      current.includes(area) ? current.filter((value) => value !== area) : [...current, area],
+    );
+  };
+
+  const confirmCustomPainArea = () => {
+    const trimmedArea = customPainArea.trim();
+    if (!trimmedArea) {
+      Alert.alert('부위를 입력해 주세요.');
+      return;
+    }
+
+    setSelectedPainAreas((current) => [
+      ...current.filter((area) => area !== '기타'),
+      '기타',
+    ]);
+    setCustomPainAreaDialogVisible(false);
+  };
+
+  const hasCustomPainArea = selectedPainAreas.includes('기타');
+  const feedbackLevel =
+    selectedFeedbackType === 'pain'
+      ? painLevel
+      : selectedFeedbackType === 'fatigue'
+        ? fatigueLevel
+        : dizzinessLevel;
+  const feedbackLevelLabel =
+    selectedFeedbackType === 'pain'
+      ? '현재 통증 정도'
+      : selectedFeedbackType === 'fatigue'
+        ? '현재 피로 정도'
+        : '현재 불편한 정도';
+  const startLabel = selectedFeedbackType === 'pain' ? '통증 없음' : selectedFeedbackType === 'fatigue' ? '피로 없음' : '불편하지 않음';
+  const endLabel = selectedFeedbackType === 'pain' ? '매우 심함' : selectedFeedbackType === 'fatigue' ? '매우 피곤함' : '매우 불편함';
+  const setFeedbackLevel =
+    selectedFeedbackType === 'pain'
+      ? setPainLevel
+      : selectedFeedbackType === 'fatigue'
+        ? setFatigueLevel
+        : setDizzinessLevel;
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.select({ android: 'height', ios: 'padding' })}
+      style={[styles.discomfortModalLayer, { height: contentHeight }]}
+    >
+      <Pressable onPress={onClose} style={styles.modalDim} />
+      <View style={[styles.discomfortModalCard, { height: Math.max(700, contentHeight - 60) }]}>
+        <View style={styles.discomfortModalHeader}>
+          <Text style={styles.discomfortModalEyebrow}>운동 중 상태 변화</Text>
+          <Text style={styles.discomfortModalTitle}>지금 달라진 상태를{`\n`}알려주세요</Text>
+        </View>
+        <ScrollView
+          contentContainerStyle={styles.discomfortModalContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <DiscomfortSectionTitle title="어떤 변화가 있나요?" />
+          <View style={styles.discomfortTypeGrid}>
+            {discomfortFeedbackOptions.map((option) => {
+              const selected = selectedFeedbackType === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => selectFeedbackType(option.value)}
+                  style={[styles.discomfortTypeChip, selected && styles.discomfortTypeChipSelected]}
+                >
+                  {selected ? <CheckIcon color={colors.primaryDark} height={13} width={13} /> : null}
+                  <Text
+                    style={[
+                      styles.discomfortTypeChipText,
+                      selected && styles.discomfortTypeChipTextSelected,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {selectedFeedbackType === 'other' ? (
+            <View style={styles.discomfortSection}>
+              <DiscomfortSectionTitle title="어떤 변화가 있었나요?" />
+              <TextInput
+                maxLength={100}
+                multiline
+                onChangeText={setOtherDescription}
+                placeholder="느껴지는 불편함을 입력해주세요."
+                placeholderTextColor={colors.textDisabled}
+                style={styles.discomfortTextInput}
+                textAlignVertical="top"
+                value={otherDescription}
+              />
+              <Text style={styles.discomfortInputHint}>
+                예시 : 메스꺼움, 식은땀, 두근거림, 손발 저림 등
+              </Text>
+              <Text style={styles.discomfortCharacterCount}>{otherDescription.length} / 100</Text>
+            </View>
+          ) : (
+            <View style={styles.discomfortSection}>
+              <View style={styles.discomfortLevelHeader}>
+                <DiscomfortSectionTitle title={feedbackLevelLabel} />
+                <Text style={styles.discomfortLevelValue}>{feedbackLevel}</Text>
+              </View>
+              <DiscomfortLevelSlider
+                endLabel={endLabel}
+                onChange={setFeedbackLevel}
+                startLabel={startLabel}
+                value={feedbackLevel}
+              />
+              {selectedFeedbackType === 'pain' ? (
+                <View style={styles.painAreaSection}>
+                  <View style={styles.painAreaHeading}>
+                    <DiscomfortSectionTitle title="변화가 느껴지는 부위" />
+                    <Text style={styles.painAreaSubheading}>(복수 선택 가능)</Text>
+                  </View>
+                  <View style={styles.painAreaGrid}>
+                    {painAreaOptions.map((area) => {
+                      const selected = selectedPainAreas.includes(area);
+                      const displayLabel =
+                        area === '기타' && hasCustomPainArea
+                          ? `기타 · ${customPainArea}`
+                          : area;
+                      return (
+                        <Pressable
+                          key={area}
+                          onPress={() => togglePainArea(area)}
+                          style={[styles.painAreaChip, selected && styles.painAreaChipSelected]}
+                        >
+                          <Text
+                            numberOfLines={1}
+                            style={[styles.painAreaChipText, selected && styles.painAreaChipTextSelected]}
+                          >
+                            {displayLabel}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          )}
+
+          <View style={styles.discomfortSection}>
+            <DiscomfortSectionTitle title="남은 운동을 어떻게 할까요?" />
+            <View style={styles.followUpChoices}>
+              <FollowUpChoiceButton
+                label="운동 조정하기"
+                onPress={() => setFollowUpChoice('adjust')}
+                selected={followUpChoice === 'adjust'}
+              />
+              <FollowUpChoiceButton
+                label="오늘 운동 종료"
+                onPress={() => setFollowUpChoice('end')}
+                selected={followUpChoice === 'end'}
+              />
+            </View>
+          </View>
+          <View style={styles.discomfortInfoCard}>
+            <View style={styles.discomfortInfoIcon}>
+              <LightbulbIcon color={colors.primaryDark} height={25} width={25} />
+            </View>
+            <View style={styles.discomfortInfoCopy}>
+              <Text style={styles.discomfortInfoTitle}>맞춤 조정 안내</Text>
+              <Text style={styles.discomfortInfoText}>
+                입력 내용 기반으로 남은 운동 강도와 횟수를 자동으로 조정해드려요.
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
+        <Pressable onPress={onClose} style={styles.discomfortSubmitButton}>
+          <View style={styles.discomfortSubmitIcon}>
+            <CheckIcon color={colors.primaryDark} height={13} width={13} />
+          </View>
+          <Text style={styles.discomfortSubmitText}>
+            {followUpChoice === 'adjust' ? '남은 운동 조정하기' : '오늘 운동 종료'}
+          </Text>
+        </Pressable>
+      </View>
+      {customPainAreaDialogVisible ? (
+        <View style={styles.customPainAreaLayer}>
+          <Pressable
+            onPress={() => setCustomPainAreaDialogVisible(false)}
+            style={styles.customPainAreaDim}
+          />
+          <View style={styles.customPainAreaDialog}>
+            <Text style={styles.customPainAreaTitle}>불편한 부위를 입력해주세요</Text>
+            <Text style={styles.customPainAreaDescription}>
+              목록에 없는 부위를 직접 입력할 수 있어요.
+            </Text>
+            <TextInput
+              autoFocus
+              maxLength={20}
+              onChangeText={setCustomPainArea}
+              placeholder="예: 손목, 팔꿈치, 목"
+              placeholderTextColor={colors.textDisabled}
+              style={styles.customPainAreaInput}
+              value={customPainArea}
+            />
+            <Text style={styles.customPainAreaCount}>{customPainArea.length} / 20</Text>
+            <View style={styles.customPainAreaButtons}>
+              <Pressable
+                onPress={() => setCustomPainAreaDialogVisible(false)}
+                style={styles.customPainAreaCancelButton}
+              >
+                <Text style={styles.customPainAreaCancelText}>취소</Text>
+              </Pressable>
+              <Pressable onPress={confirmCustomPainArea} style={styles.customPainAreaConfirmButton}>
+                <Text style={styles.customPainAreaConfirmText}>확인</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
+    </KeyboardAvoidingView>
+  );
+}
+
+function DiscomfortSectionTitle({ title }: { title: string }) {
+  return <Text style={styles.discomfortSectionTitle}>{title}</Text>;
+}
+
+function DiscomfortLevelSlider({
+  endLabel,
+  onChange,
+  startLabel,
+  value,
+}: {
+  endLabel: string;
+  onChange: (value: number) => void;
+  startLabel: string;
+  value: number;
+}) {
+  const percentage = ((value - 1) / 9) * 100;
+  return (
+    <View>
+      <View style={styles.discomfortSliderTrack}>
+        <View style={[styles.discomfortSliderFill, { width: `${percentage}%` }]} />
+        <View pointerEvents="none" style={[styles.discomfortSliderThumb, { left: `${percentage}%` }]} />
+        <View style={styles.discomfortSliderTouches}>
+          {Array.from({ length: 10 }, (_, index) => (
+            <Pressable key={index + 1} onPress={() => onChange(index + 1)} style={styles.discomfortSliderTouch} />
+          ))}
+        </View>
+      </View>
+      <View style={styles.discomfortSliderLabels}>
+        <Text style={styles.discomfortSliderLabel}>{startLabel}</Text>
+        <Text style={styles.discomfortSliderLabel}>{endLabel}</Text>
+      </View>
+    </View>
+  );
+}
+
+function FollowUpChoiceButton({
+  label,
+  onPress,
+  selected,
+}: {
+  label: string;
+  onPress: () => void;
+  selected: boolean;
+}) {
+  return (
+    <Pressable onPress={onPress} style={[styles.followUpChoice, selected && styles.followUpChoiceSelected]}>
+      {selected ? <CheckIcon color={colors.primaryDark} height={16} width={16} /> : null}
+      <Text style={[styles.followUpChoiceText, selected && styles.followUpChoiceTextSelected]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function ConfirmationModal({
   cancelLabel = '계속하기',
   confirmLabel,
@@ -933,8 +1269,273 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   controlRow: { flexDirection: 'row', gap: 10, width: '100%' },
+  customPainAreaButtons: { flexDirection: 'row', gap: 10, marginTop: 12, width: '100%' },
+  customPainAreaCancelButton: {
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    height: 42,
+    justifyContent: 'center',
+  },
+  customPainAreaCancelText: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 14,
+  },
+  customPainAreaConfirmButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    flex: 1,
+    height: 42,
+    justifyContent: 'center',
+  },
+  customPainAreaConfirmText: {
+    color: colors.surface,
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 14,
+  },
+  customPainAreaCount: {
+    alignSelf: 'flex-end',
+    color: colors.textDisabled,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  customPainAreaDescription: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 13,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  customPainAreaDialog: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 22,
+    left: 32,
+    paddingHorizontal: 20,
+    paddingTop: 25,
+    position: 'absolute',
+    top: '33%',
+    width: 348,
+  },
+  customPainAreaDim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.15)' },
+  customPainAreaInput: {
+    backgroundColor: '#FAFAFA',
+    borderColor: colors.border,
+    borderRadius: 11,
+    borderWidth: 1,
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 14,
+    height: 52,
+    marginTop: 18,
+    paddingHorizontal: 16,
+    width: '100%',
+  },
+  customPainAreaLayer: { ...StyleSheet.absoluteFill, zIndex: 70 },
+  customPainAreaTitle: {
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 17,
+    textAlign: 'center',
+  },
   controls: { alignItems: 'flex-end', gap: 17, left: 21, position: 'absolute', width: 370 },
   disabled: { opacity: 0.65 },
+  discomfortCharacterCount: {
+    alignSelf: 'flex-end',
+    color: colors.textDisabled,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  discomfortInfoCard: {
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: 10,
+    padding: 12,
+    width: '100%',
+  },
+  discomfortInfoCopy: { flex: 1, gap: 2 },
+  discomfortInfoIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  discomfortInfoText: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  discomfortInfoTitle: {
+    color: colors.primaryDark,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 13,
+  },
+  discomfortInputHint: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 7,
+  },
+  discomfortLevelHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  discomfortLevelValue: {
+    color: colors.primaryDark,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 20,
+  },
+  discomfortModalCard: {
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 25,
+    left: 16,
+    overflow: 'hidden',
+    position: 'absolute',
+    top: 30,
+    width: 380,
+  },
+  discomfortModalContent: { gap: 20, padding: 20, paddingBottom: 110 },
+  discomfortModalEyebrow: {
+    color: colors.primaryDark,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  discomfortModalHeader: {
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    gap: 6,
+    paddingBottom: 18,
+    paddingTop: 22,
+  },
+  discomfortModalLayer: { left: 0, position: 'absolute', top: 0, width: 412, zIndex: 60 },
+  discomfortModalTitle: {
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 22,
+    lineHeight: 29,
+    textAlign: 'center',
+  },
+  discomfortSection: { gap: 10, width: '100%' },
+  discomfortSectionTitle: {
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 15,
+  },
+  discomfortSliderFill: {
+    backgroundColor: colors.primary,
+    borderRadius: 3,
+    height: 6,
+    left: 0,
+    position: 'absolute',
+    top: 7,
+  },
+  discomfortSliderLabel: {
+    color: colors.textDisabled,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 12,
+  },
+  discomfortSliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  discomfortSliderThumb: {
+    backgroundColor: colors.primary,
+    borderColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 20,
+    marginLeft: -10,
+    position: 'absolute',
+    shadowColor: colors.primaryDark,
+    shadowOffset: { height: 2, width: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    top: 0,
+    width: 20,
+  },
+  discomfortSliderTouches: { ...StyleSheet.absoluteFill, flexDirection: 'row' },
+  discomfortSliderTouch: { flex: 1 },
+  discomfortSliderTrack: {
+    backgroundColor: '#E5EAE9',
+    borderRadius: 3,
+    height: 20,
+    marginTop: 2,
+    position: 'relative',
+    width: '100%',
+  },
+  discomfortSubmitButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 50,
+    bottom: 20,
+    flexDirection: 'row',
+    gap: 10,
+    height: 45,
+    justifyContent: 'center',
+    left: 15,
+    position: 'absolute',
+    shadowColor: colors.primaryDark,
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    width: 350,
+  },
+  discomfortSubmitIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
+  },
+  discomfortSubmitText: {
+    color: colors.surface,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 16,
+  },
+  discomfortTextInput: {
+    backgroundColor: '#FAFAFA',
+    borderColor: colors.border,
+    borderRadius: 11,
+    borderWidth: 1,
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 14,
+    height: 104,
+    padding: 14,
+    width: '100%',
+  },
+  discomfortTypeChip: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 4,
+    height: 36,
+    justifyContent: 'center',
+    minWidth: '30%',
+    paddingHorizontal: 8,
+  },
+  discomfortTypeChipSelected: { backgroundColor: colors.primaryLight, borderColor: colors.primary },
+  discomfortTypeChipText: {
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 13,
+  },
+  discomfortTypeChipTextSelected: { color: colors.primaryDark, fontFamily: fontFamilies.pretendardSemiBold },
+  discomfortTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, width: '100%' },
   encouragementCard: {
     alignItems: 'center',
     backgroundColor: colors.primaryLight,
@@ -981,6 +1582,26 @@ const styles = StyleSheet.create({
     fontFamily: fontFamilies.pretendardBold,
     fontSize: 22,
   },
+  followUpChoice: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+    height: 45,
+    justifyContent: 'center',
+  },
+  followUpChoiceSelected: { backgroundColor: colors.primaryLight, borderColor: colors.primary },
+  followUpChoiceText: {
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 14,
+  },
+  followUpChoiceTextSelected: { color: colors.primaryDark, fontFamily: fontFamilies.pretendardSemiBold },
+  followUpChoices: { flexDirection: 'row', gap: 7, width: '100%' },
   goldTag: {
     backgroundColor: '#FFF8E8',
     borderColor: '#EED99E',
@@ -1113,6 +1734,33 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: '37%',
     width: 55,
+  },
+  painAreaChip: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flex: 1,
+    height: 36,
+    justifyContent: 'center',
+    minWidth: '30%',
+    paddingHorizontal: 8,
+  },
+  painAreaChipSelected: { backgroundColor: colors.primaryLight, borderColor: colors.primary },
+  painAreaChipText: {
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 13,
+  },
+  painAreaChipTextSelected: { color: colors.primaryDark, fontFamily: fontFamilies.pretendardSemiBold },
+  painAreaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, width: '100%' },
+  painAreaHeading: { alignItems: 'baseline', flexDirection: 'row', gap: 6 },
+  painAreaSection: { gap: 10, marginTop: 14 },
+  painAreaSubheading: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 12,
   },
   primaryControl: {
     alignItems: 'center',
