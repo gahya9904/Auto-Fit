@@ -36,6 +36,7 @@ import {
   getLatestHealthAnalysis,
   isHealthAnalysisNotFound,
 } from '@/src/api/healthAnalysis';
+import { devHealthAnalysisFallback } from '@/src/api/healthAnalysis.dev';
 import { ApiError } from '@/src/api/client';
 import {
   TotalAnalysisBottomSheet,
@@ -494,12 +495,24 @@ export default function TotalAnalysisScreen() {
           });
         }
 
-        setAnalysisData(null);
         if (isHealthAnalysisNotFound(error)) {
+          if (__DEV__ && request === 'latest') {
+            setAnalysisData(
+              createAnalysisDisplayData(
+                devHealthAnalysisFallback.analysis,
+                devHealthAnalysisFallback.popups,
+              ),
+            );
+            setAnalysisLoadState('ready');
+            return;
+          }
+
+          setAnalysisData(null);
           setAnalysisLoadState('empty');
           return;
         }
 
+        setAnalysisData(null);
         setAnalysisError(getHealthAnalysisErrorMessage(error));
         setAnalysisLoadState('error');
       }

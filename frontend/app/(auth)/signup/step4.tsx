@@ -238,7 +238,8 @@ export default function SignUpStep4Screen() {
       ctaLoading={isCompleting}
       ctaTop={verticalValue(830, 772)}
       contentOffsetY={keyboardContentOffset}
-      currentStep={4}
+      currentStep={isPostLoginOnboarding ? 3 : 4}
+      totalSteps={isPostLoginOnboarding ? 3 : 4}
       onBack={() => router.back()}
       onContinue={() => void completeSignup()}
     >

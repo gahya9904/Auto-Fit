@@ -29,6 +29,7 @@ const maximumScreenHeight = 917;
 
 export interface SignUpScreenLayoutProps {
   currentStep: 1 | 2 | 3 | 4;
+  totalSteps?: 3 | 4;
   ctaLabel: string;
   onBack: () => void;
   onContinue: () => void;
@@ -57,6 +58,7 @@ export function SignUpSection({ top, children, style, innerStyle }: SignUpSectio
 
 export function SignUpScreenLayout({
   currentStep,
+  totalSteps = 4,
   ctaLabel,
   onBack,
   onContinue,
@@ -114,7 +116,7 @@ export function SignUpScreenLayout({
                 <BackButton onPress={onBack} size={44} />
               </View>
               <View style={[styles.stepIndicator, { top: verticalValue(70, 55) }]}>
-                <SignUpStepIndicator currentStep={currentStep} />
+                <SignUpStepIndicator currentStep={currentStep} totalSteps={totalSteps} />
               </View>
               <View style={[styles.brand, { top: verticalValue(96, 74) }]}>
                 <SignUpBrand />

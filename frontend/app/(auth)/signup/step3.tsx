@@ -79,6 +79,7 @@ const signUpBrandVisualHeight = 144;
 export default function SignUpStep3Screen() {
   const router = useRouter();
   const { flow } = useLocalSearchParams<{ flow?: string }>();
+  const isPostLoginOnboarding = flow === 'post-login';
   const { draft, updateDraft } = useSignup();
   const { height: windowHeight } = useWindowDimensions();
   const otherAllergyInputRef = useRef<TextInput>(null);
@@ -192,7 +193,8 @@ export default function SignUpStep3Screen() {
       ctaLabel="다음"
       ctaLoading={isSaving}
       contentOffsetY={keyboardContentOffset}
-      currentStep={3}
+      currentStep={isPostLoginOnboarding ? 2 : 3}
+      totalSteps={isPostLoginOnboarding ? 3 : 4}
       onBack={() => router.back()}
       onContinue={() => void goNext()}
     >

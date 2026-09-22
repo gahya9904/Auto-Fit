@@ -5,12 +5,18 @@ import { colors, radius, typography } from '@/src/theme';
 
 export interface SignUpStepIndicatorProps {
   currentStep: 1 | 2 | 3 | 4;
+  totalSteps?: 3 | 4;
 }
 
-export function SignUpStepIndicator({ currentStep }: SignUpStepIndicatorProps) {
+export function SignUpStepIndicator({
+  currentStep,
+  totalSteps = 4,
+}: SignUpStepIndicatorProps) {
+  const steps = Array.from({ length: totalSteps }, (_, index) => index + 1);
+
   return (
-    <View accessibilityLabel={`회원가입 ${currentStep}단계 중 4단계`} style={styles.container}>
-      {[1, 2, 3, 4].map((step, index) => {
+    <View accessibilityLabel={`회원가입 ${currentStep}단계 중 ${totalSteps}단계`} style={styles.container}>
+      {steps.map((step, index) => {
         const completed = step < currentStep;
         const active = step === currentStep;
 

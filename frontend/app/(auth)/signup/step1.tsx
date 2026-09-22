@@ -189,6 +189,8 @@ export default function SignUpStep1Screen() {
         ? '생년월일을 선택해 주세요.'
         : !gender
           ? '성별을 선택해 주세요.'
+          : !name.trim()
+            ? '이름을 입력해 주세요.'
           : undefined
       : getValidationMessage({
           email,
@@ -211,8 +213,9 @@ export default function SignUpStep1Screen() {
 
     try {
       if (isPostLoginOnboarding) {
-        await saveProfile({ birthDate, gender: gender! });
-        updateDraft({ birthDate, gender: gender! });
+        const profileName = name.trim();
+        await saveProfile({ name: profileName, birthDate, gender: gender! });
+        updateDraft({ name: profileName, birthDate, gender: gender! });
         router.push({ pathname: '/signup/step3', params: { flow: 'post-login' } });
         return;
       }
@@ -268,6 +271,7 @@ export default function SignUpStep1Screen() {
       ctaLoading={isSubmitting}
       contentOffsetY={keyboardContentOffset}
       currentStep={1}
+      totalSteps={isPostLoginOnboarding ? 3 : 4}
       onBack={goBack}
       onContinue={goNext}
     >
@@ -363,23 +367,21 @@ export default function SignUpStep1Screen() {
           valueStyle={styles.selectFieldText}
           value={birthday ? formatBirthday(birthday) : undefined}
         />
-        {!isPostLoginOnboarding ? (
-          <AppTextField
-            ref={nameRef}
-            accessibilityLabel="이름"
-            autoComplete="name"
-            leftElement={
-              <FieldIcon icon={<UserIcon color={colors.textNavigator} height={17} width={17} />} />
-            }
-            onChangeText={setName}
-            onFocus={() => handleInputFocus('name', nameRef.current)}
-            placeholder="이름을 입력해주세요"
-            returnKeyType="done"
-            style={styles.textFieldInput}
-            textContentType="name"
-            value={name}
-          />
-        ) : null}
+        <AppTextField
+          ref={nameRef}
+          accessibilityLabel="이름"
+          autoComplete="name"
+          leftElement={
+            <FieldIcon icon={<UserIcon color={colors.textNavigator} height={17} width={17} />} />
+          }
+          onChangeText={setName}
+          onFocus={() => handleInputFocus('name', nameRef.current)}
+          placeholder="이름을 입력해주세요"
+          returnKeyType="done"
+          style={styles.textFieldInput}
+          textContentType="name"
+          value={name}
+        />
         <View style={styles.genderField}>
           <Text style={styles.genderLabel}>성별</Text>
           <View style={styles.genderActions}>

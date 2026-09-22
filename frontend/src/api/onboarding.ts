@@ -39,7 +39,7 @@ const allergyAliases: Record<string, string[]> = {
   peach: ['peach', '복숭아'],
   fish: ['fish', '생선'],
   crab: ['crab', 'crustacean', '갑각류'],
-  shellfish: ['shellfish', 'clam', '조개'],
+  shellfish: ['shellfish', 'clam', '조개', '조개류'],
   sesame: ['sesame', '참깨'],
 };
 
