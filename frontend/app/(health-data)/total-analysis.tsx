@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
+  ActivityIndicator,
   Animated,
+  BackHandler,
   Dimensions,
   Image,
   LayoutAnimation,
@@ -29,14 +31,20 @@ import StarIcon from '@/assets/icons/day/Star_Fill.svg';
 import ChartIcon from '@/assets/icons/graph/ChartBar.svg';
 import QuestionIcon from '@/assets/icons/system/Question.svg';
 import {
+  getHealthAnalysisErrorMessage,
+  getHealthAssessmentPopups,
+  getLatestHealthAnalysis,
+  isHealthAnalysisNotFound,
+} from '@/src/api/healthAnalysis';
+import { ApiError } from '@/src/api/client';
+import {
   TotalAnalysisBottomSheet,
   type AnalysisSheetState,
 } from '@/src/components/analysis/TotalAnalysisBottomSheet';
+import { BackButton } from '@/src/components/common/BackButton';
 import {
-  analysisReasons,
-  keyMetrics,
-  metricCriteria,
-  references,
+  createAnalysisDisplayData,
+  type AnalysisDisplayData,
   type AnalysisIcon,
   type AnalysisMetric,
   type AnalysisTone,
@@ -188,11 +196,17 @@ function ReasonAccordion({
   headerHeight,
   onToggle,
   onOpenMetrics,
+  reasons,
+  summaryDescription,
+  finalDirection,
 }: {
   expanded: boolean;
   headerHeight: number;
   onToggle: () => void;
   onOpenMetrics: (reasonId: string) => void;
+  reasons: AnalysisDisplayData['reasons'];
+  summaryDescription: string;
+  finalDirection: AnalysisDisplayData['finalDirection'];
 }) {
   return (
     <View style={styles.accordionCard}>
@@ -208,13 +222,11 @@ function ReasonAccordion({
           <View style={styles.accordionDivider} />
           <View style={styles.reasonIntro}>
             <Text style={styles.evidenceSectionTitle}>왜 이런 전략을 추천했나요?</Text>
-            <Text style={styles.evidenceDescription}>
-              체중 감량 목표는 유지하고,{`\n`}현재 건강 상태에 맞게 감량 방식을 조정했어요.
-            </Text>
+            <Text style={styles.evidenceDescription}>{summaryDescription}</Text>
           </View>
           <View style={styles.accordionDivider} />
           <View style={styles.reasonList}>
-            {analysisReasons.map((reason) => {
+            {reasons.map((reason) => {
               const Icon = reason.icon;
               return (
                 <View key={reason.id} style={styles.reasonItem}>
@@ -258,8 +270,7 @@ function ReasonAccordion({
             <View style={styles.finalRecommendationCopy}>
               <Text style={styles.finalRecommendationLabel}>최종 추천 방향</Text>
               <Text numberOfLines={1} style={styles.finalRecommendationText}>
-                단기간 체중 감량{' '}
-                <Text style={styles.primaryDark}>→ 근육 유지 기반 체지방 감량</Text>
+                {finalDirection.from} <Text style={styles.primaryDark}>→ {finalDirection.to}</Text>
               </Text>
             </View>
           </View>
@@ -275,12 +286,16 @@ function SourceAccordion({
   onToggle,
   onOpenCriterion,
   onOpenReference,
+  criteria,
+  sourceReferences,
 }: {
   expanded: boolean;
   headerHeight: number;
   onToggle: () => void;
   onOpenCriterion: (criterionId: string) => void;
   onOpenReference: (referenceId: string) => void;
+  criteria: AnalysisDisplayData['metricCriteria'];
+  sourceReferences: AnalysisDisplayData['references'];
 }) {
   return (
     <View style={styles.accordionCard}>
@@ -302,7 +317,7 @@ function SourceAccordion({
               </Text>
             </View>
             <View style={styles.criteriaList}>
-              {metricCriteria.map((criterion) => {
+              {criteria.map((criterion) => {
                 const Icon = criterion.icon;
                 const palette = tonePalette[criterion.tone];
                 return (
@@ -345,7 +360,7 @@ function SourceAccordion({
               </Text>
             </View>
             <View style={styles.referenceList}>
-              {references.map((reference, index) => (
+              {sourceReferences.map((reference, index) => (
                 <View key={reference.id}>
                   <Pressable
                     accessibilityRole="button"
@@ -363,7 +378,9 @@ function SourceAccordion({
                     </View>
                     <CaretRightIcon color={colors.textSecondary} height={20} width={20} />
                   </Pressable>
-                  {index < references.length - 1 ? <View style={styles.referenceDivider} /> : null}
+                  {index < sourceReferences.length - 1 ? (
+                    <View style={styles.referenceDivider} />
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -384,22 +401,115 @@ function SourceAccordion({
   );
 }
 
+function AnalysisStateContent({
+  loadState,
+  message,
+}: {
+  loadState: 'loading' | 'empty' | 'error';
+  message: string | null;
+}) {
+  const text =
+    loadState === 'loading'
+      ? '종합 건강 분석을 불러오는 중이에요.'
+      : loadState === 'empty'
+        ? '종합 건강 분석 데이터가 아직 없어요.'
+        : (message ?? '종합 건강 분석을 불러오지 못했어요.');
+
+  return (
+    <View style={styles.analysisState}>
+      {loadState === 'loading' ? <ActivityIndicator color={colors.primaryDark} /> : null}
+      <Text style={styles.analysisStateText}>{text}</Text>
+    </View>
+  );
+}
+
 export default function TotalAnalysisScreen() {
   const router = useRouter();
+  const { source } = useLocalSearchParams<{ source?: string }>();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [measuredContentHeight, setMeasuredContentHeight] = useState(0);
   const [reasonExpanded, setReasonExpanded] = useState(false);
   const [sourceExpanded, setSourceExpanded] = useState(false);
   const [sheet, setSheet] = useState<AnalysisSheetState>(null);
+  const [analysisData, setAnalysisData] = useState<AnalysisDisplayData | null>(null);
+  const [analysisLoadState, setAnalysisLoadState] = useState<'loading' | 'ready' | 'empty' | 'error'>(
+    'loading',
+  );
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [sectionAnimations] = useState(() =>
     Array.from({ length: 5 }, () => new Animated.Value(0)),
   );
+  const enteredFromHome = source === 'home';
+
+  const returnToHome = useCallback(() => {
+    router.replace('/home');
+  }, [router]);
 
   useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!enteredFromHome || Platform.OS !== 'android') return;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      returnToHome();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [enteredFromHome, returnToHome]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadAnalysis = async () => {
+      setAnalysisLoadState('loading');
+      setAnalysisError(null);
+      let request: 'latest' | 'popups' = 'latest';
+
+      try {
+        const analysis = await getLatestHealthAnalysis();
+        if (__DEV__) console.log('[Health Analysis] latest response:', analysis);
+
+        request = 'popups';
+        const popups = await getHealthAssessmentPopups(analysis.assessment_id);
+        if (__DEV__) console.log('[Health Analysis] popups response:', popups);
+        if (!active) return;
+
+        setAnalysisData(createAnalysisDisplayData(analysis, popups));
+        setAnalysisLoadState('ready');
+      } catch (error) {
+        if (!active) return;
+
+        if (__DEV__) {
+          console.log('[Health Analysis] request failure:', {
+            request,
+            status: error instanceof ApiError ? error.status : undefined,
+            detail: error instanceof ApiError ? error.detail : undefined,
+            response_body: error instanceof ApiError ? error.responseBody : undefined,
+          });
+        }
+
+        setAnalysisData(null);
+        if (isHealthAnalysisNotFound(error)) {
+          setAnalysisLoadState('empty');
+          return;
+        }
+
+        setAnalysisError(getHealthAnalysisErrorMessage(error));
+        setAnalysisLoadState('error');
+      }
+    };
+
+    void loadAnalysis();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const availableWidth = Math.max(0, windowWidth - insets.left - insets.right);
@@ -528,6 +638,8 @@ export default function TotalAnalysisScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (!analysisData) return;
+
       sectionAnimations.forEach((animation) => animation.setValue(0));
       const entrance = Animated.stagger(
         150,
@@ -541,7 +653,7 @@ export default function TotalAnalysisScreen() {
       );
       entrance.start();
       return () => entrance.stop();
-    }, [sectionAnimations]),
+    }, [analysisData, sectionAnimations]),
   );
 
   const sectionEntranceStyle = useCallback(
@@ -566,21 +678,39 @@ export default function TotalAnalysisScreen() {
   }, []);
 
   const openAdditionalMetrics = useCallback((reasonId: string) => {
-    const reason = analysisReasons.find((item) => item.id === reasonId);
+    const reason = analysisData?.reasons.find((item) => item.id === reasonId);
     if (reason) setSheet({ type: 'additional', reason });
-  }, []);
+  }, [analysisData]);
 
   const openCriterion = useCallback((criterionId: string) => {
-    const criterion = metricCriteria.find((item) => item.id === criterionId);
+    const criterion = analysisData?.metricCriteria.find((item) => item.id === criterionId);
     if (criterion) setSheet({ type: 'criterion', criterion });
-  }, []);
+  }, [analysisData]);
 
   const openReference = useCallback((referenceId: string) => {
-    const reference = references.find((item) => item.id === referenceId);
+    const reference = analysisData?.references.find((item) => item.id === referenceId);
     if (reference) setSheet({ type: 'reference', reference });
-  }, []);
+  }, [analysisData]);
 
   const slotHeight = useMemo(() => contentBottom * widthScale, [contentBottom, widthScale]);
+
+  if (!analysisData) {
+    return (
+      <View style={styles.root}>
+        <Image source={background} resizeMode="cover" style={styles.background} />
+        {enteredFromHome ? (
+          <BackButton
+            onPress={returnToHome}
+            style={[styles.analysisStateBackButton, { top: Math.max(insets.top + 8, 16) }]}
+          />
+        ) : null}
+        <AnalysisStateContent
+          loadState={analysisLoadState === 'ready' ? 'loading' : analysisLoadState}
+          message={analysisError}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -622,12 +752,17 @@ export default function TotalAnalysisScreen() {
               },
             ]}
           >
+            {enteredFromHome ? (
+              <BackButton
+                onPress={returnToHome}
+                style={[styles.backButton, { top: screenTitleTop - 15 }]}
+              />
+            ) : null}
             <Text style={[styles.screenTitle, { top: screenTitleTop }]}>종합 건강 분석</Text>
             <View style={[styles.explain, { height: explainHeight, top: explainTop }]}>
               <View style={[styles.explainCopy, { width: explainCopyWidth }]}>
                 <Text style={styles.explainTitle}>
-                  <Text style={styles.primary}>목표</Text>는 유지하고,{`\n`}
-                  <Text style={styles.primary}>방향</Text>은 더 건강하게
+                  {analysisData.headline}
                 </Text>
               </View>
               <Image
@@ -685,7 +820,7 @@ export default function TotalAnalysisScreen() {
                         <Text style={styles.summaryBadgeText}>분석 요약</Text>
                       </View>
                     </View>
-                    <Text style={styles.summaryTitle}>지금은 근육을 지키며 감량해야 해요</Text>
+                    <Text style={styles.summaryTitle}>{analysisData.summary.title}</Text>
                   </View>
                 </View>
                 <View style={styles.summaryDivider} />
@@ -693,7 +828,7 @@ export default function TotalAnalysisScreen() {
                   <View style={styles.goalBadge}>
                     <Text style={styles.goalBadgeText}>내 목표</Text>
                   </View>
-                  <Text style={styles.goalText}>결혼식 준비를 위한 단기간 체중 감량</Text>
+                  <Text style={styles.goalText}>{analysisData.goal}</Text>
                 </View>
               </Animated.View>
 
@@ -718,18 +853,19 @@ export default function TotalAnalysisScreen() {
                     </View>
                     <Text style={styles.strategyLabel}>Auto-Fit 맞춤 제안</Text>
                   </View>
-                  <Text style={styles.strategyTitle}>근육을 지키는 결혼식 맞춤 감량 전략</Text>
+                  <Text style={styles.strategyTitle}>{analysisData.strategy.title}</Text>
                 </View>
                 <View style={styles.strategyChips}>
-                  <StrategyChip Icon={WeightIcon} label="체지방 감량" />
-                  <StrategyChip Icon={MuscleIcon} label="근육 유지" />
-                  <StrategyChip Icon={BarbellIcon} label="식단·근력 병행" />
+                  {analysisData.strategy.tags.map((tag, index) => (
+                    <StrategyChip
+                      Icon={[WeightIcon, MuscleIcon, BarbellIcon][index % 3]}
+                      key={`${index}-${tag}`}
+                      label={tag}
+                    />
+                  ))}
                 </View>
                 <View style={styles.strategyDivider} />
-                <Text style={styles.strategyFooter}>
-                  빠른 감량보다 <Text style={styles.primaryDark}>건강한 체성분 개선</Text>을
-                  우선해요.
-                </Text>
+                <Text style={styles.strategyFooter}>{analysisData.strategy.message}</Text>
               </Animated.View>
 
               <Animated.View
@@ -741,7 +877,7 @@ export default function TotalAnalysisScreen() {
               >
                 <Text style={styles.keyMetricsTitle}>핵심 분석 지표</Text>
                 <View style={styles.keyMetricRow}>
-                  {keyMetrics.map((metric) => (
+                  {analysisData.keyMetrics.map((metric) => (
                     <KeyMetricCard key={metric.id} height={keyMetricCardHeight} metric={metric} />
                   ))}
                 </View>
@@ -755,17 +891,22 @@ export default function TotalAnalysisScreen() {
                 ]}
               >
                 <ReasonAccordion
+                  finalDirection={analysisData.finalDirection}
                   headerHeight={accordionHeaderHeight}
                   expanded={reasonExpanded}
                   onOpenMetrics={openAdditionalMetrics}
                   onToggle={() => toggleAccordion('reason')}
+                  reasons={analysisData.reasons}
+                  summaryDescription={analysisData.summary.description}
                 />
                 <SourceAccordion
+                  criteria={analysisData.metricCriteria}
                   headerHeight={accordionHeaderHeight}
                   expanded={sourceExpanded}
                   onOpenCriterion={openCriterion}
                   onOpenReference={openReference}
                   onToggle={() => toggleAccordion('source')}
+                  sourceReferences={analysisData.references}
                 />
               </Animated.View>
 
@@ -815,6 +956,20 @@ export default function TotalAnalysisScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background, overflow: 'hidden' },
   background: { ...StyleSheet.absoluteFill, height: '100%', width: '100%' },
+  analysisState: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+    justifyContent: 'center',
+    paddingHorizontal: 30,
+  },
+  analysisStateText: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  analysisStateBackButton: { left: 10, position: 'absolute' },
   scrollContent: { alignItems: 'center' },
   slot: { position: 'relative', width: '100%' },
   canvas: {
@@ -822,6 +977,7 @@ const styles = StyleSheet.create({
     transformOrigin: 'top left',
     width: referenceWidth,
   },
+  backButton: { left: 10, position: 'absolute' },
   screenTitle: {
     position: 'absolute',
     top: 38,

@@ -8,44 +8,57 @@ import CholesterolIcon from '@/assets/icons/data/Cholesterol.svg';
 import DiabetesIcon from '@/assets/icons/data/Diabetes.svg';
 import MuscleIcon from '@/assets/icons/data/Muscle.svg';
 import WeightIcon from '@/assets/icons/data/Weight.svg';
-import ClockIcon from '@/assets/icons/input/Clock.svg';
 import UserIcon from '@/assets/icons/input/User.svg';
 
+import type {
+  HealthMetricStatus,
+  MainAnalysisResponse,
+  Metric,
+  MetricRange,
+  PopupResponse,
+} from '@/src/api/healthAnalysis';
+
 export type AnalysisIcon = ComponentType<SvgProps>;
+
 export type AnalysisTone = 'normal' | 'warning' | 'danger';
 
-export interface AnalysisMetric {
+export type AnalysisMetric = {
   id: string;
   name: string;
   value: string;
-  unit?: string;
-  status?: string;
-  tone?: AnalysisTone;
-  description: string;
+  status: string;
+  tone: AnalysisTone;
   icon: AnalysisIcon;
-}
+  unit?: string;
+  description: string;
+  ranges?: MetricRange[];
+  sourceIds?: string[];
+  appliedConditions?: Record<string, unknown>;
+  missingFields?: string[];
+  discrepancy?: Record<string, string> | null;
+};
 
-export interface AnalysisReason {
+export type AnalysisReason = {
   id: string;
   title: string;
   description: string;
   icon: AnalysisIcon;
   metricSummary: string;
+  interpretation: string;
   additionalMetrics: AnalysisMetric[];
   sheetTitle: string;
   sheetDescription: string;
-  interpretation: string;
-}
+};
 
-export interface CriterionRange {
+export type CriterionRange = {
   id: string;
   label: string;
   value: string;
   tone: AnalysisTone;
   isCurrent?: boolean;
-}
+};
 
-export interface MetricCriterion {
+export type MetricCriterion = {
   id: string;
   metricName: string;
   value: string;
@@ -57,261 +70,192 @@ export interface MetricCriterion {
   appliedRule: string;
   ranges: CriterionRange[];
   referenceId: string;
-}
+};
 
-export interface ReferenceSource {
+export type ReferenceSource = {
   id: string;
   title: string;
-  description: string;
   organization: string;
   documentName: string;
-  publishedAt: string;
+  description: string;
   appliedItems: string[];
+  appliedContent: string;
+  publishedAt: string;
   appliedSummary: string;
-  originalUrl?: string;
+  originalUrl?: string | null;
+};
+
+export type AnalysisDisplayData = {
+  assessmentId: string;
+  headline: string;
+  summary: { title: string; description: string };
+  goal: string;
+  strategy: { title: string; tags: string[]; message: string };
+  keyMetrics: AnalysisMetric[];
+  reasons: AnalysisReason[];
+  finalDirection: { from: string; to: string };
+  metricCriteria: MetricCriterion[];
+  references: ReferenceSource[];
+  criteriaSnapshotAvailable: boolean;
+};
+
+const metricPresentation: Record<string, { label: string; icon: AnalysisIcon }> = {
+  bmi: { label: 'BMI', icon: BmiIcon },
+  weight_kg: { label: '체중', icon: WeightIcon },
+  skeletal_muscle_mass_kg: { label: '골격근량', icon: MuscleIcon },
+  body_fat_percentage: { label: '체지방률', icon: BodyFatIcon },
+  body_fat_mass_kg: { label: '체지방량', icon: BodyFatIcon },
+  basal_metabolic_rate: { label: '기초대사량', icon: BmrIcon },
+  fasting_glucose: { label: '공복혈당', icon: DiabetesIcon },
+  hba1c: { label: '당화혈색소', icon: DiabetesIcon },
+  total_cholesterol: { label: '총 콜레스테롤', icon: CholesterolIcon },
+  ldl_cholesterol: { label: 'LDL 콜레스테롤', icon: CholesterolIcon },
+  hdl_cholesterol: { label: 'HDL 콜레스테롤', icon: CholesterolIcon },
+  triglycerides: { label: '중성지방', icon: CholesterolIcon },
+};
+
+const additionalMetricsSheetTitle = '체성분 관련 추가 지표';
+const additionalMetricsSheetDescription = '핵심 지표와 함께 참고한 보조 수치에요';
+
+function getMetricTone(status?: HealthMetricStatus): AnalysisTone {
+  if (status === 'high') return 'danger';
+  if (status === 'low' || status === 'caution') return 'warning';
+  return 'normal';
 }
 
-const bodyCompositionMetrics: AnalysisMetric[] = [
-  {
-    id: 'bmi',
-    name: 'BMI',
-    value: '22.3',
-    status: '정상',
-    tone: 'normal',
-    description: '체중만 보면 정상 범위예요.',
-    icon: BmiIcon,
-  },
-  {
-    id: 'weight',
-    name: '체중',
-    value: '68.4',
-    unit: 'kg',
-    description: '체중 수치만으로는 체성분 상태를 충분히 설명하기 어려워요.',
-    icon: WeightIcon,
-  },
-  {
-    id: 'body-fat-mass',
-    name: '체지방량',
-    value: '21.9',
-    unit: 'kg',
-    status: '높음',
-    tone: 'danger',
-    description: '체지방이 많은 편이라 체중보다 체성분 개선을 우선했어요.',
-    icon: BodyFatIcon,
-  },
-];
+function getRangeValue(range: MetricRange) {
+  const min = range.min ?? '';
+  const max = range.max ?? '';
 
-const metabolicMetrics: AnalysisMetric[] = [
-  {
-    id: 'bmr',
-    name: '기초대사량',
-    value: '1,326',
-    unit: 'kcal',
-    status: '참고',
-    tone: 'normal',
-    description: '감량 속도를 정할 때 현재 에너지 소비 수준을 함께 고려했어요.',
-    icon: BmrIcon,
-  },
-];
+  if (min && max) return `${min} ~ ${max}`;
+  if (min) return `${range.min_inclusive === false ? '초과' : '이상'} ${min}`;
+  if (max) return `${range.max_inclusive === false ? '미만' : '이하'} ${max}`;
+  return '-';
+}
 
-const bloodSugarMetrics: AnalysisMetric[] = [
-  {
-    id: 'triglycerides',
-    name: '중성지방',
-    value: '172',
-    unit: 'mg/dL',
-    status: '주의',
-    tone: 'warning',
-    description: '식사 구성과 대사 건강을 함께 판단하는 데 참고했어요.',
-    icon: CholesterolIcon,
-  },
-  {
-    id: 'waist',
-    name: '허리둘레',
-    value: '86.0',
-    unit: 'cm',
-    status: '주의',
-    tone: 'warning',
-    description: '복부 지방 위험을 함께 확인했어요.',
-    icon: WeightIcon,
-  },
-  {
-    id: 'hdl',
-    name: 'HDL 콜레스테롤',
-    value: '42',
-    unit: 'mg/dL',
-    status: '주의',
-    tone: 'warning',
-    description: '심혈관·대사 건강 판단에 참고했어요.',
-    icon: CholesterolIcon,
-  },
-];
+function getRangeLabel(status: HealthMetricStatus) {
+  switch (status) {
+    case 'low':
+      return '낮음';
+    case 'normal':
+      return '정상';
+    case 'caution':
+      return '주의';
+    case 'high':
+      return '높음';
+    case 'review_required':
+      return '검토 필요';
+    case 'unknown':
+    default:
+      return '알 수 없음';
+  }
+}
 
-export const analysisReasons: AnalysisReason[] = [
-  {
-    id: 'body-composition',
-    title: '체중보다 체성분을 우선했어요',
-    description: '체지방률이 높고 골격근량이 낮아,\n체중 수치보다 체성분 개선을 우선했어요.',
-    icon: UserIcon,
-    metricSummary: 'BMI · 체중 · 체지방량',
-    additionalMetrics: bodyCompositionMetrics,
-    sheetTitle: '체성분 관련 추가 지표',
-    sheetDescription: '핵심 지표와 함께 참고한 보조 수치예요.',
-    interpretation:
-      'BMI는 정상 범위일 수 있지만, 체지방량과 골격근량을 함께 보면 체중 감소보다 체성분 개선이 더 중요한 상태예요.',
-  },
-  {
-    id: 'pace',
-    title: '빠른 감량 속도는 조정했어요',
-    description: '현재 상태에서는 빠른 감량이 근육 손실로 이어질 수 있어,\n감량 속도를 조정했어요.',
-    icon: ClockIcon,
-    metricSummary: '기초대사량',
-    additionalMetrics: metabolicMetrics,
-    sheetTitle: '감량 속도 관련 추가 지표',
-    sheetDescription: '감량 속도를 정할 때 함께 참고한 보조 수치예요.',
-    interpretation:
-      '현재 에너지 소비 수준과 근육량을 함께 고려하면 빠른 감량보다 지속 가능한 속도로 조정하는 편이 적절해요.',
-  },
-  {
-    id: 'blood-sugar',
-    title: '감량과 혈당 관리를 함께 고려했어요',
-    description: '공복혈당이 관리가 필요한 범위라,\n식사 구성과 활동량을 함께 반영했어요.',
-    icon: DiabetesIcon,
-    metricSummary: '중성지방 · 허리둘레 · HDL 콜레스테롤',
-    additionalMetrics: bloodSugarMetrics,
-    sheetTitle: '대사 건강 관련 추가 지표',
-    sheetDescription: '혈당과 대사 건강 판단에 함께 참고한 보조 수치예요.',
-    interpretation:
-      '공복혈당뿐 아니라 지질과 복부 지방 지표를 함께 보면 식사 구성과 활동량 관리가 중요한 상태예요.',
-  },
-];
+function toAnalysisMetric(metric: Metric): AnalysisMetric {
+  const presentation = metricPresentation[metric.key];
+  const value = metric.display_value ?? metric.raw_value ?? '-';
 
-export const metricCriteria: MetricCriterion[] = [
-  {
-    id: 'body-fat-percentage',
-    metricName: '체지방률',
-    value: '32.0',
-    unit: '%',
-    status: '높음',
-    tone: 'danger',
-    icon: BodyFatIcon,
-    summary: '성별·연령 등 사용자 조건을 반영한 체지방률 판정 기준 적용',
-    appliedRule: '성별·연령 등 사용자 조건을 반영한 체지방률 판정 기준을 적용했어요.',
-    ranges: [
-      { id: 'normal', label: '정상', value: '18.0% ~ 27.9%', tone: 'normal' },
-      { id: 'warning', label: '주의', value: '28.0% ~ 31.9%', tone: 'warning' },
-      { id: 'high', label: '높음', value: '32.0% 이상', tone: 'danger', isCurrent: true },
-    ],
-    referenceId: 'national-screening',
-  },
-  {
-    id: 'skeletal-muscle',
-    metricName: '골격근량',
-    value: '21.0',
-    unit: 'kg',
-    status: '낮음',
-    tone: 'danger',
-    icon: MuscleIcon,
-    summary: '사용자 신체 조건을 고려한 체성분 판정 기준 적용',
-    appliedRule: '성별·연령과 신체 조건을 반영한 골격근량 판정 기준을 적용했어요.',
-    ranges: [
-      { id: 'low', label: '낮음', value: '23.0 kg 미만', tone: 'danger', isCurrent: true },
-      { id: 'warning', label: '주의', value: '23.0 kg ~ 25.9 kg', tone: 'warning' },
-      { id: 'normal', label: '정상', value: '26.0 kg 이상', tone: 'normal' },
-    ],
-    referenceId: 'body-composition',
-  },
-  {
-    id: 'fasting-glucose',
-    metricName: '공복혈당',
-    value: '108',
-    unit: 'mg/dL',
-    status: '주의',
-    tone: 'warning',
-    icon: DiabetesIcon,
-    summary: '건강검진 공복혈당 판정 기준 적용',
-    appliedRule: '건강검진 공복혈당 판정 기준을 적용했어요.',
-    ranges: [
-      { id: 'normal', label: '정상', value: '70 ~ 99 mg/dL', tone: 'normal' },
-      {
-        id: 'warning',
-        label: '주의',
-        value: '100 ~ 125 mg/dL',
-        tone: 'warning',
-        isCurrent: true,
-      },
-      { id: 'high', label: '높음', value: '126 mg/dL 이상', tone: 'danger' },
-    ],
-    referenceId: 'diabetes',
-  },
-];
-
-export const references: ReferenceSource[] = [
-  {
-    id: 'national-screening',
-    title: '건강검진 관련 공식 기준',
-    description: '국가건강검진 및 건강검진 결과 해석 관련 기준',
-    organization: '국가건강검진 관련 공식 기준',
-    documentName: '건강검진 결과 해석 가이드',
-    publishedAt: '2026',
-    appliedItems: ['공복혈당 판정', '혈압 판정', '건강검진 결과 해석'],
-    appliedSummary: '현재 공복혈당 상태를 해석할 때 참고한 기준이에요.',
-    originalUrl: 'https://www.nhis.or.kr/static/html/wbde/c/d/201812_01.pdf',
-  },
-  {
-    id: 'body-composition',
-    title: '체성분·비만 관련 전문 기준',
-    description: '체지방 및 체성분 상태 판단에 활용한 전문 기준',
-    organization: '질병관리청 국가건강정보포털',
-    documentName: '비만 건강정보',
-    publishedAt: '2025',
-    appliedItems: ['BMI 판정', '체지방률 판정', '허리둘레 해석'],
-    appliedSummary: '체지방률과 체성분 상태를 함께 해석할 때 참고한 기준이에요.',
-    originalUrl:
-      'https://health.kdca.go.kr/healthinfo/biz/health/gnrlzHealthInfo/gnrlzHealthInfo/gnrlzHealthInfoView.do?cntnts_sn=6694',
-  },
-  {
-    id: 'diabetes',
-    title: '혈당 관리 관련 전문 기준',
-    description: '공복혈당 상태 해석에 활용한 전문 기준',
-    organization: '대한당뇨병학회',
-    documentName: '당뇨병 진단 및 혈당 관리 기준',
-    publishedAt: '2026',
-    appliedItems: ['공복혈당 판정', '혈당 관리 방향', '식사 구성 참고'],
-    appliedSummary: '현재 공복혈당 상태와 관리 방향을 해석할 때 참고한 기준이에요.',
-    originalUrl: 'https://diabetes.or.kr/bbs/?category=B&code=faq',
-  },
-];
-
-export const keyMetrics: AnalysisMetric[] = [
-  {
-    id: 'key-body-fat',
-    name: '체지방률',
-    value: '32.0',
-    unit: '%',
-    status: '높음',
-    tone: 'danger',
+  return {
+    id: metric.key,
+    name: presentation?.label ?? metric.key,
+    value,
+    status: metric.status_label ?? (metric.status ? getRangeLabel(metric.status) : '-'),
+    tone: getMetricTone(metric.status),
+    icon: presentation?.icon ?? WeightIcon,
+    unit: metric.unit,
     description: '',
-    icon: BodyFatIcon,
-  },
-  {
-    id: 'key-muscle',
-    name: '골격근량',
-    value: '21.0',
-    unit: 'kg',
-    status: '낮음',
-    tone: 'danger',
-    description: '',
-    icon: MuscleIcon,
-  },
-  {
-    id: 'key-glucose',
-    name: '공복 혈당',
-    value: '108',
-    unit: 'mg/dL',
-    status: '주의',
-    tone: 'warning',
-    description: '',
-    icon: DiabetesIcon,
-  },
-];
+    ranges: metric.ranges,
+    sourceIds: metric.source_ids,
+    appliedConditions: metric.applied_conditions,
+    missingFields: metric.missing_fields,
+    discrepancy: metric.discrepancy,
+  };
+}
+
+function toMetricCriterion(metric: Metric): MetricCriterion {
+  const displayMetric = toAnalysisMetric(metric);
+  const sourceId = metric.source_ids?.[0];
+
+  return {
+    id: metric.key,
+    metricName: displayMetric.name,
+    value: displayMetric.value,
+    unit: metric.unit,
+    status: displayMetric.status,
+    tone: displayMetric.tone,
+    icon: displayMetric.icon,
+    summary: metric.criteria_type ?? '',
+    appliedRule: metric.criteria_version ?? '',
+    ranges: (metric.ranges ?? []).map((range, index) => ({
+      id: `${metric.key}-${index}-${range.status}`,
+      label: getRangeLabel(range.status),
+      value: getRangeValue(range),
+      tone: getMetricTone(range.status),
+      isCurrent: metric.status === range.status,
+    })),
+    referenceId: sourceId ?? '',
+  };
+}
+
+function getMetricMap(metrics: Metric[]) {
+  return new Map(metrics.map((metric) => [metric.key, metric]));
+}
+
+function getMetricsByKey(metricMap: Map<string, Metric>, keys: string[]) {
+  return keys
+    .map((key) => metricMap.get(key))
+    .filter((metric): metric is Metric => Boolean(metric));
+}
+
+export function createAnalysisDisplayData(
+  analysis: MainAnalysisResponse,
+  popups: PopupResponse,
+): AnalysisDisplayData {
+  const metricMap = getMetricMap(popups.metrics);
+
+  return {
+    assessmentId: analysis.assessment_id,
+    headline: analysis.headline.title,
+    summary: analysis.summary,
+    goal: analysis.goal.text,
+    strategy: analysis.strategy,
+    keyMetrics: getMetricsByKey(metricMap, analysis.key_metric_keys.slice(0, 3)).map(
+      toAnalysisMetric,
+    ),
+    reasons: analysis.recommendation_reasons.map((reason, index) => {
+      const evidenceMetrics = getMetricsByKey(
+        metricMap,
+        reason.evidence_metric_keys ?? [],
+      ).map(toAnalysisMetric);
+
+      return {
+        id: `${index}-${reason.title}`,
+        title: reason.title,
+        description: reason.description,
+        icon: UserIcon,
+        metricSummary: evidenceMetrics.map((metric) => metric.name).join(' · '),
+        interpretation: popups.interpretation.text,
+        additionalMetrics: evidenceMetrics,
+        sheetTitle: additionalMetricsSheetTitle,
+        sheetDescription: additionalMetricsSheetDescription,
+      };
+    }),
+    finalDirection: analysis.final_direction,
+    metricCriteria: getMetricsByKey(metricMap, analysis.key_metric_keys).map(toMetricCriterion),
+    references: popups.sources.map((source) => ({
+      id: source.source_id,
+      title: source.title,
+      organization: source.publisher,
+      documentName: source.title,
+      description: source.applied_excerpt_summary,
+      appliedItems: (source.applied_metric_keys ?? []).map(
+        (key) => metricPresentation[key]?.label ?? key,
+      ),
+      appliedContent: source.applied_excerpt_summary,
+      publishedAt: source.published_at ?? source.revised_at ?? source.verified_at ?? '-',
+      appliedSummary: source.applied_excerpt_summary,
+      originalUrl: source.url,
+    })),
+    criteriaSnapshotAvailable: popups.criteria_snapshot_available ?? false,
+  };
+}

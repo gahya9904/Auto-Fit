@@ -255,17 +255,19 @@ function CriterionContent({
           })}
         </View>
       </View>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => onOpenReference(criterion.referenceId)}
-        style={({ pressed }) => [styles.referenceButton, pressed && styles.pressed]}
-      >
-        <View style={styles.referenceButtonLeft}>
-          <DocumentIcon color={colors.primaryDark} height={18} width={18} />
-          <Text style={styles.referenceButtonText}>참고 출처 보기</Text>
-        </View>
-        <ChevronRightIcon color={colors.primaryDark} height={18} width={18} />
-      </Pressable>
+      {criterion.referenceId ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onOpenReference(criterion.referenceId)}
+          style={({ pressed }) => [styles.referenceButton, pressed && styles.pressed]}
+        >
+          <View style={styles.referenceButtonLeft}>
+            <DocumentIcon color={colors.primaryDark} height={18} width={18} />
+            <Text style={styles.referenceButtonText}>참고 출처 보기</Text>
+          </View>
+          <ChevronRightIcon color={colors.primaryDark} height={18} width={18} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -354,7 +356,7 @@ function ReferenceContent({
       </View>
       <Pressable
         accessibilityRole="link"
-        onPress={() => openExternalUrl(reference.originalUrl)}
+        onPress={() => openExternalUrl(reference.originalUrl ?? undefined)}
         style={({ pressed }) => [styles.referenceButton, pressed && styles.pressed]}
       >
         <View style={styles.referenceButtonLeft}>

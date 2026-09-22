@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getHome } from '@/src/api/home';
@@ -66,6 +67,7 @@ async function getSessionUserName() {
 }
 
 export default function HomeScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const [healthScore, setHealthScore] = useState<HomeHealthScore | null>(null);
@@ -155,6 +157,9 @@ export default function HomeScreen() {
     windowHeight,
     referenceScreenHeight * (windowWidth / referenceWidth),
   );
+  const openTotalAnalysis = useCallback(() => {
+    router.push({ pathname: '/total-analysis', params: { source: 'home' } });
+  }, [router]);
 
   return (
     <View style={styles.root}>
@@ -184,11 +189,18 @@ export default function HomeScreen() {
           {loadState === 'loading' && !healthScore ? (
             <HomeDataPlaceholder style={styles.scorePlaceholder} />
           ) : (
-            <HealthScore
-              score={healthScore?.score ?? null}
-              status={null}
-              totalScore={healthScore?.totalScore ?? null}
-            />
+            <Pressable
+              accessibilityLabel="종합 건강 분석 보기"
+              accessibilityRole="button"
+              onPress={openTotalAnalysis}
+              style={styles.healthScorePressable}
+            >
+              <HealthScore
+                score={healthScore?.score ?? null}
+                status={null}
+                totalScore={healthScore?.totalScore ?? null}
+              />
+            </Pressable>
           )}
           {loadState === 'loading' && !weeklyProgress ? (
             <HomeDataPlaceholder compact style={styles.weeklyProgress} />
@@ -249,6 +261,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: referenceGraphCardGap,
   },
+  healthScorePressable: { height: referenceHealthScoreSize, width: referenceHealthScoreSize },
   scorePlaceholder: {
     alignItems: 'center',
     height: referenceHealthScoreSize,
