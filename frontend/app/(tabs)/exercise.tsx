@@ -33,12 +33,18 @@ import { colors, fontFamilies } from '@/src/theme';
 const exerciseBackground = require('@/assets/images/backgrounds/6_Exercise.png');
 const recentExerciseImage = require('@/assets/images/illustrations/temp/Image_Exercise.png');
 const heroImages = {
+  loading: require('@/assets/images/illustrations/exercise/circles/Uncomplete.png'),
   'not-created': require('@/assets/images/illustrations/exercise/circles/Uncomplete.png'),
   ready: require('@/assets/images/illustrations/exercise/circles/Ready.png'),
   completed: require('@/assets/images/illustrations/exercise/circles/Complete.png'),
 } as const;
 
 const heroCopy = {
+  loading: {
+    badge: '운동 추천 확인 중',
+    title: '오늘의 운동을\n확인하고 있어요.',
+    action: '잠시만 기다려 주세요.',
+  },
   'not-created': {
     badge: '오늘의 시작',
     title: '오늘 운동할\n준비가 되셨나요?',
@@ -105,7 +111,7 @@ export default function ExerciseScreen() {
     return () => cancelAnimationFrame(frame);
   }, [refreshHome, status]);
 
-  const heroStatus = status ?? 'not-created';
+  const heroStatus = status ?? 'loading';
   const hero = heroCopy[heroStatus];
   const summary = useMemo(() => {
     if (heroStatus === 'completed') {
@@ -170,6 +176,7 @@ export default function ExerciseScreen() {
   }, [heroStatus, homeMetrics, latestSession]);
 
   const handleHeroAction = () => {
+    if (heroStatus === 'loading') return;
     if (heroStatus === 'not-created') router.push('/exercise/condition');
     else router.push('/exercise/summary');
   };
@@ -194,7 +201,7 @@ export default function ExerciseScreen() {
           source={heroImages[heroStatus]}
           style={[styles.heroImage, { top: layout.heroImageTop }]}
         />
-        <View style={styles.heroButton}>
+        <View pointerEvents={heroStatus === 'loading' ? 'none' : 'auto'} style={styles.heroButton}>
           <ExerciseActionButton
             compact
             gradient

@@ -19,7 +19,6 @@ import RightIcon from '@/assets/icons/common/chevrons/Right.svg';
 import BarbellIcon from '@/assets/icons/deco/Barbell.svg';
 import FireIcon from '@/assets/icons/deco/Fire.svg';
 import ClockIcon from '@/assets/icons/input/Clock.svg';
-import ExpandIcon from '@/assets/icons/system/Expand.svg';
 import LightbulbIcon from '@/assets/icons/system/Lightbulb.svg';
 import SpeakerHighIcon from '@/assets/icons/system/SpeakerSimpleHigh.svg';
 import SpeakerSlashIcon from '@/assets/icons/system/SpeakerSimpleSlash.svg';
@@ -38,6 +37,10 @@ import {
   type ExerciseSessionExercise,
   type ExerciseSessionState,
 } from '@/src/features/exercise/ExerciseSessionContext';
+import {
+  getMockExerciseBodyParts,
+  type ExerciseBodyPart,
+} from '@/src/features/exercise/exerciseData';
 import { colors, fontFamilies } from '@/src/theme';
 
 const fallbackExerciseImage = require('@/assets/images/illustrations/temp/Image_Exercise.png');
@@ -96,6 +99,8 @@ export default function ExerciseSessionScreen() {
     compact + (expanded - compact) * heightProgress;
   const layout = {
     buttonsTop: verticalValue(800, 730),
+    completionButtonTop: verticalValue(800, 740),
+    completionCardHeight: 110,
     completionCardTop: verticalValue(676, 620),
     completionImageSize: verticalValue(320, 285),
     completionImageTop: verticalValue(268, 225),
@@ -252,6 +257,8 @@ export default function ExerciseSessionScreen() {
 type SessionLayout = {
   buttonsTop: number;
   completionCardTop: number;
+  completionCardHeight: number;
+  completionButtonTop: number;
   completionImageSize: number;
   completionImageTop: number;
   completionTitleTop: number;
@@ -338,7 +345,6 @@ function ExerciseContent({
         height={layout.mediaHeight}
         imageHeight={layout.mediaImageHeight}
         onToggleGuide={toggleGuide}
-        speed={session.countSpeed}
         top={layout.mediaTop}
       />
       {exercise.mode === 'timed' ? (
@@ -365,6 +371,7 @@ function ExerciseContent({
         onCompleteSet={completeCurrentSet}
         onSkip={onSkip}
         set={session.currentSet}
+        totalSets={exercise.totalSets}
         top={layout.buttonsTop}
       />
     </>
@@ -377,7 +384,6 @@ function ExerciseMediaCard({
   height,
   imageHeight,
   onToggleGuide,
-  speed,
   top,
 }: {
   exercise: ExerciseSessionExercise;
@@ -385,15 +391,13 @@ function ExerciseMediaCard({
   height: number;
   imageHeight: number;
   onToggleGuide: () => void;
-  speed: ExerciseCountSpeed;
   top: number;
 }) {
   const [failedImageUri, setFailedImageUri] = useState<string | null>(null);
   const remoteSource = exercise.thumbnailUrl?.trim();
   const imageSource: ImageSourcePropType =
     remoteSource && remoteSource !== failedImageUri ? { uri: remoteSource } : fallbackExerciseImage;
-  const speedState = speedCopy(speed);
-  const modeTag = exercise.mode === 'timed' ? '시간' : '횟수';
+  const bodyParts = getMockExerciseBodyParts(exercise.name);
 
   return (
     <View style={[styles.mediaCard, { height, top }]}>
@@ -407,14 +411,9 @@ function ExerciseMediaCard({
               {exercise.name}
             </Text>
             <View style={styles.tagRow}>
-              <View style={styles.blueTag}>
-                <Text style={styles.blueTagText}>{modeTag}</Text>
-              </View>
-              {exercise.intensity ? (
-                <View style={styles.goldTag}>
-                  <Text style={styles.goldTagText}>{exercise.intensity}</Text>
-                </View>
-              ) : null}
+              {bodyParts.map((bodyPart) => (
+                <ExerciseBodyPartBadge bodyPart={bodyPart} key={bodyPart} />
+              ))}
             </View>
           </View>
         </View>
@@ -439,13 +438,16 @@ function ExerciseMediaCard({
         <View pointerEvents="none" style={styles.playCircle}>
           <PlayIcon color={colors.primary} height={30} width={30} />
         </View>
-        <View style={styles.mediaSpeedBadge}>
-          <Text style={styles.mediaSpeedText}>{speedState.badge}</Text>
-        </View>
-        <View style={styles.expandBadge}>
-          <ExpandIcon color={colors.textBody} height={15} width={15} />
-        </View>
       </View>
+    </View>
+  );
+}
+
+function ExerciseBodyPartBadge({ bodyPart }: { bodyPart: ExerciseBodyPart }) {
+  const useGoldBadge = bodyPart === '둔근' || bodyPart === '종아리';
+  return (
+    <View style={useGoldBadge ? styles.goldTag : styles.blueTag}>
+      <Text style={useGoldBadge ? styles.goldTagText : styles.blueTagText}>{bodyPart}</Text>
     </View>
   );
 }
@@ -549,13 +551,17 @@ function ExerciseControls({
   onCompleteSet,
   onSkip,
   set,
+  totalSets,
   top,
 }: {
   onCompleteSet: () => void;
   onSkip: () => void;
   set: number;
+  totalSets: number;
   top: number;
 }) {
+  const isLastSet = set === totalSets;
+
   return (
     <View style={[styles.controls, { top }]}>
       <View style={styles.controlRow}>
@@ -563,7 +569,7 @@ function ExerciseControls({
           <Text style={styles.secondaryControlText}>불편함 기록</Text>
         </View>
         <Pressable onPress={onCompleteSet} style={styles.primaryControl}>
-          <Text style={styles.primaryControlText}>{set}세트 완료</Text>
+          <Text style={styles.primaryControlText}>{isLastSet ? '세트 완료' : '다음'}</Text>
         </Pressable>
       </View>
       <Pressable onPress={onSkip} style={styles.skipLink}>
@@ -590,7 +596,10 @@ function RestContent({
   togglePause: () => void;
 }) {
   const remainingSeconds = Math.ceil(session.restRemainingMs / 1000);
-  const progress = session.restTotalMs > 0 ? session.restRemainingMs / session.restTotalMs : 0;
+  const progress =
+    session.restTotalMs > 0
+      ? Math.max(0, Math.min(1, session.restRemainingMs / session.restTotalMs))
+      : 0;
   const radius = 119;
   const circumference = 2 * Math.PI * radius;
   return (
@@ -604,12 +613,20 @@ function RestContent({
         onPress={togglePause}
         style={[styles.restCircle, { top: layout.restCircleTop }]}
       >
-        <Svg height={250} style={StyleSheet.absoluteFill} viewBox="0 0 250 250" width={250}>
+        <Svg
+          height={250}
+          pointerEvents="none"
+          style={styles.restProgressRing}
+          viewBox="0 0 250 250"
+          width={250}
+        >
           <Circle cx="125" cy="125" fill="none" r={radius} stroke="#EEEEEE" strokeWidth="12" />
           <Circle
             cx="125"
             cy="125"
             fill="none"
+            originX="125"
+            originY="125"
             r={radius}
             rotation="-90"
             stroke={colors.primary}
@@ -662,7 +679,9 @@ function ExerciseCompletedContent({
   return (
     <>
       <View style={[styles.completionHeading, { top: layout.completionTitleTop }]}>
-        <Text style={styles.completionTitle}>{exercise.name} 완료!</Text>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.completionTitle}>
+          {exercise.name} 완료!
+        </Text>
         <Text style={styles.completionDescription}>
           {session.currentExerciseIndex + 1}번째 운동을 완료했어요.
         </Text>
@@ -679,7 +698,12 @@ function ExerciseCompletedContent({
           },
         ]}
       />
-      <View style={[styles.resultCard, { top: layout.completionCardTop }]}>
+      <View
+        style={[
+          styles.resultCard,
+          { height: layout.completionCardHeight, top: layout.completionCardTop },
+        ]}
+      >
         <ResultFactor
           Icon={ClockIcon}
           label="운동 시간"
@@ -697,7 +721,7 @@ function ExerciseCompletedContent({
           value={result?.caloriesBurned === null ? '-' : `${result?.caloriesBurned ?? '-'} kcal`}
         />
       </View>
-      <View style={[styles.completionButton, { top: layout.buttonsTop }]}>
+      <View style={[styles.completionButton, { top: layout.completionButtonTop }]}>
         <ExerciseActionButton
           borderRadius={10}
           gap={0}
@@ -906,6 +930,7 @@ const styles = StyleSheet.create({
     fontSize: 36,
     includeFontPadding: false,
     textAlign: 'center',
+    width: '100%',
   },
   controlRow: { flexDirection: 'row', gap: 10, width: '100%' },
   controls: { alignItems: 'flex-end', gap: 17, left: 21, position: 'absolute', width: 370 },
@@ -955,17 +980,6 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontFamily: fontFamilies.pretendardBold,
     fontSize: 22,
-  },
-  expandBadge: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 7,
-    bottom: 7,
-    height: 25,
-    justifyContent: 'center',
-    position: 'absolute',
-    right: 7,
-    width: 25,
   },
   goldTag: {
     backgroundColor: '#FFF8E8',
@@ -1023,22 +1037,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     width: 334,
-  },
-  mediaSpeedBadge: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 7,
-    bottom: 7,
-    height: 25,
-    justifyContent: 'center',
-    left: 7,
-    position: 'absolute',
-    width: 42,
-  },
-  mediaSpeedText: {
-    color: colors.primaryDark,
-    fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 11,
   },
   modalButtons: { flexDirection: 'row', gap: 10, width: '100%' },
   modalCancelButton: {
@@ -1179,6 +1177,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 250,
   },
+  restProgressRing: { height: 250, position: 'absolute', width: 250 },
   restControls: { alignItems: 'flex-end', gap: 17, left: 21, position: 'absolute', width: 370 },
   restDescription: {
     color: colors.textSecondary,
@@ -1223,22 +1222,24 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     borderWidth: 1,
     flexDirection: 'row',
-    height: 100,
+    height: 110,
     left: 21,
+    paddingBottom: 12,
+    paddingTop: 12,
     position: 'absolute',
     width: 370,
   },
   resultDivider: { borderRightColor: colors.border, borderRightWidth: 1 },
-  resultFactor: { alignItems: 'center', flex: 1, gap: 7, height: 60 },
+  resultFactor: { alignItems: 'center', flex: 1, gap: 7, height: 82 },
   resultLabel: {
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 11,
+    fontSize: 13,
   },
   resultValue: {
     color: colors.primaryDark,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 18,
+    fontSize: 20,
   },
   screenTitle: {
     alignSelf: 'center',

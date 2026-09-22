@@ -1,6 +1,16 @@
 export type ExerciseDayStatus = 'not-created' | 'ready' | 'completed';
 export type ExerciseLocation = 'gym' | 'home' | 'outdoor' | 'other';
 export type ExerciseEquipment = 'machine' | 'band' | 'dumbbell' | 'bodyweight' | 'other';
+export type ExerciseBodyPart =
+  | '코어'
+  | '등'
+  | '가슴'
+  | '어깨'
+  | '허리'
+  | '둔근'
+  | '종아리'
+  | '팔'
+  | '전신';
 
 export interface ExerciseCondition {
   availableMinutes: number | null;
@@ -63,3 +73,26 @@ export const exerciseEquipmentLabels: Record<ExerciseEquipment, string> = {
   bodyweight: '맨몸',
   other: '기타',
 };
+
+// TODO: Replace this temporary presentation mapping when the recommendation API exposes body parts.
+const mockExerciseBodyPartsByName: Record<string, ExerciseBodyPart[]> = {
+  '버드독': ['코어', '둔근'],
+  '랫풀다운': ['등', '팔'],
+  '시티드 로우': ['등', '팔'],
+  '덤벨 로우': ['등', '팔'],
+  플랭크: ['코어'],
+  '전신 워밍업 스트레칭': ['전신'],
+  '가벼운 지속 달리기': ['종아리'],
+  '마무리 스트레칭': ['전신'],
+  푸시업: ['가슴', '팔'],
+  '숄더 프레스': ['어깨', '팔'],
+  브릿지: ['둔근', '코어'],
+  스쿼트: ['둔근', '종아리'],
+  런지: ['둔근', '종아리'],
+  데드버그: ['코어'],
+  슈퍼맨: ['허리'],
+};
+
+export function getMockExerciseBodyParts(exerciseName: string): ExerciseBodyPart[] {
+  return mockExerciseBodyPartsByName[exerciseName] ?? ['전신'];
+}

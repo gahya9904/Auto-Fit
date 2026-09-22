@@ -15,8 +15,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BarbellIcon from '@/assets/icons/deco/Barbell.svg';
+import FireIcon from '@/assets/icons/deco/Fire.svg';
 import HandHeartIcon from '@/assets/icons/deco/HandHeart.svg';
+import SparkleIcon from '@/assets/icons/deco/Sparkle_Fill.svg';
 import HouseIcon from '@/assets/icons/deco/HouseLine.svg';
+import SmileyIcon from '@/assets/icons/face/Smiley.svg';
 import PlayIcon from '@/assets/icons/feature/PlayCircle_Fill.svg';
 import ClockIcon from '@/assets/icons/input/Clock.svg';
 import CheckIcon from '@/assets/icons/system/CheckCircle_Fill.svg';
@@ -130,7 +133,7 @@ export default function ExerciseSummaryScreen() {
           : `${condition.equipment.length}종`,
       Icon: BarbellIcon,
     },
-    { label: '컨디션', value: condition.condition || '미입력', Icon: HandHeartIcon },
+    { label: '컨디션', value: condition.condition || '미입력', Icon: SmileyIcon },
     { label: '불편 부위', value: condition.discomfortArea || '없음', Icon: HandHeartIcon },
   ];
 
@@ -144,7 +147,7 @@ export default function ExerciseSummaryScreen() {
           { height: layout.conditionSummaryHeight, top: layout.conditionSummaryTop },
         ]}
       >
-        {summary.map(({ Icon, label, value }) => (
+        {summary.map(({ Icon, label, value }, index) => (
           <View key={label} style={styles.conditionItem}>
             <View style={styles.conditionIcon}>
               <Icon color={colors.primary} fill={colors.primary} height={19} width={19} />
@@ -153,6 +156,7 @@ export default function ExerciseSummaryScreen() {
             <Text numberOfLines={1} style={styles.conditionValue}>
               {value}
             </Text>
+            {index < summary.length - 1 ? <View style={styles.conditionDivider} /> : null}
           </View>
         ))}
       </View>
@@ -171,7 +175,15 @@ export default function ExerciseSummaryScreen() {
             <View style={styles.programOverview}>
               <View style={[styles.programInfo, { gap: layout.programInfoGap }]}>
                 <View style={styles.aiBadge}>
-                  <Text style={styles.aiBadgeText}>AI 추천 운동 프로그램</Text>
+                  <View style={styles.aiBadgeContent}>
+                    <SparkleIcon
+                      color={colors.primaryDark}
+                      fill={colors.primaryDark}
+                      height={15}
+                      width={15}
+                    />
+                    <Text style={styles.aiBadgeText}>AI 추천 운동 프로그램</Text>
+                  </View>
                 </View>
                 <Text style={styles.programTitle}>
                   {routine.title}
@@ -180,15 +192,36 @@ export default function ExerciseSummaryScreen() {
                     <Text style={styles.programAccent}>{routine.subtitle}</Text>
                   ) : null}
                 </Text>
-                <Text numberOfLines={1} style={styles.programMeta}>
-                  {routine.totalDurationMinutes !== null
-                    ? `${routine.totalDurationMinutes}분`
-                    : condition.availableMinutes === null
-                      ? '시간 미선택'
-                      : `${condition.availableMinutes}분`}{' '}
-                  · {routine.exercises.length}개 운동
-                  {routine.intensity ? ` · 강도 ${routine.intensity}` : ''}
-                </Text>
+                <View style={styles.programMeta}>
+                  <View style={styles.programMetaItem}>
+                    <ClockIcon color={colors.primary} height={20} width={20} />
+                    <Text numberOfLines={1} style={styles.programMetaText}>
+                      {routine.totalDurationMinutes !== null
+                        ? `${routine.totalDurationMinutes}분`
+                        : condition.availableMinutes === null
+                          ? '시간 미선택'
+                          : `${condition.availableMinutes}분`}
+                    </Text>
+                  </View>
+                  <Text style={styles.programMetaSeparator}>·</Text>
+                  <View style={styles.programMetaItem}>
+                    <BarbellIcon color={colors.primary} fill={colors.primary} height={20} width={20} />
+                    <Text numberOfLines={1} style={styles.programMetaText}>
+                      {routine.exercises.length}개 운동
+                    </Text>
+                  </View>
+                  {routine.intensity ? (
+                    <>
+                      <Text style={styles.programMetaSeparator}>·</Text>
+                      <View style={styles.programMetaItem}>
+                        <FireIcon color={colors.primary} fill={colors.primary} height={20} width={20} />
+                        <Text numberOfLines={1} style={styles.programMetaText}>
+                          강도 {routine.intensity}
+                        </Text>
+                      </View>
+                    </>
+                  ) : null}
+                </View>
               </View>
               <Image resizeMode="contain" source={exerciseImage} style={styles.programImage} />
             </View>
@@ -203,10 +236,11 @@ export default function ExerciseSummaryScreen() {
                   {routine.reasons.map((reason) => (
                     <View key={reason} style={styles.reasonRow}>
                       <CheckIcon
-                        color={colors.primary}
-                        fill={colors.primary}
-                        height={15}
-                        width={15}
+                        color={colors.primaryDark}
+                        fill={colors.primaryDark}
+                        height={17}
+                        style={styles.reasonCheck}
+                        width={17}
                       />
                       <Text style={styles.reasonText}>{reason}</Text>
                     </View>
@@ -240,8 +274,14 @@ export default function ExerciseSummaryScreen() {
           </Text>
         </View>
         <ScrollView nestedScrollEnabled showsVerticalScrollIndicator style={styles.workoutList}>
-          {routine?.exercises.map((exercise) => (
-            <View key={exercise.id} style={styles.workoutRow}>
+          {routine?.exercises.map((exercise, index) => (
+            <View
+              key={exercise.id}
+              style={[
+                styles.workoutRow,
+                index === routine.exercises.length - 1 && styles.workoutRowLast,
+              ]}
+            >
               <View style={styles.number}>
                 <Text style={styles.numberText}>{exercise.sequenceOrder ?? ''}</Text>
               </View>
@@ -290,6 +330,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 7,
   },
+  aiBadgeContent: { alignItems: 'center', flexDirection: 'row', gap: 2 },
   aiBadgeText: {
     color: colors.primaryDark,
     fontFamily: fontFamilies.pretendardSemiBold,
@@ -306,11 +347,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 31,
   },
-  conditionItem: { alignItems: 'center', flex: 1, gap: 4 },
+  conditionDivider: {
+    backgroundColor: colors.border,
+    height: 75,
+    position: 'absolute',
+    right: 0,
+    width: 1,
+  },
+  conditionItem: { alignItems: 'center', flex: 1, gap: 4, position: 'relative' },
   conditionLabel: {
-    color: colors.textSecondary,
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 11,
+    color: colors.textBody,
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 13,
   },
   conditionSummary: {
     alignItems: 'center',
@@ -327,9 +375,9 @@ const styles = StyleSheet.create({
     width: 370,
   },
   conditionValue: {
-    color: colors.textPrimary,
+    color: colors.primaryDark,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 13,
+    fontSize: 15,
     maxWidth: 64,
   },
   ctaLabel: { fontFamily: fontFamilies.pretendardMedium, fontSize: 20, lineHeight: 24 },
@@ -344,13 +392,13 @@ const styles = StyleSheet.create({
   },
   number: {
     alignItems: 'center',
-    backgroundColor: colors.primaryLight,
+    backgroundColor: colors.primaryDark,
     borderRadius: 999,
-    height: 27,
+    height: 21,
     justifyContent: 'center',
-    width: 27,
+    width: 21,
   },
-  numberText: { color: colors.primaryDark, fontFamily: fontFamilies.pretendardBold, fontSize: 13 },
+  numberText: { color: colors.surface, fontFamily: fontFamilies.pretendardBold, fontSize: 14 },
   primaryCta: { left: 21, position: 'absolute', top: 765, width: 370 },
   programAccent: { color: colors.primaryDark },
   programCard: {
@@ -361,19 +409,40 @@ const styles = StyleSheet.create({
     height: 300,
     left: 21,
     overflow: 'hidden',
-    padding: 10,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     position: 'absolute',
     top: 190,
     width: 370,
   },
   programImage: {
+    elevation: 0,
     flexShrink: 0,
     height: 120,
+    position: 'relative',
     width: 120,
+    zIndex: 1,
   },
-  programInfo: { flexShrink: 0, width: 216 },
+  programInfo: { elevation: 2, flexShrink: 0, position: 'relative', width: 216, zIndex: 2 },
   programInner: { flex: 1 },
   programMeta: {
+    alignItems: 'center',
+    color: colors.textSecondary,
+    flexDirection: 'row',
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 13,
+    includeFontPadding: false,
+    lineHeight: 16,
+  },
+  programMetaItem: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  programMetaSeparator: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardMedium,
+    fontSize: 13,
+    marginHorizontal: 5,
+  },
+  programMetaText: {
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
     fontSize: 13,
@@ -398,14 +467,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 3,
   },
-  reasonRow: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  reasonCheck: { marginTop: 0.5 },
+  reasonRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 5 },
   reasonSection: { flex: 1 },
   reasonText: {
     color: colors.textBody,
     fontFamily: fontFamilies.pretendardRegular,
-    fontSize: 13,
+    fontSize: 14,
     includeFontPadding: false,
-    lineHeight: 16,
+    lineHeight: 18,
   },
   reasonTitle: {
     color: colors.textPrimary,
@@ -440,19 +510,19 @@ const styles = StyleSheet.create({
   workoutCount: {
     color: colors.primaryDark,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 13,
+    fontSize: 14,
   },
   workoutHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   workoutList: { marginTop: 10 },
   workoutName: {
     color: colors.textPrimary,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 15,
+    fontSize: 16,
   },
   workoutPrescription: {
     color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardRegular,
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 2,
   },
   workoutRow: {
@@ -463,11 +533,12 @@ const styles = StyleSheet.create({
     minHeight: 50,
     paddingVertical: 7,
   },
+  workoutRowLast: { borderBottomWidth: 0 },
   workoutText: { marginLeft: 10 },
   workoutTitle: {
     color: colors.textPrimary,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 18,
+    fontSize: 19,
   },
   workoutTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
 });

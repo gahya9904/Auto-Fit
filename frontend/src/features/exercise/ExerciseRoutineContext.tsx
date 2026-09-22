@@ -23,6 +23,7 @@ import {
   type ExerciseApiEquipment,
 } from '@/src/api/exercise';
 import { ApiError } from '@/src/api/client';
+import { getSupabaseClient } from '@/src/lib/supabase';
 
 import {
   initialExerciseCondition,
@@ -34,6 +35,9 @@ import {
 
 type ApiRecord = Record<string, unknown>;
 type ExerciseLoadState = 'empty' | 'error' | 'loading' | 'ready';
+
+// TODO: Remove this presentation-only test override when API-provided set counts should be used.
+const TEST_EXERCISE_SET_OVERRIDE = 2;
 
 export type ExerciseSessionSummary = {
   calories: number | null;
@@ -171,7 +175,8 @@ function mapExerciseItems(result: ApiRecord): ExerciseItem[] {
         repetitions: readNumber(item, ['repetitions']),
         restSeconds: readNumber(item, ['rest_seconds']),
         sequenceOrder: readNumber(item, ['sequence_order']),
-        sets: readNumber(item, ['sets']),
+        // Temporary UI/session test value. The API response itself remains unchanged.
+        sets: TEST_EXERCISE_SET_OVERRIDE,
         targetDurationSeconds: readNumber(item, ['target_duration_seconds']),
         targetWeightKg: readNumber(item, ['target_weight_kg']),
         thumbnailUrl: readString(item, ['thumbnail_url']),
@@ -356,9 +361,11 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
   const [routine, setRoutine] = useState<ExerciseRoutine | null>(null);
   const [status, setStatus] = useState<ExerciseDayStatus | null>(null);
   const homeRequestInFlight = useRef(false);
+  const homeRequestId = useRef(0);
   const routineRequestInFlight = useRef(false);
   const sessionRequestInFlight = useRef(false);
   const mountedRef = useRef(true);
+  const authenticatedUserIdRef = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -367,9 +374,45 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  useEffect(() => {
+    const resetForAuthenticatedUser = (userId: string | null) => {
+      if (authenticatedUserIdRef.current === userId) return;
+
+      authenticatedUserIdRef.current = userId;
+      homeRequestId.current += 1;
+      homeRequestInFlight.current = false;
+      setActiveSession(null);
+      setCondition(initialExerciseCondition);
+      setHomeError(null);
+      setHomeLoadState('loading');
+      setHomeMetrics({
+        currentWorkoutStreakDays: null,
+        currentWeekWorkoutCount: null,
+        goalAchievementRate: null,
+        remainingGoalWorkoutCount: null,
+      });
+      setLatestSession(null);
+      setRoutine(null);
+      setStatus(null);
+    };
+
+    const supabase = getSupabaseClient();
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (mountedRef.current) resetForAuthenticatedUser(session?.user.id ?? null);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (mountedRef.current) resetForAuthenticatedUser(session?.user.id ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const refreshHome = useCallback(async () => {
     if (homeRequestInFlight.current) return;
     homeRequestInFlight.current = true;
+    const requestId = ++homeRequestId.current;
     setHomeError(null);
     setHomeLoadState('loading');
 
@@ -382,8 +425,8 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
         getExerciseProgress(),
       ]);
 
-    homeRequestInFlight.current = false;
-    if (!mountedRef.current) return;
+    if (homeRequestId.current === requestId) homeRequestInFlight.current = false;
+    if (!mountedRef.current || homeRequestId.current !== requestId) return;
 
     const recommendationMissing = isMissingExerciseData(recommendationResult);
     const sessionMissing = isMissingExerciseData(sessionResult);
@@ -405,6 +448,18 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       recommendationResult.status === 'fulfilled' ? recommendationResult.value : { result: null };
     const recommendationResultValue = getResultValue(recommendationResponse);
     const nextRoutine = mapExerciseRoutine(recommendationResponse);
+    const recommendationRecord = getResult(recommendationResponse);
+    const recommendationMetadata = recommendationRecord
+      ? (readRecord(recommendationRecord, 'recommendation') ?? recommendationRecord)
+      : null;
+    const recommendationDateValue = recommendationMetadata
+      ? readString(recommendationMetadata, [
+          'recommendation_date',
+          'recommended_for',
+          'generated_at',
+          'created_at',
+        ])
+      : null;
     const nextSession = mapExerciseSession(
       sessionResult.status === 'fulfilled' ? sessionResult.value : { result: null },
     );
@@ -436,22 +491,10 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const recommendationRecord = getResult(recommendationResponse);
-    const recommendationMetadata = recommendationRecord
-      ? (readRecord(recommendationRecord, 'recommendation') ?? recommendationRecord)
-      : null;
     const recommendationDate =
-      nextRoutine && recommendationMetadata
-        ? toDateKey(
-            readString(recommendationMetadata, [
-              'recommendation_date',
-              'recommended_for',
-              'generated_at',
-              'created_at',
-            ]) ?? '',
-          )
+      nextRoutine && recommendationDateValue
+        ? toDateKey(recommendationDateValue)
         : null;
-
     if (!nextRoutine || !recommendationDate) {
       setRoutine(null);
       setStatus('not-created');
