@@ -1,105 +1,97 @@
 from fastapi import (
     APIRouter,
     Depends,
-    HTTPException,
-)
-from fastapi.security import (
-    HTTPAuthorizationCredentials,
+    Query,
 )
 
 from app.core.security import (
-    security,
-    verify_api_key,
+    verify_ai_server_key,
 )
-
-from app.rag.document_schema import (
-    RAGDocument,
-    RAGDocumentMetadata,
-)
-
-from app.rag.rag_ingestion_service import (
-    rag_ingestion_service,
-)
-
 from app.rag.vector_store import (
     rag_vector_store,
 )
 
+from app.graphs.nodes.rag_node import (
+    debug_rag_search,
+)
+from app.schemas.rag import (
+    RAGDebugRequest,
+    RAGDebugResponse,
+)
 
 router = APIRouter(
     prefix="/rag",
-    tags=["rag"],
+    tags=["RAG"],
 )
 
 
-@router.post("/test-ingest")
-async def test_ingest(
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-        security
+@router.get(
+    "/test-search",
+    dependencies=[
+        Depends(
+            verify_ai_server_key
+        )
+    ],
+)
+def test_search(
+    query: str = Query(
+        ...,
+        min_length=1,
+    ),
+    topic: str | None = Query(
+        default=None,
+    ),
+    n_results: int = Query(
+        default=3,
+        ge=1,
+        le=10,
     ),
 ):
-    verify_api_key(credentials)
+    """
+    RAG Vector DB 검색 테스트.
 
-    try:
-        document = RAGDocument(
-            content=(
-                "공복혈당이 정상보다 높은 경우에는 "
-                "대사 건강 상태를 함께 확인할 필요가 있습니다. "
-                "식사, 운동, 체중 관리와 같은 생활습관 요소를 "
-                "함께 고려해야 합니다."
-            ),
-            metadata=RAGDocumentMetadata(
-                source_org="대한당뇨병학회",
-                title="당뇨병 관련 공식 테스트 문서",
-                document_type="clinical_guideline",
-                published_year=2025,
-                url="https://example.com/test",
-                verified=True,
-                language="ko",
-                topic="diabetes",
-            ),
+    topic을 지정하면 해당 topic의
+    문서만 검색한다.
+    """
+
+    results = rag_vector_store.search(
+        query=query,
+        n_results=n_results,
+        topic=topic,
+    )
+
+    return {
+        "query": query,
+        "topic": topic,
+        "count": len(results),
+        "results": results,
+    }
+
+@router.post(
+    "/debug-analysis-search",
+    response_model=RAGDebugResponse,
+    dependencies=[
+        Depends(
+            verify_ai_server_key
         )
+    ],
+)
+def debug_analysis_search(
+    request: RAGDebugRequest,
+) -> RAGDebugResponse:
+    """
+    Rule Engine status를 기반으로
+    topic 선택 + RAG 후보 + reranking 결과를 확인한다.
 
-        stored_count = (
-            rag_ingestion_service.ingest_document(
-                document
-            )
+    개발/튜닝 전용 endpoint.
+    """
+
+    result = debug_rag_search(
+        metric_statuses=(
+            request.metric_statuses
         )
+    )
 
-        return {
-            "status": "ok",
-            "stored_chunks": stored_count,
-        }
-
-    except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail="RAG ingestion failed",
-        )
-
-
-@router.get("/test-search")
-async def test_search(
-    query: str,
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-        security
-    ),
-):
-    verify_api_key(credentials)
-
-    try:
-        results = rag_vector_store.search(
-            query=query,
-            n_results=3,
-        )
-
-        return {
-            "query": query,
-            "results": results,
-        }
-
-    except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail="RAG search failed",
-        )
+    return RAGDebugResponse(
+        **result
+    )

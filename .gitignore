@@ -7,3 +7,6 @@ __pycache__/
 app/models/**/*.pkl
 app/models/**/*.pt
 app/models/**/*.pth
+data/chroma/
+data/rag_sources/
+data/rag_temp/

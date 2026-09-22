@@ -4,7 +4,7 @@ from typing import Any
 import chromadb
 
 from app.rag.embedding_service import (
-    embedding_service,
+    get_embedding_service,
 )
 
 
@@ -33,19 +33,31 @@ class RAGVectorStore:
         content: str,
         metadata: dict[str, Any],
     ) -> None:
+        """
+        문서 chunk를 embedding한 뒤
+        Chroma에 저장한다.
+        """
+
+        embedding_service = get_embedding_service()
 
         embedding = embedding_service.embed_text(
             content
         )
 
-        # Chroma metadata는 단순 타입으로 유지
+        # Chroma metadata는
+        # str / int / float / bool 타입만 허용
         safe_metadata = {
             key: value
             for key, value in metadata.items()
             if value is not None
             and isinstance(
                 value,
-                (str, int, float, bool),
+                (
+                    str,
+                    int,
+                    float,
+                    bool,
+                ),
             )
         }
 
@@ -57,60 +69,178 @@ class RAGVectorStore:
         )
 
     def search(
-        self,
-        query: str,
-        n_results: int = 5,
+    self,
+    query: str,
+    n_results: int = 5,
+    topic: str | None = None,
     ) -> list[dict[str, Any]]:
+        """
+        query를 embedding하여 유사 문서를 검색한다.
 
-        query_embedding = (
-            embedding_service.embed_text(
-                query
-            )
+        topic이 전달되면
+        해당 health topic 문서만 검색한다.
+        """
+
+        if not query.strip():
+            return []
+
+        embedding_service = get_embedding_service()
+
+        query_embedding = embedding_service.embed_text(
+            query
         )
 
-        result = self.collection.query(
-            query_embeddings=[
+        query_kwargs: dict[str, Any] = {
+            "query_embeddings": [
                 query_embedding
             ],
-            n_results=n_results,
-            include=[
+            "n_results": n_results,
+            "include": [
                 "documents",
                 "metadatas",
                 "distances",
             ],
-        )
+        }
 
-        documents = (
-            result.get("documents")
-            or [[]]
-        )[0]
+        if topic:
+            query_kwargs["where"] = {
+                "topic": topic
+            }
 
-        metadatas = (
-            result.get("metadatas")
-            or [[]]
-        )[0]
-
-        distances = (
-            result.get("distances")
-            or [[]]
-        )[0]
-
-        results: list[dict[str, Any]] = []
-
-        for document, metadata, distance in zip(
-            documents,
-            metadatas,
-            distances,
-        ):
-            results.append(
-                {
-                    "content": document,
-                    "metadata": metadata,
-                    "distance": distance,
-                }
+            result = self.collection.query(
+                **query_kwargs
             )
 
-        return results
+            documents = (
+                result.get("documents")
+                or [[]]
+            )[0]
+
+            metadatas = (
+                result.get("metadatas")
+                or [[]]
+            )[0]
+
+            distances = (
+                result.get("distances")
+                or [[]]
+            )[0]
+
+            results: list[
+                dict[str, Any]
+            ] = []
+
+            for (
+                document,
+                metadata,
+                distance,
+            ) in zip(
+                documents,
+                metadatas,
+                distances,
+            ):
+                metadata = metadata or {}
+
+                results.append(
+                    {
+                        "content": document,
+                        "source_org": metadata.get(
+                            "source_org"
+                        ),
+                        "title": metadata.get(
+                            "title"
+                        ),
+                        "document_type": metadata.get(
+                            "document_type"
+                        ),
+                        "published_year": metadata.get(
+                            "published_year"
+                        ),
+                        "url": metadata.get(
+                            "url"
+                        ),
+                        "verified": metadata.get(
+                            "verified",
+                            False,
+                        ),
+                        "language": metadata.get(
+                            "language"
+                        ),
+                        "topic": metadata.get(
+                            "topic"
+                        ),
+                        "chunk_index": metadata.get(
+                            "chunk_index"
+                        ),
+                        "distance": distance,
+                    }
+                )
+
+            return results
 
 
+    def add_chunks(
+        self,
+        chunks: list[dict[str, Any]],
+    ) -> None:
+        """
+        여러 chunk를 batch embedding 후
+        Chroma에 한 번에 저장한다.
+        """
+
+        if not chunks:
+            return
+
+        embedding_service = get_embedding_service()
+
+        contents = [
+            chunk["content"]
+            for chunk in chunks
+        ]
+
+        embeddings = embedding_service.embed_texts(
+            contents
+        )
+
+        ids: list[str] = []
+        documents: list[str] = []
+        metadatas: list[dict[str, Any]] = []
+
+        for chunk in chunks:
+            ids.append(
+                chunk["chunk_id"]
+            )
+
+            documents.append(
+                chunk["content"]
+            )
+
+            metadata = chunk["metadata"]
+
+            safe_metadata = {
+                key: value
+                for key, value in metadata.items()
+                if value is not None
+                and isinstance(
+                    value,
+                    (
+                        str,
+                        int,
+                        float,
+                        bool,
+                    ),
+                )
+            }
+
+            metadatas.append(
+                safe_metadata
+            )
+
+        self.collection.upsert(
+            ids=ids,
+            embeddings=embeddings,
+            documents=documents,
+            metadatas=metadatas,
+        )
+        
 rag_vector_store = RAGVectorStore()

@@ -4,8 +4,7 @@ from app.core.config import get_settings
 
 
 class EmbeddingService:
-
-    def __init__(self):
+    def __init__(self) -> None:
         settings = get_settings()
 
         if not settings.openai_api_key:
@@ -23,12 +22,6 @@ class EmbeddingService:
         self,
         text: str,
     ) -> list[float]:
-
-        if not text.strip():
-            raise ValueError(
-                "Embedding text is empty."
-            )
-
         response = self.client.embeddings.create(
             model=self.model,
             input=text,
@@ -36,5 +29,35 @@ class EmbeddingService:
 
         return response.data[0].embedding
 
+    def embed_texts(
+        self,
+        texts: list[str],
+    ) -> list[list[float]]:
+        """
+        여러 chunk를 한 번의 API 호출로 embedding한다.
+        """
 
-embedding_service = EmbeddingService()
+        if not texts:
+            return []
+
+        response = self.client.embeddings.create(
+            model=self.model,
+            input=texts,
+        )
+
+        return [
+            item.embedding
+            for item in response.data
+        ]
+
+
+_embedding_service: EmbeddingService | None = None
+
+
+def get_embedding_service() -> EmbeddingService:
+    global _embedding_service
+
+    if _embedding_service is None:
+        _embedding_service = EmbeddingService()
+
+    return _embedding_service

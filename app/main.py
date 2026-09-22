@@ -8,6 +8,10 @@ from app.routers.health_router import router as health_router
 from app.routers.ocr_router import router as ocr_router
 from app.routers.rag_router import router as rag_router
 
+from app.routers.recommendation_router import (
+    router as recommendation_router,
+)
+
 app = FastAPI(
     title="Healthcare AI Server",
     version="0.1.0",
@@ -25,7 +29,9 @@ app.include_router(ocr_router)
 app.include_router(food_router)
 app.include_router(analysis_router)
 app.include_router(rag_router)
-
+app.include_router(
+    recommendation_router
+)
 
 @app.get("/")
 async def root():
