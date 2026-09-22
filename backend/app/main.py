@@ -186,6 +186,10 @@ class CompleteOnboardingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class OnboardingStatusResponse(BaseModel):
+    completed: bool
+
+
 class ExercisePreferencesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2978,6 +2982,20 @@ async def save_allergies(
 ) -> dict[str, Any]:
     selected = await replace_user_allergies(user.id, body, settings)
     return {"ok": True, "selected": selected}
+
+
+@app.get("/api/onboarding/status", tags=["Profile"], response_model=OnboardingStatusResponse)
+async def get_onboarding_status(
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> OnboardingStatusResponse:
+    try:
+        profile = await fetch_profile(user.id, settings)
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_404_NOT_FOUND:
+            raise
+        return OnboardingStatusResponse(completed=False)
+    return OnboardingStatusResponse(completed=bool(profile.get("onboarding_completed_at")))
 
 
 @app.post("/api/onboarding/complete", tags=["Profile"])

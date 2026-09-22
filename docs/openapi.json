@@ -1261,6 +1261,55 @@
         }
       }
     },
+    "/api/onboarding/status": {
+      "get": {
+        "tags": [
+          "Profile"
+        ],
+        "summary": "Get Onboarding Status",
+        "operationId": "get_onboarding_status_api_onboarding_status_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/onboarding/complete": {
       "post": {
         "tags": [
@@ -5027,6 +5076,19 @@
           "extracted_data"
         ],
         "title": "OCRResultUpdateRequest"
+      },
+      "OnboardingStatusResponse": {
+        "properties": {
+          "completed": {
+            "type": "boolean",
+            "title": "Completed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "completed"
+        ],
+        "title": "OnboardingStatusResponse"
       },
       "PopupResponse": {
         "properties": {

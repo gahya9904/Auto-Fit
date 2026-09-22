@@ -282,6 +282,58 @@ def test_onboarding_completion_uses_authenticated_user_id(monkeypatch) -> None:
         main.app.dependency_overrides.clear()
 
 
+def test_onboarding_status_uses_authenticated_user_and_completion_timestamp(monkeypatch) -> None:
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    profile = {"onboarding_completed_at": None}
+
+    async def fake_profile(user_id: str, settings: main.Settings):
+        assert user_id == "authenticated-user"
+        assert settings == TEST_SETTINGS
+        return profile
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_profile", fake_profile)
+
+    try:
+        client = TestClient(main.app)
+        assert client.get("/api/onboarding/status").json() == {"completed": False}
+        profile["onboarding_completed_at"] = "2026-09-22T00:00:00Z"
+        assert client.get("/api/onboarding/status").json() == {"completed": True}
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_onboarding_status_returns_false_for_missing_profile(monkeypatch) -> None:
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def missing_profile(user_id: str, settings: main.Settings):
+        raise main.HTTPException(status_code=404, detail="Profile was not created for this user")
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_profile", missing_profile)
+
+    try:
+        response = TestClient(main.app).get("/api/onboarding/status")
+        assert response.status_code == 200
+        assert response.json() == {"completed": False}
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_onboarding_status_requires_authentication() -> None:
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    try:
+        response = TestClient(main.app).get("/api/onboarding/status")
+        assert response.status_code == 401
+    finally:
+        main.app.dependency_overrides.clear()
+
+
 def test_onboarding_completion_rejects_missing_required_profile_fields(
     monkeypatch,
 ) -> None:
