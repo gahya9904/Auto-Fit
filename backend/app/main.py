@@ -40,6 +40,7 @@ from backend.app.home import HomeResponse, build_home_response
 from backend.app.health_documents import create_health_documents_router
 from backend.app.account_deletion import create_account_deletion_router
 from backend.app.analysis_popups import create_analysis_popups_router
+from backend.app.analysis_summary import create_analysis_summary_router
 from backend.app.meal_photos import attach_photos, create_meal_photos_router
 from backend.app.security import (
     BlockedPathMiddleware,
@@ -2814,7 +2815,7 @@ app = FastAPI(
     version="0.1.0",
     openapi_tags=[
         {"name": "Profile", "description": "프로필, 알레르기 및 온보딩"},
-        {"name": "Health Analysis", "description": "종합 분석의 체성분 추가 지표, 판정 기준 및 출처 팝업"},
+        {"name": "Health Analysis", "description": "종합 건강 분석 결과, 지표, 판정 기준 및 출처"},
         {"name": "health-documents", "description": "건강검진·인바디 파일 업로드, 동기 OCR, 결과 수정 및 확정 저장"},
         {"name": "Exercise", "description": "운동 선호도, 추천, 세션, 목표 및 진행 현황"},
         {"name": "Diet", "description": "식재료, 식단 추천, 영양 요약 및 식사 기록"},
@@ -2886,6 +2887,7 @@ app.add_middleware(DietTimingMiddleware)
 app.include_router(create_meal_photos_router(get_current_user, get_settings))
 app.include_router(create_account_deletion_router(get_current_user, get_settings))
 app.include_router(create_analysis_popups_router(get_current_user, get_settings))
+app.include_router(create_analysis_summary_router(get_current_user, get_settings))
 app.include_router(
     create_health_documents_router(
         current_user_dependency=get_current_user,

@@ -13,6 +13,10 @@ from pydantic import BaseModel, Field, ValidationError
 VERSION = "1.0.0"
 CRITERIA_VERSION = "verified-2026-09-17"
 Status = Literal["low", "normal", "caution", "high", "unknown", "review_required"]
+POPUP_METRIC_KEYS = frozenset({
+    "bmi", "weight_kg", "body_fat_mass_kg", "body_fat_percentage",
+    "skeletal_muscle_mass_kg", "fasting_glucose", "systolic_bp", "diastolic_bp",
+})
 
 
 class Range(BaseModel):
