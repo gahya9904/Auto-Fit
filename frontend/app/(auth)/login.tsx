@@ -29,6 +29,7 @@ import {
   signInWithSocialProvider,
   type SocialLoginProvider,
 } from '@/src/features/auth/socialOAuth';
+import { getPostLoginDestination } from '@/src/features/auth/postLoginDestination';
 import { getSupabaseClient } from '@/src/lib/supabase';
 import { colors, radius, spacing, typography } from '@/src/theme';
 
@@ -111,7 +112,7 @@ export default function LoginScreen() {
         password,
       });
       if (error) throw error;
-      router.replace('/upload');
+      router.replace(await getPostLoginDestination());
     } catch (error) {
       console.error('로그인 실패:', error);
       setLoginError(error instanceof Error ? error.message : '로그인 정보를 확인해 주세요.');
@@ -131,7 +132,7 @@ export default function LoginScreen() {
 
     try {
       const result = await signInWithSocialProvider(provider);
-      if (result.status === 'success') router.replace('/upload');
+      if (result.status === 'success') router.replace(await getPostLoginDestination());
     } catch (error) {
       console.error(`${provider} 로그인 실패:`, error);
       setLoginError(error instanceof Error ? error.message : '소셜 로그인에 실패했습니다.');

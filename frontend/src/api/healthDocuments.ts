@@ -149,6 +149,27 @@ export type HealthDocumentConfirmationResponse = {
   uploaded_file_id: string;
 };
 
+export type HealthDocumentListItem = {
+  document_type: HealthDocumentType;
+  file_name: string;
+  original_file_name: string;
+  uploaded_at: string;
+  uploaded_file_id: string;
+};
+
+export type HealthDocumentListResponse = {
+  has_more: boolean;
+  items: HealthDocumentListItem[];
+  limit: number;
+  offset: number;
+};
+
+export type HealthDocumentListOptions = {
+  limit?: number;
+  offset?: number;
+  status?: 'confirmed';
+};
+
 async function appendHealthDocumentFile(formData: FormData, file: SelectedHealthFile) {
   if (Platform.OS === 'web') {
     const blob = file.webFile ?? (await (await fetch(file.uri)).blob());
@@ -174,6 +195,22 @@ export async function uploadHealthDocument(file: SelectedHealthFile) {
 export function getHealthDocument(uploadedFileId: string) {
   return apiRequest<HealthDocumentResponse>(
     `/api/health-documents/${encodeURIComponent(uploadedFileId)}`,
+  );
+}
+
+export function getHealthDocuments({
+  limit,
+  offset,
+  status,
+}: HealthDocumentListOptions = {}) {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  if (limit !== undefined) params.set('limit', String(limit));
+  if (offset !== undefined) params.set('offset', String(offset));
+  const query = params.toString();
+
+  return apiRequest<HealthDocumentListResponse>(
+    `/api/health-documents${query ? `?${query}` : ''}`,
   );
 }
 

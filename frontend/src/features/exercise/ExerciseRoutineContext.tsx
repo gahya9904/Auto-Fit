@@ -63,10 +63,11 @@ interface ExerciseRoutineContextValue {
   homeLoadState: ExerciseLoadState;
   homeMetrics: ExerciseHomeMetrics;
   latestSession: ExerciseSessionSummary | null;
+  markRoutineCompleted: (summary: Omit<ExerciseSessionSummary, 'completed' | 'date'>) => void;
   refreshHome: () => Promise<void>;
   routine: ExerciseRoutine | null;
   setCondition: (condition: ExerciseCondition) => void;
-  startRoutine: () => Promise<void>;
+  startRoutine: () => Promise<StartedExerciseSession>;
   status: ExerciseDayStatus | null;
 }
 
@@ -121,16 +122,18 @@ function getResultValue(response: unknown) {
   return isRecord(response) ? response.result : undefined;
 }
 
-function formatPrescription(item: Pick<
-  ExerciseItem,
-  | 'durationMinutes'
-  | 'executionType'
-  | 'repetitions'
-  | 'restSeconds'
-  | 'sets'
-  | 'targetDurationSeconds'
-  | 'targetWeightKg'
->) {
+function formatPrescription(
+  item: Pick<
+    ExerciseItem,
+    | 'durationMinutes'
+    | 'executionType'
+    | 'repetitions'
+    | 'restSeconds'
+    | 'sets'
+    | 'targetDurationSeconds'
+    | 'targetWeightKg'
+  >,
+) {
   const parts: string[] = [];
   if (item.executionType === 'time_based') {
     if (item.durationMinutes !== null) parts.push(`${item.durationMinutes}분`);
@@ -272,7 +275,9 @@ function hasMatchingGoalPeriod(activeGoal: ApiRecord | null, progress: ApiRecord
   const startsOn = toDateKey(readString(activeGoal, ['starts_on']) ?? '');
   const periodWeeks = readNumber(activeGoal, ['goal_period_weeks']);
   const progressPeriod = readRecord(progress, 'period');
-  const progressFrom = progressPeriod ? toDateKey(readString(progressPeriod, ['from']) ?? '') : null;
+  const progressFrom = progressPeriod
+    ? toDateKey(readString(progressPeriod, ['from']) ?? '')
+    : null;
   const progressTo = progressPeriod ? toDateKey(readString(progressPeriod, ['to']) ?? '') : null;
   if (!startsOn || periodWeeks === null || !progressFrom || !progressTo) return false;
 
@@ -304,7 +309,9 @@ function mapExerciseHomeMetrics(
   const targetWorkoutCount = progressSummary
     ? readNumber(progressSummary, ['target_workout_count'])
     : null;
-  const completedWorkoutCount = progressSummary ? readNumber(progressSummary, ['workout_count']) : null;
+  const completedWorkoutCount = progressSummary
+    ? readNumber(progressSummary, ['workout_count'])
+    : null;
   const goalAchievementRate = progressSummary
     ? readNumber(progressSummary, ['goal_achievement_rate'])
     : null;
@@ -327,7 +334,11 @@ function mapEquipment(equipment: ExerciseCondition['equipment']): ExerciseApiEqu
 }
 
 function isMissingExerciseData(result: PromiseSettledResult<unknown>) {
-  return result.status === 'rejected' && result.reason instanceof ApiError && result.reason.status === 404;
+  return (
+    result.status === 'rejected' &&
+    result.reason instanceof ApiError &&
+    result.reason.status === 404
+  );
 }
 
 export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
@@ -346,6 +357,7 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<ExerciseDayStatus | null>(null);
   const homeRequestInFlight = useRef(false);
   const routineRequestInFlight = useRef(false);
+  const sessionRequestInFlight = useRef(false);
   const mountedRef = useRef(true);
 
   useEffect(
@@ -361,19 +373,14 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
     setHomeError(null);
     setHomeLoadState('loading');
 
-    const [
-      recommendationResult,
-      sessionResult,
-      ,
-      activeGoalResult,
-      progressResult,
-    ] = await Promise.allSettled([
-      getLatestExerciseRecommendation(),
-      getLatestExerciseSession(),
-      getExerciseSummary(),
-      getActiveExerciseGoal(),
-      getExerciseProgress(),
-    ]);
+    const [recommendationResult, sessionResult, , activeGoalResult, progressResult] =
+      await Promise.allSettled([
+        getLatestExerciseRecommendation(),
+        getLatestExerciseSession(),
+        getExerciseSummary(),
+        getActiveExerciseGoal(),
+        getExerciseProgress(),
+      ]);
 
     homeRequestInFlight.current = false;
     if (!mountedRef.current) return;
@@ -511,8 +518,10 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const startRoutine = useCallback(async () => {
-    if (routineRequestInFlight.current) return;
-    routineRequestInFlight.current = true;
+    if (sessionRequestInFlight.current) {
+      throw new Error('운동 세션을 시작하고 있어요.');
+    }
+    sessionRequestInFlight.current = true;
 
     try {
       const response = await startExerciseSession();
@@ -521,16 +530,26 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       if (!startedSession || !nextSession) {
         throw new Error('운동 세션 정보를 확인할 수 없어요.');
       }
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) return startedSession;
       setActiveSession(startedSession);
       setLatestSession(nextSession);
-      // TODO: 실제 운동 수행 화면이 구현되면 sessions/start 성공 뒤에는 수행 화면으로
-      // 이동하고, session complete 성공 시점에만 completed 상태로 변경한다.
-      setStatus('completed');
+      return startedSession;
     } finally {
-      routineRequestInFlight.current = false;
+      sessionRequestInFlight.current = false;
     }
   }, []);
+
+  const markRoutineCompleted = useCallback(
+    (summary: Omit<ExerciseSessionSummary, 'completed' | 'date'>) => {
+      setLatestSession({
+        ...summary,
+        completed: true,
+        date: new Date().toISOString(),
+      });
+      setStatus('completed');
+    },
+    [],
+  );
 
   const value = useMemo(
     () => ({
@@ -541,6 +560,7 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       homeLoadState,
       homeMetrics,
       latestSession,
+      markRoutineCompleted,
       refreshHome,
       routine,
       setCondition,
@@ -555,6 +575,7 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       homeLoadState,
       homeMetrics,
       latestSession,
+      markRoutineCompleted,
       refreshHome,
       routine,
       startRoutine,

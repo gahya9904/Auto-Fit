@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { createSupabaseSessionFromOAuthUrl } from '@/src/features/auth/socialOAuth';
+import { getPostLoginDestination } from '@/src/features/auth/postLoginDestination';
 import { colors } from '@/src/theme';
 
 export default function OAuthCallbackScreen() {
@@ -19,7 +20,8 @@ export default function OAuthCallbackScreen() {
         if (!url) throw new Error('OAuth 콜백 주소를 확인하지 못했습니다.');
 
         await createSupabaseSessionFromOAuthUrl(url);
-        if (isActive) router.replace('/upload');
+        const destination = await getPostLoginDestination();
+        if (isActive) router.replace(destination);
       } catch (error) {
         console.error('소셜 로그인 콜백 처리 실패:', error);
         if (!isActive) return;

@@ -12,6 +12,17 @@ export type ExerciseRecommendationContextInput = {
   location: ExerciseApiLocation;
 };
 
+export type ExerciseItemResultInput = {
+  completed: boolean;
+  completedSets?: number | null;
+  durationMinutes?: number | null;
+  note?: string | null;
+  performedRepetitions?: number | null;
+  performedWeightKg?: number | null;
+  skipReason?: string | null;
+  skipped: boolean;
+};
+
 type ExerciseApiResponse = Record<string, unknown>;
 
 export function getLatestExerciseRecommendation() {
@@ -64,6 +75,39 @@ export function startExerciseSession() {
     body: JSON.stringify({}),
     method: 'POST',
   });
+}
+
+export function recordExerciseItemResult(
+  sessionId: string,
+  itemId: string,
+  input: ExerciseItemResultInput,
+) {
+  return apiRequest<ExerciseApiResponse>(
+    `/api/exercise/sessions/${encodeURIComponent(sessionId)}/items/${encodeURIComponent(itemId)}`,
+    {
+      body: JSON.stringify({
+        completed: input.completed,
+        completed_sets: input.completedSets,
+        duration_minutes: input.durationMinutes,
+        note: input.note,
+        performed_repetitions: input.performedRepetitions,
+        performed_weight_kg: input.performedWeightKg,
+        skip_reason: input.skipReason,
+        skipped: input.skipped,
+      }),
+      method: 'POST',
+    },
+  );
+}
+
+export function completeExerciseSession(sessionId: string) {
+  return apiRequest<ExerciseApiResponse>(
+    `/api/exercise/sessions/${encodeURIComponent(sessionId)}/complete`,
+    {
+      body: JSON.stringify({}),
+      method: 'POST',
+    },
+  );
 }
 
 export function getExerciseApiErrorMessage(error: unknown) {

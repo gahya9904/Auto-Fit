@@ -8,6 +8,7 @@ import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ExerciseRoutineProvider } from '@/src/features/exercise/ExerciseRoutineContext';
+import { ExerciseSessionProvider } from '@/src/features/exercise/ExerciseSessionContext';
 import { fontAssets } from '@/src/theme';
 
 void SplashScreen.preventAutoHideAsync();
@@ -30,7 +31,9 @@ export default function RootLayout() {
       <StatusBar style="dark" />
       {Platform.OS === 'android' ? <ExpoNavigationBar hidden /> : null}
       <ExerciseRoutineProvider>
-        <Stack screenOptions={{ headerShown: false }} />
+        <ExerciseSessionProvider>
+          <Stack screenOptions={{ headerShown: false }} />
+        </ExerciseSessionProvider>
       </ExerciseRoutineProvider>
     </SafeAreaProvider>
   );

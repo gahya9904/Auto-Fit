@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter, type Href } from 'expo-router';
 import {
   Alert,
+  BackHandler,
   Dimensions,
   Image,
   Platform,
@@ -25,6 +26,7 @@ import { BackButton } from '@/src/components/common/BackButton';
 import { ExerciseActionButton } from '@/src/components/exercise/ExerciseActionButton';
 import { ExerciseScreenFrame } from '@/src/components/exercise/ExerciseScreenFrame';
 import { useExerciseRoutine } from '@/src/features/exercise/ExerciseRoutineContext';
+import { useExerciseSession } from '@/src/features/exercise/ExerciseSessionContext';
 import {
   exerciseEquipmentLabels,
   exerciseLocationLabels,
@@ -44,6 +46,7 @@ export default function ExerciseSummaryScreen() {
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { condition, refreshHome, routine, startRoutine } = useExerciseRoutine();
+  const { beginSession } = useExerciseSession();
   const [isStarting, setIsStarting] = useState(false);
   useEffect(() => {
     if (routine) return undefined;
@@ -80,15 +83,26 @@ export default function ExerciseSummaryScreen() {
     workoutCardTop: verticalValue(500, 460),
   };
   const contentHeight = secondaryCtaTop + ctaHeight;
-  const backToCondition = () => router.dismissTo('/exercise/condition');
+  const backToExerciseHome = useCallback(() => router.dismissTo('/exercise'), [router]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      backToExerciseHome();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [backToExerciseHome]);
+
   const handleStartWorkout = async () => {
     if (!routine || isStarting) return;
     setIsStarting(true);
     try {
-      await startRoutine();
-      // TODO: 실제 운동 수행 화면 구현 후에는 sessions/start 성공 시 세션/items를
-      // 수행 화면으로 전달하고, 실제 완료 API 성공 뒤 Home COMPLETED 상태로 이동한다.
-      requestAnimationFrame(() => router.replace('/exercise'));
+      const startedSession = await startRoutine();
+      beginSession(routine, startedSession);
+      requestAnimationFrame(() => router.push('/exercise/session' as Href));
     } catch (error) {
       console.error('Exercise session start failed:', error);
       Alert.alert('운동 시작 실패', getExerciseApiErrorMessage(error));
@@ -122,7 +136,7 @@ export default function ExerciseSummaryScreen() {
 
   return (
     <ExerciseScreenFrame contentHeight={contentHeight}>
-      <BackButton onPress={backToCondition} style={[styles.back, { top: titleTop - 15 }]} />
+      <BackButton onPress={backToExerciseHome} style={[styles.back, { top: titleTop - 15 }]} />
       <Text style={[styles.screenTitle, { top: titleTop }]}>오늘의 맞춤 운동</Text>
       <View
         style={[
@@ -225,11 +239,7 @@ export default function ExerciseSummaryScreen() {
             {routine ? `${routine.exercises.length}개 운동` : '-'}
           </Text>
         </View>
-        <ScrollView
-          nestedScrollEnabled
-          showsVerticalScrollIndicator
-          style={styles.workoutList}
-        >
+        <ScrollView nestedScrollEnabled showsVerticalScrollIndicator style={styles.workoutList}>
           {routine?.exercises.map((exercise) => (
             <View key={exercise.id} style={styles.workoutRow}>
               <View style={styles.number}>
