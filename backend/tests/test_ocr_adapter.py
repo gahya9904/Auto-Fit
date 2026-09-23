@@ -74,6 +74,26 @@ def test_review_warning_and_confidence_normalization():
     assert "measured_at" in review["review_required"]
 
 
+def test_body_composition_cross_checks_flag_implausible_values():
+    review = {}
+    hd._normalize_ocr({"extracted_data": {
+        "measured_date": "2015-05-04", "height_cm": 156.9, "weight_kg": 59.1,
+        "bmi": 10.0, "body_fat_mass_kg": 22.1, "body_fat_pct": 8.0,
+        "skeletal_muscle_kg": 70.0,
+    }}, "body_composition", review)
+    assert {"bmi", "body_fat_percentage", "skeletal_muscle_mass_kg"} <= set(review["review_required"])
+    assert len(review["warnings"]) == 3
+
+
+def test_missing_checkup_date_flags_all_populated_values():
+    review = {}
+    hd._normalize_ocr({"extracted_data": {
+        "weight_kg": 65, "fasting_glucose": 100, "total_cholesterol": 200,
+    }}, "health_checkup", review)
+    assert {"weight_kg", "fasting_glucose", "total_cholesterol"} <= set(review["review_required"])
+    assert review["warnings"] == ["검진일을 읽지 못해 추출값 전체를 확인해야 합니다."]
+
+
 @pytest.mark.parametrize("data", [{"user_id": "injected", "weight_kg": 70},
     {"serum_creatinine": 1, "creatinine": 2}, {"weight_kg": -1}])
 def test_unknown_conflicting_or_invalid_values_rejected(data):

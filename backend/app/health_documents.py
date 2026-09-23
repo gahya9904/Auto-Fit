@@ -173,7 +173,7 @@ DOCUMENT_ERRORS = {
     for code, description in {
         401: "AUTH_REQUIRED: 인증 실패 또는 세션 만료",
         404: "DOCUMENT_NOT_FOUND: 문서 없음 또는 다른 사용자 소유",
-        409: "DOCUMENT_CONFIRMED / OCR_NOT_READY: 확정 문서 수정 또는 OCR 미완료",
+        409: "DOCUMENT_CONFIRMED / OCR_NOT_READY / OCR_REVIEW_REQUIRED: 확정 문서 수정, OCR 미완료 또는 필수 검수값 미확인",
         413: "FILE_TOO_LARGE: 최대 10 MiB",
         415: "UNSUPPORTED_FILE_TYPE: PDF/PNG/JPEG/HEIC만 허용",
         422: "VALIDATION_ERROR / UNKNOWN_DOCUMENT / UNSUPPORTED_DOCUMENT / DOCUMENT_TYPE_MISMATCH / NO_FIELDS_FOUND / CORRUPTED_FILE: 입력 오류 또는 문서 종류 판별 불가",
@@ -259,9 +259,42 @@ def _normalize_ocr(result: dict[str, Any], kind: DocumentType, review: dict[str,
         for key, value in validated.items():
             if value is None and key not in required:
                 required.append(key)
+        warnings = meta.get("warnings", [])
+        if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
+            raise TypeError("Invalid OCR warnings")
+        warnings = list(warnings)
+
+        def flag_review(key: str, warning: str) -> None:
+            if validated.get(key) is not None and key not in required:
+                required.append(key)
+            if warning not in warnings:
+                warnings.append(warning)
+
+        if kind == "health_checkup" and validated.get("checkup_date") is None:
+            warning = "검진일을 읽지 못해 추출값 전체를 확인해야 합니다."
+            for key, value in validated.items():
+                if value is not None:
+                    flag_review(key, warning)
+        elif kind == "body_composition":
+            height = validated.get("height_cm")
+            weight = validated.get("weight_kg")
+            bmi = validated.get("bmi")
+            if height is not None and weight is not None and bmi is not None:
+                expected_bmi = Decimal(str(weight)) / (Decimal(str(height)) / 100) ** 2
+                if abs(Decimal(str(bmi)) - expected_bmi) > max(Decimal("1"), expected_bmi * Decimal("0.1")):
+                    flag_review("bmi", "신장·체중과 BMI가 서로 일치하지 않습니다.")
+            fat_mass = validated.get("body_fat_mass_kg")
+            fat_pct = validated.get("body_fat_percentage")
+            if weight is not None and Decimal(str(weight)) > 0 and fat_mass is not None and fat_pct is not None:
+                expected_fat_pct = Decimal(str(fat_mass)) / Decimal(str(weight)) * 100
+                if abs(Decimal(str(fat_pct)) - expected_fat_pct) > Decimal("3"):
+                    flag_review("body_fat_percentage", "체중·체지방량과 체지방률이 서로 일치하지 않습니다.")
+            muscle = validated.get("skeletal_muscle_mass_kg")
+            if weight is not None and muscle is not None and Decimal(str(muscle)) > Decimal(str(weight)):
+                flag_review("skeletal_muscle_mass_kg", "골격근량이 체중보다 커서 확인이 필요합니다.")
         review.update(OCRReview(field_confidence=confidence, review_required=required,
             pages_total=meta.get("pages_total"), pages_read=meta.get("pages_read"),
-            pages_used=meta.get("pages_used", []), warnings=meta.get("warnings", []),
+            pages_used=meta.get("pages_used", []), warnings=warnings,
             measurement_time_assumed=kind == "body_composition" and data.get("measured_date") is not None).model_dump(mode="json"))
     return validated
 
@@ -312,7 +345,10 @@ async def _extract_document(content: bytes, media_type: str, document_type: Docu
 
 async def _request_ocr(content: bytes, media_type: str, document_type: DocumentType | None) -> Any:
     headers = {}
-    if token := os.getenv("HEALTH_DOCUMENT_OCR_TOKEN", ""):
+    token = os.getenv("HEALTH_DOCUMENT_OCR_TOKEN", "").strip()
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+        token = token[1:-1]
+    if token:
         headers["Authorization"] = f"Bearer {token}"
     async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
         response = await client.post(os.environ["HEALTH_DOCUMENT_OCR_URL"], headers=headers,
@@ -699,10 +735,19 @@ async def _confirm_document(
     ocr_result = document["ocr_result"]
     if ocr_result is None or ocr_result["status"] != "completed":
         raise HTTPException(status_code=409, detail={"code": "OCR_NOT_READY", "message": "OCR must be completed or manually corrected", "fields": None})
+    review = document.get("ocr_review") or {}
+    extracted = ocr_result.get("extracted_data") or {}
+    unresolved = [key for key in review.get("review_required", []) if extracted.get(key) is not None]
+    if unresolved:
+        raise HTTPException(status_code=409, detail={
+            "code": "OCR_REVIEW_REQUIRED",
+            "message": "Review or acknowledge flagged OCR values before confirmation",
+            "fields": unresolved,
+        })
     document_type: DocumentType = file_record["document_type"]
     validated = _validate_extracted_data(
         document_type,
-        ocr_result.get("extracted_data") or {},
+        extracted,
         require_measurement_date=True,
     )
     table = "health_checkups" if document_type == "health_checkup" else "body_compositions"

@@ -455,6 +455,18 @@ def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, 
             assert patch.json()["ocr_review"]["pages_used"] == [1]
             assert "weight_kg" not in patch.json()["ocr_review"]["field_confidence"]
         assert patch.json()["extracted_data"][date_field] == initial["extracted_data"][date_field]
+        if provider_sample:
+            flagged = [key for key in patch.json()["ocr_review"]["review_required"]
+                       if patch.json()["extracted_data"].get(key) is not None]
+            if flagged:
+                blocked = client.post(path + "/confirm")
+                assert blocked.status_code == 409
+                assert blocked.json()["detail"]["code"] == "OCR_REVIEW_REQUIRED"
+                assert set(blocked.json()["detail"]["fields"]) == set(flagged)
+                acknowledged = client.patch(path + "/ocr-result", json={"extracted_data": {
+                    key: patch.json()["extracted_data"][key] for key in flagged
+                }})
+                assert acknowledged.status_code == 200
         confirmed = client.post(path + "/confirm")
         assert confirmed.status_code == 200
         assert confirmed.json()["status"] == "confirmed"
@@ -498,9 +510,10 @@ def test_mock_auto_upload_uses_sample_without_classifying_content(monkeypatch, c
     ({"document_type": "invoice"}, "OCR_INVALID_RESPONSE"),
     ([], "OCR_INVALID_RESPONSE"),
 ])
-def test_remote_auto_detection_sends_file_without_type(monkeypatch, result, code):
+@pytest.mark.parametrize("token", ["ocr-only-token", "'ocr-only-token'", '"ocr-only-token"'])
+def test_remote_auto_detection_sends_file_without_type(monkeypatch, result, code, token):
     monkeypatch.setenv("HEALTH_DOCUMENT_OCR_URL", "https://ocr.internal/ai/ocr")
-    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_TOKEN", "ocr-only-token")
+    monkeypatch.setenv("HEALTH_DOCUMENT_OCR_TOKEN", token)
     class Client:
         def __init__(self, **kwargs): pass
         async def __aenter__(self): return self

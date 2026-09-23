@@ -173,12 +173,16 @@ POST·GET·PATCH에 선택 응답 `ocr_review`를 추가합니다. 임시 샘플
 - pages_total / pages_read / pages_used / warnings: PDF 일부 페이지 처리 등 검수 안내.
 - measurement_time_assumed: 날짜만으로 시각을 채웠는지 여부.
 
+백엔드는 OCR 신뢰도 외에 값 사이의 관계도 교차검증합니다. 신장·체중과 BMI가 크게 다르거나, 체중·체지방량과 체지방률이 맞지 않거나, 골격근량이 체중보다 크면 해당 필드를 `review_required`에 추가하고 `warnings`에 원인을 기록합니다. 건강검진일을 읽지 못한 문서는 빈 양식이나 기준표 오인을 막기 위해 채워진 추출값 전체를 검수 대상으로 표시합니다.
+
+값이 채워진 `review_required` 필드가 남아 있으면 confirm은 `409 OCR_REVIEW_REQUIRED`와 `fields` 목록을 반환합니다. 사용자가 해당 값을 확인해 `PATCH /ocr-result`로 다시 보내면 검수 목록에서 제거됩니다. 값이 없는 선택 필드는 확정을 차단하지 않습니다.
+
 검수 정보는 기존 OCR JSONB의 내부 `_ocr_review` 키에 저장하고 조회 때 분리합니다. 측정값 스키마와 확정 건강 데이터에는 이 키를 넣지 않습니다. DB 마이그레이션은 필요하지 않습니다. 프론트는 검수 정보를 표시하도록 별도 반영해야 합니다. 사용자 confirm 전 분석용 건강 데이터에 저장하지 않는 흐름은 유지합니다.
 
 자동 판별 호출 실패 시 error.code를 구분합니다. UNSUPPORTED_DOCUMENT / DOCUMENT_TYPE_MISMATCH / NO_FIELDS_FOUND / CORRUPTED_FILE / EMPTY_FILE은 422, UNSUPPORTED_FILE_TYPE은 415, FILE_TOO_LARGE는 413입니다. OCR 인증 실패는 사용자 로그인 실패와 구분해 502 OCR_AUTH_FAILED로 반환합니다. OCR_TIMEOUT / OCR_ENGINE_ERROR는 502입니다. 자동 판별에 실패하면 파일과 DB에 저장하지 않습니다. 종류 명시 후 실패하면 기존 계약대로 파일 ID와 ocr_status=failed, error를 반환합니다. upstream 오류 메시지 원문은 전달하지 않습니다.
 
-실제 호출 URL은 `/ai/ocr`를 포함한 전체 주소를 HEALTH_DOCUMENT_OCR_URL에 설정해야 합니다. 토큰은 HEALTH_DOCUMENT_OCR_TOKEN에만 설정하고 코드·문서·로그에 기록하지 않습니다. 실제 연결 시 HEALTH_DOCUMENT_OCR_MOCK_ENABLED=false를 권장합니다. 대기 설정은 기존 60초를 유지합니다.
+실제 호출 URL은 `/ai/ocr`를 포함한 전체 주소를 HEALTH_DOCUMENT_OCR_URL에 설정해야 합니다. 토큰은 HEALTH_DOCUMENT_OCR_TOKEN에만 설정하고 코드·문서·로그에 기록하지 않습니다. 환경변수 값 전체를 감싼 작은따옴표·큰따옴표는 전송 전에 제거하지만, Render 등 배포 환경에는 따옴표 없이 입력하는 것을 권장합니다. 실제 연결 시 HEALTH_DOCUMENT_OCR_MOCK_ENABLED=false를 권장합니다. 대기 설정은 기존 60초를 유지합니다.
 
 전달 자료에 따르면 이미지 판독을 위해 CLOVA OCR로 원본이 전송됩니다. 서비스의 외부 전송 안내에 반영해야 합니다. 정확도 수치는 AI 담당자 제공 자료이며 실제 촬영본 검증은 아직 완료되지 않았습니다.
 
-남은 실제 연동 검증: 원본 건강검진/인바디 이미지와 다중 페이지 PDF 업로드 → 조회·수정·확정·저장값 비교 → 배포 API 종단 간 확인. 확정 저장과 문서 상태 갱신의 원자성 및 동시 요청 보완은 별도 DB 작업으로 남아 있습니다.
+2026-09-23 실제 인바디 1쪽 PDF와 건강검진 4쪽 PDF로 업로드·조회·수정·확정·DB 저장·정리를 검증했습니다. 인바디 그래프 눈금과 빈 건강검진 양식의 정상범위를 값으로 오인하는 사례가 확인되어 위 교차검증과 확정 차단을 추가했습니다. OCR 서버 파서 개선과 실제 건강검진 측정값이 채워진 결과지 재검증은 별도 작업으로 남아 있습니다. 확정 저장과 문서 상태 갱신의 원자성 및 동시 요청 보완도 별도 DB 작업입니다.
