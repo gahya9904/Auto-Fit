@@ -63,6 +63,9 @@ const modifyImage = require('@/assets/images/illustrations/exercise/circles/Modi
 
 const referenceHeight = 917;
 const minimumScreenHeight = 740;
+// The Skip_All asset has more transparent edge space than the other completion illustrations.
+// Keep this state-specific scale so its visible artwork matches the Figma visual bounds.
+const skippedCompletionIllustrationScale = 1.45;
 
 type DiscomfortFeedbackType = 'pain' | 'fatigue' | 'dizziness' | 'breathing' | 'other';
 type DiscomfortCloseAction = 'dismiss' | 'end';
@@ -954,6 +957,12 @@ function AllCompletedContent({
     : summary.skippedCount > 0
       ? `완료 ${summary.completedCount}개 · 건너뜀 ${summary.skippedCount}개`
       : '모든 운동을 완료했어요.';
+  const completionImageSize = allSkipped
+    ? layout.completionImageSize * skippedCompletionIllustrationScale
+    : layout.completionImageSize;
+  const completionImageTop = allSkipped
+    ? layout.completionImageTop - (completionImageSize - layout.completionImageSize) / 2
+    : layout.completionImageTop;
   return (
     <>
       <View style={[styles.completionHeading, { top: layout.completionTitleTop }]}>
@@ -968,9 +977,9 @@ function AllCompletedContent({
         style={[
           styles.completionImage,
           {
-            height: layout.completionImageSize,
-            top: layout.completionImageTop,
-            width: layout.completionImageSize,
+            height: completionImageSize,
+            top: completionImageTop,
+            width: completionImageSize,
           },
         ]}
       />
