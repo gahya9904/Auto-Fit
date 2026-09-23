@@ -1,0 +1,24 @@
+# AutoFit OCR API (FastAPI). 바깥 요청은 Caddy(HTTPS)가 받아 127.0.0.1:8000 으로 넘겨 준다.
+[Unit]
+Description=AutoFit OCR API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=autofit
+Group=autofit
+WorkingDirectory=/opt/autofit-ocr
+ExecStart=/opt/autofit-ocr/.venv/bin/uvicorn server.app:app --host 127.0.0.1 --port 8000 --workers 2
+# 죽으면 3초 뒤 자동으로 다시 켠다
+Restart=always
+RestartSec=3
+# 메모리 8GB 중 6GB 를 넘으면 강제 재시작 (서버 전체가 멈추는 것 방지)
+MemoryMax=6G
+# 이 서버는 디스크에 아무것도 쓰지 않는다 (업로드 파일·건강 수치 저장 금지, 기획서 5.6)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

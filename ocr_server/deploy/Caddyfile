@@ -1,0 +1,12 @@
+# HTTPS 인증서는 Caddy 가 자동으로 받고 갱신한다. __DOMAIN__ 은 setup_server.sh 가 채운다.
+__DOMAIN__ {
+	request_body {
+		max_size 25MB
+	}
+	reverse_proxy 127.0.0.1:8000 {
+		transport http {
+			read_timeout 120s
+			write_timeout 120s
+		}
+	}
+}
