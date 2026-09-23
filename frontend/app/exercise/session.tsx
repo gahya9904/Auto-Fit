@@ -36,6 +36,7 @@ import PencilIcon from '@/assets/icons/feature/Pencil_Line.svg';
 import PlayIcon from '@/assets/icons/feature/Play_Fill.svg';
 import { getExerciseApiErrorMessage } from '@/src/api/exercise';
 import { BackButton } from '@/src/components/common/BackButton';
+import { AdjustmentIndicatorView } from '@/src/components/exercise/AdjustmentIndicatorView';
 import { ExerciseActionButton } from '@/src/components/exercise/ExerciseActionButton';
 import { ExerciseScreenFrame } from '@/src/components/exercise/ExerciseScreenFrame';
 import { useExerciseRoutine } from '@/src/features/exercise/ExerciseRoutineContext';
@@ -49,6 +50,7 @@ import {
   getMockExerciseBodyParts,
   type ExerciseBodyPart,
 } from '@/src/features/exercise/exerciseData';
+import { useTemporaryAdjustmentProgress } from '@/src/features/exercise/useTemporaryAdjustmentProgress';
 import { colors, fontFamilies } from '@/src/theme';
 
 const fallbackExerciseImage = require('@/assets/images/illustrations/temp/Image_Exercise.png');
@@ -66,6 +68,13 @@ type DiscomfortFeedbackType = 'pain' | 'fatigue' | 'dizziness' | 'breathing' | '
 type DiscomfortCloseAction = 'dismiss' | 'end';
 type FocusedDiscomfortInput = 'other' | 'pain' | null;
 type FollowUpChoice = 'adjust' | 'end';
+
+type DiscomfortFeedbackDraft = {
+  feedbackLevel: number;
+  feedbackType: DiscomfortFeedbackType;
+  otherDescription: string;
+  painArea: string;
+};
 
 type DiscomfortFeedbackOption = {
   endLabel: string;
@@ -158,8 +167,10 @@ export default function ExerciseSessionScreen() {
   const [isCompleting, setIsCompleting] = useState(false);
   const [discomfortRecordVisible, setDiscomfortRecordVisible] = useState(false);
   const [discomfortRecordClosing, setDiscomfortRecordClosing] = useState(false);
+  const [adjustmentOverlayVisible, setAdjustmentOverlayVisible] = useState(false);
   const [discomfortCloseAction, setDiscomfortCloseAction] =
     useState<DiscomfortCloseAction>('dismiss');
+  const adjustmentDraftRef = useRef<DiscomfortFeedbackDraft | null>(null);
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
   const heightProgress = Math.max(
     0,
@@ -207,6 +218,14 @@ export default function ExerciseSessionScreen() {
     [discomfortRecordClosing, discomfortRecordVisible],
   );
 
+  const requestAdjustment = useCallback(
+    (draft: DiscomfortFeedbackDraft) => {
+      adjustmentDraftRef.current = draft;
+      setAdjustmentOverlayVisible(true);
+    },
+    [],
+  );
+
   const handleDiscomfortRecordClosed = useCallback(() => {
     const shouldEndWorkout = discomfortCloseAction === 'end';
     setDiscomfortRecordVisible(false);
@@ -214,6 +233,19 @@ export default function ExerciseSessionScreen() {
     setDiscomfortCloseAction('dismiss');
     if (shouldEndWorkout) openExitConfirmation();
   }, [discomfortCloseAction, openExitConfirmation]);
+
+  const handleAdjustmentOverlayCovered = useCallback(() => {
+    setDiscomfortRecordVisible(false);
+    setDiscomfortRecordClosing(false);
+    setDiscomfortCloseAction('dismiss');
+  }, []);
+
+  const handleAdjustmentOverlayFinished = useCallback(() => {
+    // TODO: Replace this TEMP simulation completion with the adjustment API response,
+    // then update the remaining exercises in ExerciseSessionContext before revealing the session.
+    adjustmentDraftRef.current = null;
+    setAdjustmentOverlayVisible(false);
+  }, []);
 
   useEffect(() => {
     if (session) return undefined;
@@ -224,6 +256,7 @@ export default function ExerciseSessionScreen() {
   useEffect(() => {
     if (Platform.OS !== 'android' || !hasSession) return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (adjustmentOverlayVisible) return true;
       if (skipConfirmationVisible) closeSkipConfirmation();
       else if (exitConfirmationVisible) closeExitConfirmation();
       else if (discomfortRecordVisible) closeDiscomfortRecord();
@@ -236,6 +269,7 @@ export default function ExerciseSessionScreen() {
     closeExitConfirmation,
     closeSkipConfirmation,
     discomfortRecordVisible,
+    adjustmentOverlayVisible,
     exitConfirmationVisible,
     hasSession,
     openExitConfirmation,
@@ -333,7 +367,14 @@ export default function ExerciseSessionScreen() {
           isClosing={discomfortRecordClosing}
           onClose={closeDiscomfortRecord}
           onClosed={handleDiscomfortRecordClosed}
+          onRequestAdjust={requestAdjustment}
           onRequestEnd={() => closeDiscomfortRecord('end')}
+        />
+      ) : null}
+      {adjustmentOverlayVisible ? (
+        <AdjustmentIndicatorOverlay
+          onCovered={handleAdjustmentOverlayCovered}
+          onFinished={handleAdjustmentOverlayFinished}
         />
       ) : null}
       {session.skipConfirmationVisible ? (
@@ -971,15 +1012,90 @@ function AllCompletedContent({
   );
 }
 
+function AdjustmentIndicatorOverlay({
+  onCovered,
+  onFinished,
+}: {
+  onCovered: () => void;
+  onFinished: () => void;
+}) {
+  const progress = useTemporaryAdjustmentProgress();
+  const [opacity] = useState(() => new Animated.Value(0));
+  const coveredRef = useRef(false);
+  const finishedRef = useRef(false);
+
+  useEffect(() => {
+    const animation = Animated.timing(opacity, {
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      toValue: 1,
+      useNativeDriver: true,
+    });
+
+    animation.start(({ finished }) => {
+      if (finished && !coveredRef.current) {
+        coveredRef.current = true;
+        onCovered();
+      }
+    });
+
+    return () => animation.stop();
+  }, [onCovered, opacity]);
+
+  useEffect(() => {
+    if (progress < 1 || finishedRef.current) return undefined;
+
+    finishedRef.current = true;
+    let fadeOut: Animated.CompositeAnimation | undefined;
+    const completionHold = setTimeout(() => {
+      fadeOut = Animated.timing(opacity, {
+        duration: 170,
+        easing: Easing.in(Easing.cubic),
+        toValue: 0,
+        useNativeDriver: true,
+      });
+
+      fadeOut.start(({ finished }) => {
+        if (finished) onFinished();
+      });
+    }, 400);
+
+    return () => {
+      clearTimeout(completionHold);
+      fadeOut?.stop();
+    };
+  }, [onFinished, opacity, progress]);
+
+  return (
+    <Modal
+      animationType="none"
+      navigationBarTranslucent
+      onRequestClose={() => undefined}
+      presentationStyle="overFullScreen"
+      statusBarTranslucent
+      transparent
+      visible
+    >
+      <Animated.View
+        style={[StyleSheet.absoluteFill, styles.adjustmentTransitionLayer, { opacity }]}
+      >
+        <AdjustmentIndicatorView progress={progress} />
+      </Animated.View>
+    </Modal>
+  );
+}
+
 function DiscomfortRecordModal({
   isClosing,
   onClose,
   onClosed,
+  onRequestAdjust,
   onRequestEnd,
 }: {
   isClosing: boolean;
   onClose: () => void;
   onClosed: () => void;
+  onRequestAdjust: (draft: DiscomfortFeedbackDraft) => void;
   onRequestEnd: () => void;
 }) {
   const { height: viewportHeight, width: viewportWidth } = useWindowDimensions();
@@ -1098,7 +1214,12 @@ function DiscomfortRecordModal({
       onRequestEnd();
       return;
     }
-    onClose();
+    onRequestAdjust({
+      feedbackLevel,
+      feedbackType: selectedFeedbackType,
+      otherDescription,
+      painArea,
+    });
   };
 
   return (
@@ -1455,6 +1576,9 @@ function ConfirmationModal({
 }
 
 const styles = StyleSheet.create({
+  adjustmentTransitionLayer: {
+    backgroundColor: colors.background,
+  },
   addRestButton: {
     alignItems: 'center',
     alignSelf: 'center',
