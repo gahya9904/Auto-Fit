@@ -29,3 +29,9 @@ services:
         value: "true"
       - key: ENABLE_TEST_ENDPOINTS
         value: "false"
+      - key: HEALTH_DOCUMENT_OCR_URL
+        value: https://211-233-193-159.sslip.io/ai/ocr
+      - key: HEALTH_DOCUMENT_OCR_TOKEN
+        sync: false
+      - key: HEALTH_DOCUMENT_OCR_MOCK_ENABLED
+        value: "false"

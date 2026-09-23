@@ -373,11 +373,20 @@ def test_document_openapi_has_discriminator_units_and_errors():
 ])
 @pytest.mark.parametrize("automatic", [False, True])
 @pytest.mark.parametrize("original_file_name", [None, "건강검진결과_2026.pdf"])
-def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, id_field, date_field, automatic, original_file_name):
+@pytest.mark.parametrize("provider_sample", [False, True])
+def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, id_field, date_field, automatic, original_file_name, provider_sample):
     """Real route/service flow; only external Storage/PostgREST are in memory."""
     monkeypatch.delenv("HEALTH_DOCUMENT_OCR_URL", raising=False)
     monkeypatch.delenv("HEALTH_DOCUMENT_OCR_MOCK_ENABLED", raising=False)
     monkeypatch.setenv("HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE", document_type)
+    if provider_sample:
+        import json
+        from pathlib import Path
+        sample = json.loads((Path(__file__).parent / "fixtures" / "ocr" / f"success_{document_type}.json").read_text())
+        monkeypatch.setenv("HEALTH_DOCUMENT_OCR_URL", "https://ocr.internal/ai/ocr")
+        async def request(*args):
+            return sample
+        monkeypatch.setattr(health_documents, "_request_ocr", request)
     rows = {"upload_files": [], "ocr_results": [], "health_checkups": [], "body_compositions": []}
     uploads = []
 
@@ -427,22 +436,31 @@ def test_mock_ocr_upload_review_update_confirm_flow(monkeypatch, document_type, 
         assert initial["ocr_status"] == "completed"
         assert initial["error"] is None
         assert initial["extracted_data"][date_field] is not None
-        assert initial["extracted_data"]["weight_kg"] == "70"
+        assert initial["extracted_data"]["weight_kg"] == (str(sample["extracted_data"]["weight_kg"]) if provider_sample else "70")
+        if provider_sample:
+            assert initial["ocr_review"]["pages_used"] == [1]
+            assert "_ocr_review" not in initial["extracted_data"]
+            assert "_ocr_review" not in initial["ocr_result"]["extracted_data"]
         assert len(uploads) == 1
         path = "/api/health-documents/" + initial["uploaded_file_id"]
         fetched = client.get(path)
         assert fetched.status_code == 200
         assert fetched.json()["extracted_data"] == initial["extracted_data"]
+        assert fetched.json()["ocr_review"] == initial["ocr_review"]
         assert fetched.json()["original_file_name"] == expected_name
         patch = client.patch(path + "/ocr-result", json={"extracted_data": {"weight_kg": "69.5"}})
         assert patch.status_code == 200
         assert patch.json()["extracted_data"]["weight_kg"] == "69.5"
+        if provider_sample:
+            assert patch.json()["ocr_review"]["pages_used"] == [1]
+            assert "weight_kg" not in patch.json()["ocr_review"]["field_confidence"]
         assert patch.json()["extracted_data"][date_field] == initial["extracted_data"][date_field]
         confirmed = client.post(path + "/confirm")
         assert confirmed.status_code == 200
         assert confirmed.json()["status"] == "confirmed"
         assert confirmed.json()[id_field]
         assert confirmed.json()["health_data"]["weight_kg"] == "69.5"
+        assert "_ocr_review" not in confirmed.json()["health_data"]["raw_data"]
         assert client.get(path).json()["status"] == "confirmed"
         repeated = client.post(path + "/confirm")
         assert repeated.status_code == 200
@@ -627,7 +645,7 @@ def test_auto_detection_disabled_without_server(monkeypatch):
 @pytest.mark.parametrize("failure,status_code,code", [
     (422, 422, "UNSUPPORTED_DOCUMENT"),
     (500, 502, "OCR_FAILED"),
-    ("timeout", 502, "OCR_FAILED"),
+    ("timeout", 502, "OCR_TIMEOUT"),
 ])
 def test_remote_classification_failure_never_falls_back_to_mock(monkeypatch, failure, status_code, code):
     monkeypatch.setenv("HEALTH_DOCUMENT_OCR_URL", "https://ocr.internal/ai/ocr")

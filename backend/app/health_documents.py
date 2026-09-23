@@ -102,6 +102,16 @@ class OCRMetadata(BaseModel):
     status: Literal["pending", "processing", "completed", "failed"]
 
 
+class OCRReview(BaseModel):
+    field_confidence: dict[str, float] = Field(default_factory=dict)
+    review_required: list[str] = Field(default_factory=list)
+    pages_total: int | None = None
+    pages_read: int | None = None
+    pages_used: list[int] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    measurement_time_assumed: bool = False
+
+
 class DocumentResponseBase(BaseModel):
     uploaded_file_id: UUID
     file_name: str
@@ -109,6 +119,7 @@ class DocumentResponseBase(BaseModel):
     uploaded_at: datetime
     ocr_status: Literal["pending", "processing", "completed", "failed"]
     status: Literal["awaiting_review", "confirmed", "failed"]
+    ocr_review: OCRReview | None = None
     error: DocumentErrorDetail | None = None
     file: UploadMetadata = Field(description="기존 클라이언트 호환용 파일 메타데이터")
     ocr_result: OCRMetadata | None = None
@@ -165,8 +176,8 @@ DOCUMENT_ERRORS = {
         409: "DOCUMENT_CONFIRMED / OCR_NOT_READY: 확정 문서 수정 또는 OCR 미완료",
         413: "FILE_TOO_LARGE: 최대 10 MiB",
         415: "UNSUPPORTED_FILE_TYPE: PDF/PNG/JPEG/HEIC만 허용",
-        422: "VALIDATION_ERROR / UNKNOWN_DOCUMENT / UNSUPPORTED_DOCUMENT: 입력 오류 또는 문서 종류 판별 불가",
-        502: "DATA_SOURCE_ERROR / OCR_FAILED / OCR_INVALID_RESPONSE / OCR_NOT_CONFIGURED: 저장소/DB/OCR 호출 실패",
+        422: "VALIDATION_ERROR / UNKNOWN_DOCUMENT / UNSUPPORTED_DOCUMENT / DOCUMENT_TYPE_MISMATCH / NO_FIELDS_FOUND / CORRUPTED_FILE: 입력 오류 또는 문서 종류 판별 불가",
+        502: "DATA_SOURCE_ERROR / OCR_FAILED / OCR_INVALID_RESPONSE / OCR_NOT_CONFIGURED / OCR_AUTH_FAILED / OCR_TIMEOUT / OCR_ENGINE_ERROR: 저장소/DB/OCR 호출 실패",
     }.items()
 }
 
@@ -197,7 +208,82 @@ def _document_response(document: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _extract_document(content: bytes, media_type: str, document_type: DocumentType) -> tuple[dict[str, Any], str | None]:
+OCR_FIELD_ALIASES = {
+    "health_checkup": {"serum_creatinine": "creatinine", "checkup_center": "institution_name"},
+    "body_composition": {
+        "measured_date": "measured_at", "body_fat_pct": "body_fat_percentage",
+        "skeletal_muscle_kg": "skeletal_muscle_mass_kg",
+        "basal_metabolic_rate_kcal": "basal_metabolic_rate", "total_body_water_l": "body_water_liters",
+    },
+}
+OCR_EXTRA_FIELDS = {
+    "health_checkup": {"sex", "age", "waist_cm", "egfr", "urine_protein", "vision", "overall_verdict"},
+    "body_composition": {"sex", "age", "fat_free_mass_kg", "protein_kg", "mineral_kg", "waist_hip_ratio",
+        "body_composition_score", "target_weight_kg", "weight_control_kg", "fat_control_kg", "muscle_control_kg",
+        "segmental_muscle_right_arm_pct", "segmental_muscle_left_arm_pct", "segmental_muscle_trunk_pct",
+        "segmental_muscle_right_leg_pct", "segmental_muscle_left_leg_pct"},
+}
+
+
+def _normalize_ocr(result: dict[str, Any], kind: DocumentType, review: dict[str, Any] | None) -> dict[str, Any]:
+    data = result["extracted_data"]
+    if not isinstance(data, dict):
+        raise TypeError("Invalid extraction")
+    model = HealthCheckupData if kind == "health_checkup" else BodyCompositionData
+    aliases = OCR_FIELD_ALIASES[kind]
+    normalized = {}
+    for key, value in data.items():
+        target = aliases.get(key, key)
+        if key in OCR_EXTRA_FIELDS[kind]:
+            continue
+        if target not in model.model_fields or (target in normalized and normalized[target] != value):
+            raise TypeError("Unexpected or conflicting OCR field")
+        if key == "measured_date" and value is not None:
+            # OCR supplies a date only. Store Korea-local midnight, explicitly marked as assumed.
+            value = date.fromisoformat(value).isoformat() + "T00:00:00+09:00"
+        normalized[target] = value
+    validated = _validate_extracted_data(kind, normalized, require_measurement_date=False)
+    if review is not None:
+        meta = result.get("meta", {})
+        if not isinstance(meta, dict):
+            raise TypeError("Invalid OCR metadata")
+        source_confidence = result.get("field_confidence", {})
+        source_required = result.get("review_required", [])
+        if not isinstance(source_confidence, dict) or not isinstance(source_required, list):
+            raise TypeError("Invalid OCR review metadata")
+        confidence = {aliases.get(k, k): v for k, v in source_confidence.items()
+                      if aliases.get(k, k) in model.model_fields and isinstance(v, (int, float))
+                      and not isinstance(v, bool) and 0 <= v <= 1}
+        required = [aliases.get(k, k) for k in source_required
+                    if isinstance(k, str) and aliases.get(k, k) in model.model_fields]
+        for key, value in validated.items():
+            if value is None and key not in required:
+                required.append(key)
+        review.update(OCRReview(field_confidence=confidence, review_required=required,
+            pages_total=meta.get("pages_total"), pages_read=meta.get("pages_read"),
+            pages_used=meta.get("pages_used", []), warnings=meta.get("warnings", []),
+            measurement_time_assumed=kind == "body_composition" and data.get("measured_date") is not None).model_dump(mode="json"))
+    return validated
+
+
+def _ocr_http_error(exc: httpx.HTTPStatusError) -> tuple[str, int]:
+    try:
+        payload = exc.response.json()
+        code = payload.get("error", {}).get("code") if isinstance(payload, dict) else None
+    except (ValueError, AttributeError):
+        code = None
+    allowed = {
+        "CORRUPTED_FILE": 422, "EMPTY_FILE": 422, "UNSUPPORTED_DOCUMENT": 422,
+        "DOCUMENT_TYPE_MISMATCH": 422, "NO_FIELDS_FOUND": 422,
+        "UNSUPPORTED_FILE_TYPE": 415, "FILE_TOO_LARGE": 413,
+        "UNAUTHORIZED": 502, "OCR_ENGINE_ERROR": 502, "OCR_TIMEOUT": 502,
+    }
+    if isinstance(code, str) and code in allowed:
+        return ("OCR_AUTH_FAILED" if code == "UNAUTHORIZED" else code), allowed[code]
+    return ("UNSUPPORTED_DOCUMENT", 422) if exc.response.status_code == 422 else ("OCR_FAILED", 502)
+
+
+async def _extract_document(content: bytes, media_type: str, document_type: DocumentType, review: dict[str, Any] | None = None) -> tuple[dict[str, Any], str | None]:
     """Trusted configured OCR adapter; never forward Supabase/user credentials."""
     endpoint = os.getenv("HEALTH_DOCUMENT_OCR_URL", "")
     if not endpoint:
@@ -210,11 +296,15 @@ async def _extract_document(content: bytes, media_type: str, document_type: Docu
             return _empty_extracted_data(document_type), "EXTRACTION_FAILED"
         if result.get("document_type") != document_type:
             return _empty_extracted_data(document_type), "DOCUMENT_TYPE_MISMATCH"
-        validated = _validate_extracted_data(document_type, result["extracted_data"], require_measurement_date=False)
+        validated = _normalize_ocr(result, document_type, review)
         if not any(value is not None for value in validated.values()):
             return validated, "EXTRACTION_FAILED"
         return validated, None
-    except HTTPException:
+    except httpx.HTTPStatusError as exc:
+        return _empty_extracted_data(document_type), _ocr_http_error(exc)[0]
+    except httpx.TimeoutException:
+        return _empty_extracted_data(document_type), "OCR_TIMEOUT"
+    except (HTTPException, ValidationError, TypeError):
         return _empty_extracted_data(document_type), "EXTRACTION_FAILED"
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
         return _empty_extracted_data(document_type), "OCR_FAILED"
@@ -236,7 +326,7 @@ def _classification_error(code: str, message: str, status_code: int = 422) -> HT
     return HTTPException(status_code=status_code, detail={"code": code, "message": message})
 
 
-async def _auto_extract_document(content: bytes, media_type: str) -> tuple[DocumentType, dict[str, Any], str | None]:
+async def _auto_extract_document(content: bytes, media_type: str, review: dict[str, Any] | None = None) -> tuple[DocumentType, dict[str, Any], str | None]:
     if not os.getenv("HEALTH_DOCUMENT_OCR_URL", ""):
         if os.getenv("HEALTH_DOCUMENT_OCR_MOCK_ENABLED", "true").lower() != "true":
             raise _classification_error("OCR_NOT_CONFIGURED", "문서 자동 판별 OCR 서버가 설정되지 않았습니다.", 502)
@@ -247,10 +337,10 @@ async def _auto_extract_document(content: bytes, media_type: str) -> tuple[Docum
     try:
         result = await _request_ocr(content, media_type, None)
     except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 422:
-            # OCR adapters use 422 for unknown/unsupported documents. Never expose their raw payload.
-            raise _classification_error("UNSUPPORTED_DOCUMENT", "지원하는 건강검진/체성분 문서가 아닙니다.") from exc
-        raise _classification_error("OCR_FAILED", "OCR 서버 호출에 실패했습니다. 다시 시도해 주세요.", 502) from exc
+        code, status_code = _ocr_http_error(exc)
+        raise _classification_error(code, "OCR 문서를 처리하지 못했습니다. 파일 또는 서버 설정을 확인해 주세요.", status_code) from exc
+    except httpx.TimeoutException:
+        raise _classification_error("OCR_TIMEOUT", "OCR 응답 시간이 초과되었습니다. 다시 시도해 주세요.", 502)
     except (httpx.HTTPError, ValueError):
         raise _classification_error("OCR_FAILED", "OCR 서버 호출 또는 응답 해석에 실패했습니다.", 502)
     if not isinstance(result, dict):
@@ -261,8 +351,8 @@ async def _auto_extract_document(content: bytes, media_type: str) -> tuple[Docum
     if detected not in ("health_checkup", "body_composition"):
         raise _classification_error("OCR_INVALID_RESPONSE", "OCR 서버가 유효하지 않은 문서 종류를 반환했습니다.", 502)
     try:
-        validated = _validate_extracted_data(detected, result["extracted_data"], require_measurement_date=False)
-    except (HTTPException, KeyError, TypeError):
+        validated = _normalize_ocr(result, detected, review)
+    except (HTTPException, ValidationError, KeyError, TypeError, ValueError):
         return detected, _empty_extracted_data(detected), "EXTRACTION_FAILED"
     return detected, validated, None if any(value is not None for value in validated.values()) else "EXTRACTION_FAILED"
 
@@ -407,7 +497,13 @@ async def _fetch_document(
     if not ocr_response.is_success:
         raise HTTPException(status_code=502, detail="Supabase OCR result query failed")
     ocr_rows = ocr_response.json()
-    return {"file": uploads[0], "ocr_result": ocr_rows[0] if ocr_rows else None}
+    ocr = ocr_rows[0] if ocr_rows else None
+    review = None
+    if ocr and isinstance(ocr.get("extracted_data"), dict):
+        extracted = dict(ocr["extracted_data"])
+        review = extracted.pop("_ocr_review", None)
+        ocr = {**ocr, "extracted_data": extracted}
+    return {"file": uploads[0], "ocr_result": ocr, "ocr_review": review}
 
 
 async def _delete_storage_object(storage_path: str, settings: Any) -> None:
@@ -476,8 +572,9 @@ async def _create_document(
 ) -> dict[str, Any]:
     content, media_type, extension = await _read_validated_upload(file)
     automatic_result = None
+    review: dict[str, Any] = {}
     if document_type is None:
-        document_type, extracted_data, ocr_error = await _auto_extract_document(content, media_type)
+        document_type, extracted_data, ocr_error = await _auto_extract_document(content, media_type, review)
         automatic_result = extracted_data, ocr_error
     uploaded_file_id = uuid4()
     now = datetime.now(UTC)
@@ -521,14 +618,14 @@ async def _create_document(
         await _delete_storage_object(storage_path, settings)
         raise HTTPException(status_code=502, detail="Health document metadata creation failed")
 
-    extracted_data, ocr_error = automatic_result if automatic_result is not None else await _extract_document(content, media_type, document_type)
+    extracted_data, ocr_error = automatic_result if automatic_result is not None else await _extract_document(content, media_type, document_type, review)
     ocr_payload = {
         "ocr_result_id": str(uuid4()),
         "uploaded_file_id": str(uploaded_file_id),
         "status": "failed" if ocr_error else "completed",
         "error_message": ocr_error,
         "raw_text": None,
-        "extracted_data": extracted_data,
+        "extracted_data": {**extracted_data, **({"_ocr_review": review} if review else {})},
         "started_at": now.isoformat(),
         "completed_at": datetime.now(UTC).isoformat(),
     }
@@ -566,6 +663,14 @@ async def _update_ocr_result(
     ocr = document["ocr_result"]
     if not ocr or ocr["status"] in {"pending", "processing"}:
         raise HTTPException(status_code=409, detail={"code": "OCR_NOT_READY", "message": "OCR is not ready for review", "fields": None})
+    review = document.get("ocr_review")
+    if review:
+        review = dict(review)
+        review["review_required"] = [key for key in review.get("review_required", []) if key not in extracted_data or extracted_data[key] is None]
+        review["field_confidence"] = {key: value for key, value in review.get("field_confidence", {}).items() if key not in extracted_data}
+        if "measured_at" in extracted_data:
+            review["measurement_time_assumed"] = False
+        document["ocr_review"] = review
     extracted_data = {**(ocr.get("extracted_data") or {}), **extracted_data}
     validated = _validate_extracted_data(
         document_type,
@@ -577,7 +682,7 @@ async def _update_ocr_result(
             f"{settings.supabase_url}/rest/v1/ocr_results",
             headers=_service_headers(settings, return_representation=True),
             params={"uploaded_file_id": f"eq.{uploaded_file_id}", "select": "ocr_result_id"},
-            json={"extracted_data": validated, "status": "completed", "error_message": None},
+            json={"extracted_data": {**validated, **({"_ocr_review": document["ocr_review"]} if document.get("ocr_review") else {})}, "status": "completed", "error_message": None},
         )
     if not response.is_success or not response.json():
         raise HTTPException(status_code=502, detail="Temporary OCR result update failed")

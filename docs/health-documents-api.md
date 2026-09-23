@@ -110,7 +110,7 @@ HTTP 오류는 아래 형태입니다. 입력값이나 OCR 원문을 오류에 �
 | 415 | UNSUPPORTED_FILE_TYPE | 지원하지 않는 파일 시그니처 |
 | 422 | VALIDATION_ERROR | 문서 종류/필드/범위/확정 날짜 검증 실패 |
 | 422 | UNKNOWN_DOCUMENT / UNSUPPORTED_DOCUMENT | 실제 OCR 연결 시 종류 판별 불가 또는 지원하지 않는 문서; 저장하지 않음 |
-| 502 | OCR_FAILED / OCR_INVALID_RESPONSE / OCR_NOT_CONFIGURED | 자동 판별 서버 실패/잘못된 응답/설정 없음; 저장하지 않음 |
+| 502 | OCR_FAILED / OCR_INVALID_RESPONSE / OCR_NOT_CONFIGURED / OCR_AUTH_FAILED / OCR_TIMEOUT / OCR_ENGINE_ERROR | 자동 판별 서버 실패/잘못된 응답/설정 없음; 저장하지 않음 |
 | 502 | DATA_SOURCE_ERROR | 저장소/DB 응답 실패 |
 
 문서 종류가 결정된 이후 추출 오류는 저장된 문서를 조회할 수 있도록 HTTP 201/200 응답의 `ocr_status=failed`, `error`로 전달합니다. 코드: `OCR_NOT_CONFIGURED`(처리 서버 설정 없음 및 샘플 모드 비활성), `OCR_FAILED`(처리 서버 실패/타임아웃), `DOCUMENT_TYPE_MISMATCH`(종류 불일치), `EXTRACTION_FAILED`(추출 데이터 없음 또는 스키마 검증 실패).
@@ -125,9 +125,9 @@ HTTP 오류는 아래 형태입니다. 입력값이나 OCR 원문을 오류에 �
 
 `HEALTH_DOCUMENT_OCR_MOCK_ENABLED`는 기본 `true`입니다. URL이 없을 때만 샘플을 사용하며, `false`로 설정하면 기존처럼 `OCR_NOT_CONFIGURED`를 반환합니다. 실제 URL이 설정되어 있으면 샘플 설정과 무관하게 실제 OCR을 호출하고, 실제 호출 실패를 샘플로 대체하지 않습니다.
 
-서버가 준비되면 `HEALTH_DOCUMENT_OCR_URL=https://<실제 서버>/ai/ocr`와 필요한 토큰을 설정합니다. 위 응답 형식과 다른 실제 서버 응답은 내부 OCR 어댑터에서 DB 필드명으로 매핑하면 됩니다. 프론트의 네 경로와 요청·응답 스키마는 유지합니다. 현재 ai 브랜치의 `fields/extracted_text` 응답은 이 정규화 형식과 다르므로 실제 서버 완성 시 내부 매핑이 필요합니다.
+현재 고정 OCR 주소는 `https://211-233-193-159.sslip.io/ai/ocr`입니다. 필요한 토큰은 `HEALTH_DOCUMENT_OCR_TOKEN`에만 설정합니다. 실제 서버 응답은 내부 OCR 어댑터에서 DB 필드명으로 변환하므로 프론트의 기존 경로와 측정값 응답 스키마는 유지합니다. 2026-09-23 기준 `/health`에서 `clova-general` 엔진의 정상 상태를 확인했습니다.
 
-OCR 엔진 자체는 저장소에 포함되지 않습니다. 샘플 데이터는 실제 파일 판독 결과가 아닙니다. 선택 document_type과 임시 샘플 정책은 공유 개발 서버에 배포했습니다. 현재 실제 판별은 수행하지 않고 종류 생략 시 건강검진 샘플을 반환합니다. [배포·검증 결과](health-documents-deployment-results.md)를 참고하세요.
+OCR 엔진 자체는 저장소에 포함되지 않습니다. 샘플 데이터는 실제 파일 판독 결과가 아닙니다. 로컬·배포 설정은 고정 OCR 주소와 `HEALTH_DOCUMENT_OCR_MOCK_ENABLED=false`를 사용하며, 배포 환경에는 별도로 Bearer 토큰을 등록해야 합니다. URL을 비운 개발 환경에서만 명시적으로 활성화한 임시 샘플 정책을 사용할 수 있습니다. [배포·검증 결과](health-documents-deployment-results.md)를 참고하세요.
 
 ## 과거 문서 목록
 
@@ -146,3 +146,39 @@ POST·개별 GET·PATCH 응답의 최상위 `original_file_name`을 표시하면
 목록 items의 status는 awaiting_review | confirmed | failed이며 단건 조회와 같은 기준입니다. processing_status=manually_confirmed는 confirmed, 그 외 OCR 실패는 failed, 나머지는 awaiting_review입니다. OCR 결과가 없거나 처리 중인 문서도 awaiting_review입니다. 서버는 페이지 내 소유 문서의 OCR 상태를 일괄 조회하므로 프론트 단건 추가 요청은 필요하지 않습니다.
 
 목록은 페이지 단위이므로 첫 페이지에 confirmed가 없다고 전체 문서가 없다고 판단하지 마세요. 로그인 분기는 `GET /api/health-documents?status=confirmed&limit=1`로 조회하여 items가 하나 이상이면 Home, 빈 배열이면 업로드 화면으로 이동합니다. status 필터는 현재 confirmed만 지원하며, 생략하면 전체 상태를 반환합니다. 인증/서버 오류는 문서 없음으로 처리하지 마세요.
+
+
+## 실제 OCR 응답 연동 (2026-09-18)
+
+기존 경로와 측정값 응답 타입은 유지합니다. OCR 전용 필드명은 백엔드에서 변환합니다.
+
+| OCR | 백엔드 |
+|---|---|
+| serum_creatinine | creatinine |
+| checkup_center | institution_name |
+| body_fat_pct | body_fat_percentage |
+| skeletal_muscle_kg | skeletal_muscle_mass_kg |
+| basal_metabolic_rate_kcal | basal_metabolic_rate |
+| total_body_water_l | body_water_liters |
+| measured_date | measured_at |
+
+`measured_date`는 날짜만 제공됩니다. 한국 시간 자정(`YYYY-MM-DDT00:00:00+09:00`)으로 변환하고 `ocr_review.measurement_time_assumed=true`를 반환합니다. 실제 측정 시각을 의미하지 않습니다. 사용자가 measured_at을 수정하면 표시를 false로 바꿉니다.
+
+기존 스키마에서 지원하지 않는 성별·나이·eGFR·종합점수·부위별 근육 등 알려진 추가 항목은 저장하거나 노출하지 않습니다. protein_kg를 protein_percentage로 변환하지 않습니다. 계약에 없는 필드나 상충하는 별칭은 추출 실패입니다. 서비스 용량 제한은 10 MiB이며 OCR 서버의 20MB 제한으로 확대하지 않습니다.
+
+POST·GET·PATCH에 선택 응답 `ocr_review`를 추가합니다. 임시 샘플 또는 이전 문서는 null입니다.
+
+- field_confidence: 기존 백엔드 필드명으로 변환한 OCR 신뢰도(0~1).
+- review_required: OCR 검수 필요 항목과 누락 항목. 수정한 필드는 목록과 OCR 신뢰도에서 제거합니다.
+- pages_total / pages_read / pages_used / warnings: PDF 일부 페이지 처리 등 검수 안내.
+- measurement_time_assumed: 날짜만으로 시각을 채웠는지 여부.
+
+검수 정보는 기존 OCR JSONB의 내부 `_ocr_review` 키에 저장하고 조회 때 분리합니다. 측정값 스키마와 확정 건강 데이터에는 이 키를 넣지 않습니다. DB 마이그레이션은 필요하지 않습니다. 프론트는 검수 정보를 표시하도록 별도 반영해야 합니다. 사용자 confirm 전 분석용 건강 데이터에 저장하지 않는 흐름은 유지합니다.
+
+자동 판별 호출 실패 시 error.code를 구분합니다. UNSUPPORTED_DOCUMENT / DOCUMENT_TYPE_MISMATCH / NO_FIELDS_FOUND / CORRUPTED_FILE / EMPTY_FILE은 422, UNSUPPORTED_FILE_TYPE은 415, FILE_TOO_LARGE는 413입니다. OCR 인증 실패는 사용자 로그인 실패와 구분해 502 OCR_AUTH_FAILED로 반환합니다. OCR_TIMEOUT / OCR_ENGINE_ERROR는 502입니다. 자동 판별에 실패하면 파일과 DB에 저장하지 않습니다. 종류 명시 후 실패하면 기존 계약대로 파일 ID와 ocr_status=failed, error를 반환합니다. upstream 오류 메시지 원문은 전달하지 않습니다.
+
+실제 호출 URL은 `/ai/ocr`를 포함한 전체 주소를 HEALTH_DOCUMENT_OCR_URL에 설정해야 합니다. 토큰은 HEALTH_DOCUMENT_OCR_TOKEN에만 설정하고 코드·문서·로그에 기록하지 않습니다. 실제 연결 시 HEALTH_DOCUMENT_OCR_MOCK_ENABLED=false를 권장합니다. 대기 설정은 기존 60초를 유지합니다.
+
+전달 자료에 따르면 이미지 판독을 위해 CLOVA OCR로 원본이 전송됩니다. 서비스의 외부 전송 안내에 반영해야 합니다. 정확도 수치는 AI 담당자 제공 자료이며 실제 촬영본 검증은 아직 완료되지 않았습니다.
+
+남은 실제 연동 검증: 원본 건강검진/인바디 이미지와 다중 페이지 PDF 업로드 → 조회·수정·확정·저장값 비교 → 배포 API 종단 간 확인. 확정 저장과 문서 상태 갱신의 원자성 및 동시 요청 보완은 별도 DB 작업으로 남아 있습니다.
