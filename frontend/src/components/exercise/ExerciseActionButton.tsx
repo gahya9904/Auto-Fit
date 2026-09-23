@@ -12,6 +12,7 @@ interface ExerciseActionButtonProps {
   compact?: boolean;
   gradient?: boolean;
   labelStyle?: StyleProp<TextStyle>;
+  maxFontSizeMultiplier?: number;
   onPress: () => void;
   title: string;
   variant?: 'primary' | 'secondary';
@@ -24,6 +25,7 @@ export function ExerciseActionButton({
   compact = false,
   gradient = false,
   labelStyle,
+  maxFontSizeMultiplier,
   onPress,
   title,
   variant = 'primary',
@@ -58,6 +60,7 @@ export function ExerciseActionButton({
       <View pointerEvents="none" style={[styles.foreground, gap !== undefined && { gap }]}>
         {icon}
         <Text
+          maxFontSizeMultiplier={maxFontSizeMultiplier}
           style={[
             styles.label,
             compact && styles.compactLabel,
