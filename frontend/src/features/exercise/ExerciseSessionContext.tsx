@@ -295,16 +295,17 @@ function reducer(state: ExerciseSessionState, action: ExerciseSessionAction): Ex
       const countInterval = COUNT_INTERVALS[state.countSpeed];
       const accumulated = state.repAccumulatorMs + delta;
       const increment = Math.floor(accumulated / countInterval);
+      const targetRepetitions = exercise.targetRepetitions ?? 0;
+      const currentRep = Math.min(targetRepetitions, state.currentRep + increment);
       const nextState = {
         ...state,
-        currentRep: Math.min(exercise.targetRepetitions ?? 0, state.currentRep + increment),
+        currentRep,
         elapsedExerciseMs: state.elapsedExerciseMs + delta,
         lastTickAt: action.now,
-        repAccumulatorMs: accumulated % countInterval,
+        repAccumulatorMs: currentRep >= targetRepetitions ? 0 : accumulated % countInterval,
       };
-      return nextState.currentRep >= (exercise.targetRepetitions ?? 0)
-        ? reducer(nextState, { now: action.now, type: 'complete-set' })
-        : nextState;
+      // 횟수 목표에 도달해도 화면 전환은 CTA의 complete-set 동작으로만 진행한다.
+      return nextState;
     }
     case 'toggle-pause':
       if (state.phase !== 'exercise' && state.phase !== 'rest') return state;

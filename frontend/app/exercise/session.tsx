@@ -176,12 +176,14 @@ export default function ExerciseSessionScreen() {
     completionImageTop: verticalValue(268, 225),
     completionTitleTop: verticalValue(165, 140),
     contentHeight: verticalValue(900, 815),
+    countToTipMinGap: verticalValue(15, 18),
     counterTop: verticalValue(450, 396),
     mediaHeight: verticalValue(310, 270),
     mediaImageHeight: verticalValue(210, 175),
     mediaTop: verticalValue(125, 110),
     restCircleTop: verticalValue(313, 260),
     restTitleTop: verticalValue(160, 135),
+    repProgressGap: verticalValue(25, 18),
     tipHeight: verticalValue(150, 120),
     tipTop: verticalValue(635, 570),
     timedCounterTop: verticalValue(480, 410),
@@ -361,6 +363,7 @@ export default function ExerciseSessionScreen() {
 
 type SessionLayout = {
   buttonsTop: number;
+  countToTipMinGap: number;
   completionCardTop: number;
   completionCardHeight: number;
   completionButtonTop: number;
@@ -374,6 +377,7 @@ type SessionLayout = {
   mediaTop: number;
   restCircleTop: number;
   restTitleTop: number;
+  repProgressGap: number;
   tipHeight: number;
   tipTop: number;
   timedCounterTop: number;
@@ -444,6 +448,20 @@ function ExerciseContent({
   toggleGuide: () => void;
   togglePause: () => void;
 }) {
+  const [repProgressHeight, setRepProgressHeight] = useState<number | null>(null);
+  const expectedRepProgressHeight = 120 + layout.repProgressGap * 2;
+  const measuredRepProgressHeight = repProgressHeight ?? expectedRepProgressHeight;
+  // Preserve the shared lower layout while keeping the speed button clear of the fixed TIP card.
+  const constrainedRepProgressTop = Math.min(
+    layout.counterTop,
+    layout.tipTop - layout.countToTipMinGap - measuredRepProgressHeight,
+  );
+  const handleRepProgressLayout = useCallback((height: number) => {
+    setRepProgressHeight((previousHeight) =>
+      previousHeight === height ? previousHeight : height,
+    );
+  }, []);
+
   return (
     <>
       <ExerciseMediaCard
@@ -468,9 +486,11 @@ function ExerciseContent({
           currentRep={session.currentRep}
           exercise={exercise}
           onCycleSpeed={cycleCountSpeed}
+          onLayout={handleRepProgressLayout}
+          gap={layout.repProgressGap}
           set={session.currentSet}
           speed={session.countSpeed}
-          top={layout.counterTop}
+          top={constrainedRepProgressTop}
         />
       )}
       <TipCard height={layout.tipHeight} instruction={exercise.instruction} top={layout.tipTop} />
@@ -563,21 +583,28 @@ function ExerciseBodyPartBadge({ bodyPart }: { bodyPart: ExerciseBodyPart }) {
 function RepProgress({
   currentRep,
   exercise,
+  gap,
   onCycleSpeed,
+  onLayout,
   set,
   speed,
   top,
 }: {
   currentRep: number;
   exercise: ExerciseSessionExercise;
+  gap: number;
   onCycleSpeed: () => void;
+  onLayout: (height: number) => void;
   set: number;
   speed: ExerciseCountSpeed;
   top: number;
 }) {
   const speedState = speedCopy(speed);
   return (
-    <View style={[styles.repProgress, { top }]}>
+    <View
+      onLayout={(event) => onLayout(event.nativeEvent.layout.height)}
+      style={[styles.repProgress, { gap, top }]}
+    >
       <Text style={styles.repCount}>
         {currentRep}
         <Text style={styles.repGoal}> / {exercise.targetRepetitions}회</Text>
@@ -2041,7 +2068,6 @@ const styles = StyleSheet.create({
   repGoal: { fontSize: 25, letterSpacing: 1 },
   repProgress: {
     alignItems: 'center',
-    gap: 25,
     left: 21,
     position: 'absolute',
     width: 370,
