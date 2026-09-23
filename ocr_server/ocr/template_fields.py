@@ -1,18 +1,19 @@
 """
-Template OCR 결과(칸 이름 → 글자)를 우리 항목 형식으로 바꾸고, General 파서 결과와 합친다.
+Template OCR 결과(칸 이름 → 글자)를 우리 항목 형식으로 바꾼다.
 
   General 파서  : 글자 상자 더미에서 항목명을 찾아 값을 짝짓는다 → 어떤 양식이든 읽지만 가끔 옆 칸을 집는다
   Template OCR  : 빌더에 그려 둔 칸 위치에서 글자를 읽는다    → 아는 양식만 읽지만 칸을 헷갈리지 않는다
 
-양식이 맞으면
-  · 그 양식에 있는 항목(scope)은 Template 값을 먼저 쓰고, Template 이 못 읽은 칸만 General 값으로 채운다
-  · 그 양식에 없는 항목은 비운다. General 파서가 엉뚱한 글자를 값으로 집기 때문이다
-    (실측: InBody270 에 없는 부위별 근육 % 를 193.0 으로, 공단 2쪽에서 검진기관을 '검사방법'으로 채움)
+양식이 맞은 쪽은 **Template 칸 값만** 쓴다. 칸이 비어 있으면 그 항목은 null 이다.
+General 값으로 채우지 않는 이유 (실측):
+  · 값을 적지 않은 공단 양식에서 기준표 숫자(체중 65, 허리 90, 혈압 120 …)를 결과로 집었다
+  · InBody270 에 없는 부위별 근육 % 를 193.0 으로, 공단 2쪽에서 검진기관을 '검사방법'으로 채웠다
+  · 체크박스(□)로 표시하는 요단백·종합판정은 첫 보기('정상A')를 집었다 → 칸을 만들지 않았으니 null
 값 검사(범위·형식)와 교차검증은 두 경로가 똑같이 ocr/validate.py 를 쓴다.
 """
 
 import re
-from typing import Dict, Optional, Set
+from typing import Dict, Optional
 
 from .engines.clova_template import TemplateResult
 from .parser import fields_for
@@ -38,29 +39,10 @@ PAIRS = {"height_weight": ("height", "weight"), "bp": ("sbp", "dbp")}
 # 시력(좌/우) '1.4 / 0.8'
 _VISION_RE = re.compile(r"(\d(?:[.,]\d{1,2})?)\s*/\s*(\d(?:[.,]\d{1,2})?)")
 
-# 공단 양식에서 체크박스(□ 정상A □ 정상B …)로 표시하는 항목.
-# 글자 OCR 로는 어느 칸에 표시했는지 알 수 없어 General 파서가 첫 보기('정상A')를 집는다(합성 공단 양식 실측 3/3 오답).
-# 체크 표시 인식을 만들기 전까지는 틀린 값 대신 빈칸으로 둔다 (기획서 5.3 '모르면 비워둔다').
-CHECKBOX_FIELDS = {
-    "nhis2026_p1": ("verdict",),
-    "nhis_old_p1": ("verdict",),
-    "nhis2026_p2": ("urine_protein",),
-    "nhis_old_p2": ("urine_protein",),
-}
-
 
 def doc_of(result: Optional[TemplateResult]) -> Optional[str]:
     """맞은 양식이 서비스용이면 문서 종류('checkup' / 'inbody'), 아니면 None."""
     return TEMPLATE_DOCS.get(result.template) if result else None
-
-
-def template_scope(result: TemplateResult) -> Set[str]:
-    """이 양식에 인쇄되는 항목 key 들. 빌더에 그린 칸 이름에서 만든다 (응답에는 빈칸도 이름이 온다)."""
-    scope: Set[str] = set(CHECKBOX_FIELDS.get(result.template, ()))
-    for tf in result.fields:
-        name = ALIASES.get(tf.name, tf.name)
-        scope.update(PAIRS.get(name, (name,)))
-    return scope
 
 
 def template_items(result: Optional[TemplateResult], schema: dict) -> Dict[str, dict]:
@@ -97,30 +79,24 @@ def template_items(result: Optional[TemplateResult], schema: dict) -> Dict[str, 
                 put("vision", text, tf.conf, value=f"{left}/{right}")
         else:
             put(name, text, tf.conf)
-
-    for key in CHECKBOX_FIELDS.get(result.template, ()):
-        if key not in items and key in fields:
-            items[key] = finalize(fields[key], None, 0.0, "checkbox_unread", None)
     return items
 
 
-def merge_page(general: dict, items: Dict[str, dict], scope: Set[str]) -> dict:
-    """한 쪽의 General 파서 결과 위에 Template 값을 덮고, 교차검증을 다시 돌린다.
+def template_page(general: dict, items: Dict[str, dict]) -> dict:
+    """양식이 맞은 쪽의 결과: General 파서 값은 모두 비우고 Template 칸 값만 남긴 뒤 교차검증을 돌린다.
 
-    scope(이 양식에 있는 항목) 밖의 General 값은 버린다.
+    General 결과를 받는 이유는 항목 목록과 _meta 모양을 똑같이 맞추기 위해서다.
     """
     merged = {}
     for key, item in general.items():
         if not isinstance(item, dict) or key.startswith("_"):
             merged[key] = item
-        elif key in scope:
-            merged[key] = dict(item)
         else:
-            merged[key] = {**item, "value": None, "confidence": 0.0, "status": "fail", "method": "outside_template"}
+            merged[key] = {**item, "value": None, "confidence": 0.0, "status": "fail", "method": "template_empty"}
     merged.update(items)
     notes = apply_cross_checks(merged)
     meta = dict(merged.get("_meta") or {})
-    meta["template_fields"] = sum(1 for item in items.values() if item["method"] == "template")
+    meta["template_fields"] = len(items)
     meta["cross_check_notes"] = notes
     merged["_meta"] = meta
     return merged

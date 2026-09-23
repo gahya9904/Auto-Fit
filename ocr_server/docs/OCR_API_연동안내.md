@@ -1,8 +1,18 @@
 # AutoFit OCR API 연동 안내
 
-> 작성: 이승현 (AI·Data) · 2026-09-18 · 버전 0.2.0 · 2026-09-23 서버 주소 고정 (네이버 클라우드) · 2026-09-23 Template OCR 추가
+> 작성: 이승현 (AI·Data) · 2026-09-18 · 버전 0.2.1 · 2026-09-23 서버 주소 고정 (네이버 클라우드) · 2026-09-23 Template OCR 추가 · 2026-09-23 빈 양식 오탐 수정
 > 대상: 백엔드 (김현호)
 > OCR 엔진: **NAVER CLOVA OCR (Template + General)** + 항목 추출 파서
+> 소스: https://github.com/gahya9904/Auto-Fit/tree/ocr/ocr_server
+
+**0.2.1 변경점 (2026-09-23 백엔드 보고 반영, 백엔드 수정 필요 없음)**
+- 값을 적지 않은 공단 결과통보서를 올리면 기준표 숫자를 결과로 돌려주던 문제를 고쳤습니다. 이제 **`422 NO_FIELDS_FOUND`** 입니다.
+  - 양식이 맞은 쪽은 **양식 칸의 값만** 씁니다. 칸이 비어 있으면 `null`입니다(다른 방식으로 채우지 않음).
+- 교차검증 2개를 추가했습니다. 어긋나면 관련 필드가 `review_required`에 들어갑니다.
+  - 체지방률 ≈ 체지방량 ÷ 체중 × 100 (1%p 넘게 차이 나면)
+  - 골격근량·체지방량 < 체중
+- 보고하신 InBody270 오류(BMI 10.0 등)는 0.1.0 서버의 동작이었습니다. 0.2.0부터는 같은 PDF에서 8개 모두 정답입니다.
+- 회귀 테스트: 소스의 `tests/regression_pdfs.py` (InBody270 PDF, 빈 공단 양식 PDF 둘 다 통과)
 
 **0.2.0 변경점 (백엔드 수정 필요 없음)**
 - 공단 결과통보서(2026 개정판·개정 전)와 InBody270·770 결과지는 **양식 칸 위치로 읽습니다(Template OCR).** 그 밖의 결과지는 지금처럼 General OCR로 읽습니다.
@@ -218,7 +228,7 @@ async def call_ocr(file_bytes: bytes, filename: str, document_type: str | None):
 | 415 | `UNSUPPORTED_FILE_TYPE` | JPEG·PNG·HEIC·PDF가 아님 | 형식 안내 |
 | 422 | `UNSUPPORTED_DOCUMENT` | 검진표·인바디가 아닌 문서 (예: 처방전) | **수동 입력으로 전환** |
 | 422 | `DOCUMENT_TYPE_MISMATCH` | 보낸 `document_type`과 실제 문서가 다름 | 문서 종류 다시 선택 |
-| 422 | `NO_FIELDS_FOUND` | 문서는 맞지만 읽힌 값이 0개 | 재촬영 또는 수동 입력 |
+| 422 | `NO_FIELDS_FOUND` | 문서는 맞지만 읽힌 값이 0개 (값을 적지 않은 빈 양식 포함) | 재촬영 또는 수동 입력 |
 | 502 | `OCR_ENGINE_ERROR` | CLOVA 호출 실패 | 잠시 후 재시도 |
 | 504 | `OCR_TIMEOUT` | CLOVA 응답 지연 | 잠시 후 재시도 |
 | 500 | `INTERNAL_ERROR` | 그 밖의 서버 오류 | 재시도 후 AI 담당에게 공유 |
@@ -255,7 +265,7 @@ async def call_ocr(file_bytes: bytes, filename: str, document_type: str | None):
 | InBody770 결과지 | Template | 24개 (복부지방률·내장지방레벨은 770 결과지에 없음) |
 | 그 밖의 검진표·체성분 결과지 | General (글자 + 항목명 찾기) | 부록 A 전체 중 찾은 것 |
 
-- 양식이 맞으면 **그 양식에 인쇄된 항목만** 채웁니다. 양식에 없는 항목은 `null`입니다.
+- 양식이 맞으면 **양식 칸의 값만** 씁니다. 칸이 비었거나 양식에 없는 항목은 `null`입니다.
 - 어느 양식으로 읽었는지는 `meta.templates`(쪽마다, 양식이 없으면 `null`)에 들어갑니다.
 
 ## 5. 자동 판별 (건강검진 / 인바디)
@@ -289,7 +299,7 @@ async def call_ocr(file_bytes: bytes, filename: str, document_type: str | None):
 | 성별 | `"M"` 또는 `"F"` |
 | 못 읽은 값 | `null`. 모든 필드는 항상 응답에 들어 있음 (키가 빠지지 않음) |
 | 신뢰도 | `field_confidence[필드]` 0~1. `null`인 항목은 0.0 |
-| 검수 필요 | `review_required`: 값은 채웠지만 신뢰도가 0.5~0.85인 항목. **검수 화면에서 강조 표시 권장** |
+| 검수 필요 | `review_required`: 값은 채웠지만 신뢰도가 0.5~0.85인 항목, 또는 교차검증(BMI 재계산, 체지방률 재계산, 골격근량·체지방량 < 체중, 혈압 순서)이 어긋난 항목. **검수 화면에서 강조 표시 권장** |
 | 신뢰도 0.5 미만 | 값을 채우지 않고 `null` (기획서 5.3 "모르면 비워둔다") |
 | 돌려주지 않는 값 | 이름·생년월일·주민번호 (기획서 5.6 최소 수집) |
 

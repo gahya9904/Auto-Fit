@@ -3,7 +3,7 @@
 
 같은 이미지에 CLOVA General 과 Template 을 한 번씩만 부르고(응답은 cache/ 에 저장),
   · general  : General 글자 + 자체 파서            (지금까지의 서버)
-  · template : 위 결과에 Template 칸 값을 덮은 것   (새 서버, server/pipeline.py 와 같은 함수)
+  · template : 양식이 맞으면 Template 칸 값만 쓴 것 (새 서버, server/pipeline.py 와 같은 함수)
 두 결과를 같은 정답지로 채점한다.
 
 사용법 (AutoFit_AI 폴더에서):
@@ -29,7 +29,7 @@ from .engines.clova_template import ClovaTemplateEngine
 from .parse_one import DATA_DIR
 from .parser import fields_for, load_schema, parse_boxes
 from .score_batch import outcome_of
-from .template_fields import doc_of, merge_page, template_items, template_scope
+from .template_fields import doc_of, template_items, template_page
 
 NHIS_DIR = DATA_DIR / "nhis_form6"
 REPORT_DIR = Path(__file__).resolve().parents[1] / "reports_nhis"
@@ -62,7 +62,7 @@ def score_one(task: dict, general_engine, template_engine, schema: dict) -> list
     general = parse_boxes(boxes, DOC, schema)
     template = template_engine.read(task["image"])
     if doc_of(template) == DOC:
-        combined = merge_page(general, template_items(template, schema), template_scope(template))
+        combined = template_page(general, template_items(template, schema))
     else:
         combined = general
 

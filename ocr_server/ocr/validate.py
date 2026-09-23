@@ -173,4 +173,30 @@ def apply_cross_checks(result: dict) -> List[str]:
         result["sbp"]["status"] = result["dbp"]["status"] = "review"
         notes.append(f"혈압 순서 교정: {sbp}/{dbp} → {dbp}/{sbp} (확인 필요)")
 
+    # ⑤ 체지방률 ≈ 체지방량 / 체중 × 100 — 인바디는 이 식으로 계산해 인쇄한다
+    #    (InBody270 22.1/59.1 → 37.4 vs 37.5, InBody770 21.4/59.1 → 36.2 vs 36.1). 반올림 오차를 넘으면 확인 대상
+    def shown(key):
+        """화면에 채워지는 값(fail 이 아님)만. 아래 두 규칙은 'ok → review' 로 낮추기만 하고 fail 을 올리지 않는다."""
+        item = result.get(key)
+        return item["value"] if item and item["value"] is not None and item["status"] != "fail" else None
+
+    def flag(*keys):
+        for key in keys:
+            if result[key]["status"] == "ok":
+                result[key]["status"] = "review"
+
+    weight, pbf, fat = shown("weight"), shown("pbf"), shown("fat")
+    if weight and pbf is not None and fat is not None:
+        calc = fat / weight * 100
+        if abs(calc - pbf) > 1.0:
+            flag("pbf", "fat", "weight")
+            notes.append(f"체지방률 불일치: 문서값 {pbf} vs 계산값 {calc:.1f} → 체지방률·체지방량·체중 확인 필요")
+
+    # ⑥ 골격근량·체지방량은 체중보다 작다 — 그래프 눈금(골격근량 70 등)을 값으로 집은 경우를 잡는다
+    for key in ("smm", "fat"):
+        part = shown(key)
+        if weight and part is not None and part >= weight:
+            flag(key, "weight")
+            notes.append(f"{key} {part} ≥ 체중 {weight} → 확인 필요")
+
     return notes

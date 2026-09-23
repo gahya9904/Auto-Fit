@@ -30,7 +30,7 @@ TOKEN_KEY = "AUTOFIT_OCR_SERVER_TOKEN"
 
 app = FastAPI(
     title="AutoFit OCR API",
-    version="0.1.0",
+    version="0.2.1",
     description="건강검진 결과통보서 / 체성분(인바디) 결과지에서 항목별 값을 추출합니다.",
 )
 

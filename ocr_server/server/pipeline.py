@@ -5,8 +5,9 @@
        → 문서 종류 판별 → 항목 추출 → 페이지 결과 합치기 → 백엔드 필드명으로 변환
 
 항목 추출
-  · 양식이 맞으면(공단 결과통보서 신·구, InBody270·770) Template 칸 값을 먼저 쓴다
-  · Template 에 없는 항목이나 양식이 안 맞는 문서는 General 글자 + 자체 파서로 채운다
+  · 양식이 맞은 쪽(공단 결과통보서 신·구, InBody270·770)은 Template 칸 값만 쓴다. 빈칸은 null
+    → 값을 적지 않은 양식이면 NO_FIELDS_FOUND
+  · 양식이 안 맞는 쪽은 General 글자 + 자체 파서로 읽는다
   · Template 키가 없거나 호출이 실패해도 General 만으로 계속 답한다
 
 값 규칙 (기획서 5.3 "모르면 비워둔다")
@@ -22,7 +23,8 @@ from typing import List, Optional
 from ocr.engines.clova_engine import ClovaOCREngine
 from ocr.engines.clova_template import ClovaTemplateEngine
 from ocr.parser import load_schema, parse_boxes
-from ocr.template_fields import doc_of, fill_bmi, merge_page, template_items, template_scope
+from ocr.template_fields import doc_of, fill_bmi, template_items, template_page
+from ocr.validate import apply_cross_checks
 from server.documents import BODY, CHECKUP, classify
 from server.field_map import FIELDS, INTERNAL_DOC
 from server.files import MAX_PDF_PAGES, FileProblem, to_pages
@@ -147,11 +149,11 @@ def run(data: bytes, requested_type: Optional[str]) -> dict:
     for i in used:
         general = parse_boxes(page_boxes[i], internal_doc, _SCHEMA)
         if doc_of(templates[i]) == internal_doc:
-            items = template_items(templates[i], _SCHEMA)
-            results.append(merge_page(general, items, template_scope(templates[i])))
+            results.append(template_page(general, template_items(templates[i], _SCHEMA)))
         else:
             results.append(general)
     merged = _merge(results)
+    apply_cross_checks(merged)  # 여러 쪽에서 모은 값끼리 한 번 더 대조
     fill_bmi(merged, _SCHEMA, internal_doc)
 
     extracted, confidence, review = {}, {}, []
