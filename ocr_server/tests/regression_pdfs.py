@@ -74,6 +74,9 @@ def check_inbody270(status: int, body: dict) -> list:
     for key, expected in INBODY270_EXPECTED.items():
         if got.get(key) != expected:
             problems.append(f"{key}: 기대 {expected} / 결과 {got.get(key)}")
+    # 값이 모두 맞으므로 교차검증(BMI·체지방률·체성분 합계 등)이 경고를 내면 안 된다
+    if body.get("review_required"):
+        problems.append(f"맞는 값인데 검수 표시: {body['review_required']}")
     return problems
 
 

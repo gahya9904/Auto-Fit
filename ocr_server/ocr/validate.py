@@ -199,4 +199,17 @@ def apply_cross_checks(result: dict) -> List[str]:
             flag(key, "weight")
             notes.append(f"{key} {part} ≥ 체중 {weight} → 확인 필요")
 
+    # ⑦ 체성분 합계 — 인바디 결과지 숫자는 서로 맞게 계산돼 있다. 옆 줄 값을 집으면(체지방↔체수분 등) 어긋난다
+    #    (InBody270: 27.2+7.1+2.74=37.0, 37.0+22.1=59.1, 27.2/37.0=73%). 합성 정답지 3,000명·실제 샘플 2장 모두 통과
+    tbw, protein, mineral, ffm = shown("tbw"), shown("protein"), shown("mineral"), shown("ffm")
+    if weight and ffm is not None and fat is not None and abs(ffm + fat - weight) > 0.5:
+        flag("ffm", "fat", "weight")
+        notes.append(f"제지방량 {ffm} + 체지방량 {fat} ≠ 체중 {weight} → 확인 필요")
+    if None not in (tbw, protein, mineral, ffm) and abs(tbw + protein + mineral - ffm) > 0.5:
+        flag("tbw", "protein", "mineral", "ffm")
+        notes.append(f"체수분 {tbw} + 단백질 {protein} + 무기질 {mineral} ≠ 제지방량 {ffm} → 확인 필요")
+    if tbw is not None and ffm and not 0.68 <= tbw / ffm <= 0.78:
+        flag("tbw", "ffm")
+        notes.append(f"체수분/제지방량 {tbw / ffm:.0%} (정상 68~78%) → 확인 필요")
+
     return notes
