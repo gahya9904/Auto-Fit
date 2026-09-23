@@ -458,6 +458,9 @@ export function ExerciseSessionProvider({ children }: { children: ReactNode }) {
   const sessionRef = useRef<ExerciseSessionState | null>(null);
   const pendingWritesRef = useRef(new Set<Promise<void>>());
   const reportedResultsRef = useRef(new Set<string>());
+  const completedSessionRef = useRef<{ sessionId: string; summary: ExerciseSessionSummary } | null>(
+    null,
+  );
 
   useLayoutEffect(() => {
     sessionRef.current = session;
@@ -523,6 +526,7 @@ export function ExerciseSessionProvider({ children }: { children: ReactNode }) {
 
       pendingWritesRef.current.clear();
       reportedResultsRef.current.clear();
+      completedSessionRef.current = null;
       const now = Date.now();
       setSession({
         countSpeed: 'normal',
@@ -552,16 +556,22 @@ export function ExerciseSessionProvider({ children }: { children: ReactNode }) {
     setSession(null);
     pendingWritesRef.current.clear();
     reportedResultsRef.current.clear();
+    completedSessionRef.current = null;
   }, []);
 
   const completeSession = useCallback(async () => {
     const current = sessionRef.current;
     if (!current) throw new Error('진행 중인 운동 세션이 없어요.');
+    if (completedSessionRef.current?.sessionId === current.sessionId) {
+      return completedSessionRef.current.summary;
+    }
     for (const result of current.results) queueResult(result);
     const pendingWrites = [...pendingWritesRef.current];
     if (pendingWrites.length > 0) await Promise.all(pendingWrites);
     await completeExerciseSession(current.sessionId);
-    return summarizeSession(current);
+    const completedSummary = summarizeSession(current);
+    completedSessionRef.current = { sessionId: current.sessionId, summary: completedSummary };
+    return completedSummary;
   }, [queueResult]);
 
   const currentExercise = session

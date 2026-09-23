@@ -312,7 +312,9 @@ export default function ExerciseSummaryScreen() {
       </View>
       <View style={[styles.secondaryCta, { top: layout.secondaryCtaTop }]}>
         <ExerciseActionButton
-          onPress={() => router.replace('/exercise/condition')}
+          onPress={() =>
+            router.push({ pathname: '/exercise/condition', params: { source: 'summary' } })
+          }
           title="조건 다시 설정"
           variant="secondary"
         />

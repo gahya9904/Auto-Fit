@@ -73,7 +73,8 @@ export default function ExerciseScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const { homeMetrics, latestSession, refreshHome, status } = useExerciseRoutine();
+  const { homeMetrics, latestSession, refreshHome, resultRecordCompleted, status } =
+    useExerciseRoutine();
   const responsiveHeight = Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
   const heightProgress = Math.max(0, Math.min(1, (responsiveHeight - 740) / (917 - 740)));
   const verticalValue = (expanded: number, compact: number) =>
@@ -177,7 +178,14 @@ export default function ExerciseScreen() {
 
   const handleHeroAction = () => {
     if (heroStatus === 'loading') return;
-    if (heroStatus === 'not-created') router.push('/exercise/condition');
+    if (heroStatus === 'completed') {
+      router.push(
+        resultRecordCompleted
+          ? '/exercise/ai-report'
+          : { pathname: '/exercise/result', params: { source: 'home' } },
+      );
+    }
+    else if (heroStatus === 'not-created') router.push('/exercise/condition');
     else router.push('/exercise/summary');
   };
 

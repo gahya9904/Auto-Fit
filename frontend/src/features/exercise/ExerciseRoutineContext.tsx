@@ -67,8 +67,10 @@ interface ExerciseRoutineContextValue {
   homeLoadState: ExerciseLoadState;
   homeMetrics: ExerciseHomeMetrics;
   latestSession: ExerciseSessionSummary | null;
+  markResultRecordCompleted: () => void;
   markRoutineCompleted: (summary: Omit<ExerciseSessionSummary, 'completed' | 'date'>) => void;
   refreshHome: () => Promise<void>;
+  resultRecordCompleted: boolean;
   routine: ExerciseRoutine | null;
   setCondition: (condition: ExerciseCondition) => void;
   startRoutine: () => Promise<StartedExerciseSession>;
@@ -358,6 +360,7 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
     remainingGoalWorkoutCount: null,
   });
   const [latestSession, setLatestSession] = useState<ExerciseSessionSummary | null>(null);
+  const [resultRecordCompleted, setResultRecordCompleted] = useState(false);
   const [routine, setRoutine] = useState<ExerciseRoutine | null>(null);
   const [status, setStatus] = useState<ExerciseDayStatus | null>(null);
   const homeRequestInFlight = useRef(false);
@@ -392,6 +395,7 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
         remainingGoalWorkoutCount: null,
       });
       setLatestSession(null);
+      setResultRecordCompleted(false);
       setRoutine(null);
       setStatus(null);
     };
@@ -552,6 +556,7 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       setRoutine(generatedRoutine);
       setStatus('ready');
       setLatestSession(null);
+      setResultRecordCompleted(false);
       setActiveSession(null);
       setHomeError(null);
       setHomeLoadState('ready');
@@ -576,6 +581,7 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       if (!mountedRef.current) return startedSession;
       setActiveSession(startedSession);
       setLatestSession(nextSession);
+      setResultRecordCompleted(false);
       return startedSession;
     } finally {
       sessionRequestInFlight.current = false;
@@ -589,10 +595,15 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
         completed: true,
         date: new Date().toISOString(),
       });
+      setResultRecordCompleted(false);
       setStatus('completed');
     },
     [],
   );
+
+  const markResultRecordCompleted = useCallback(() => {
+    setResultRecordCompleted(true);
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -603,8 +614,10 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       homeLoadState,
       homeMetrics,
       latestSession,
+      markResultRecordCompleted,
       markRoutineCompleted,
       refreshHome,
+      resultRecordCompleted,
       routine,
       setCondition,
       startRoutine,
@@ -618,8 +631,10 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       homeLoadState,
       homeMetrics,
       latestSession,
+      markResultRecordCompleted,
       markRoutineCompleted,
       refreshHome,
+      resultRecordCompleted,
       routine,
       startRoutine,
       status,

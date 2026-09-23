@@ -7,9 +7,10 @@ import {
   type ComponentType,
   type ReactNode,
 } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Alert,
+  BackHandler,
   Dimensions,
   Keyboard,
   Platform,
@@ -48,6 +49,7 @@ import {
   exerciseEquipmentLabels,
   exerciseLocationLabels,
   initialExerciseCondition,
+  type ExerciseCondition,
   type ExerciseEquipment,
   type ExerciseLocation,
 } from '@/src/features/exercise/exerciseData';
@@ -76,20 +78,29 @@ const equipmentIcons: Record<ExerciseEquipment, ComponentType<any>> = {
 };
 type FocusedInput = 'condition' | 'discomfort' | null;
 
+function cloneExerciseCondition(condition: ExerciseCondition): ExerciseCondition {
+  return {
+    ...condition,
+    equipment: [...condition.equipment],
+  };
+}
+
 export default function ExerciseConditionScreen() {
   const router = useRouter();
+  const { source: sourceParam } = useLocalSearchParams<{ source?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const { generateRoutine } = useExerciseRoutine();
+  const { condition: savedCondition, generateRoutine } = useExerciseRoutine();
+  const source = Array.isArray(sourceParam) ? sourceParam[0] : sourceParam;
+  const isConditionReset = source === 'summary';
   const conditionInputRef = useRef<TextInput>(null);
   const discomfortInputRef = useRef<TextInput>(null);
   const focusedInputRef = useRef<FocusedInput>(null);
   const blurFrameRef = useRef<number | null>(null);
   const keyboardContentOffsetRef = useRef(0);
-  const [condition, setCondition] = useState(() => ({
-    ...initialExerciseCondition,
-    equipment: [...initialExerciseCondition.equipment],
-  }));
+  const [condition, setCondition] = useState(() =>
+    cloneExerciseCondition(isConditionReset ? savedCondition : initialExerciseCondition),
+  );
   const [focusedInput, setFocusedInput] = useState<FocusedInput>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
@@ -163,6 +174,22 @@ export default function ExerciseConditionScreen() {
     [],
   );
 
+  const handleBack = useCallback(() => {
+    if (isConditionReset) router.back();
+    else router.replace('/exercise');
+  }, [isConditionReset, router]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleBack();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [handleBack]);
+
   const toggleEquipment = (id: ExerciseEquipment) =>
     setCondition((current) => ({
       ...current,
@@ -211,7 +238,10 @@ export default function ExerciseConditionScreen() {
     setIsGenerating(true);
     try {
       await generateRoutine({ ...condition, condition: conditionLevel });
-      requestAnimationFrame(() => router.push('/exercise/summary'));
+      requestAnimationFrame(() => {
+        if (isConditionReset) router.dismissTo('/exercise/summary');
+        else router.push('/exercise/summary');
+      });
     } catch (error) {
       console.error('Exercise recommendation generation failed:', error);
       Alert.alert('맞춤 루틴 생성 실패', getExerciseApiErrorMessage(error));
@@ -224,7 +254,7 @@ export default function ExerciseConditionScreen() {
     <ExerciseScreenFrame contentHeight={contentHeight}>
       <View style={{ transform: [{ translateY: -keyboardContentOffset }] }}>
         <BackButton
-          onPress={() => router.replace('/exercise')}
+          onPress={handleBack}
           style={[styles.back, { top: titleTop - 15 }]}
         />
         <Text style={[styles.screenTitle, { top: titleTop }]}>컨디션 입력</Text>

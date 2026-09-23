@@ -147,7 +147,7 @@ function speedCopy(speed: ExerciseCountSpeed) {
 export default function ExerciseSessionScreen() {
   const router = useRouter();
   const { height: windowHeight } = useWindowDimensions();
-  const { markRoutineCompleted } = useExerciseRoutine();
+  const { markRoutineCompleted, resultRecordCompleted } = useExerciseRoutine();
   const {
     addRestSeconds,
     clearSession,
@@ -251,10 +251,10 @@ export default function ExerciseSessionScreen() {
   }, []);
 
   useEffect(() => {
-    if (session) return undefined;
+    if (session || resultRecordCompleted) return undefined;
     const frame = requestAnimationFrame(() => router.replace('/exercise/summary'));
     return () => cancelAnimationFrame(frame);
-  }, [router, session]);
+  }, [resultRecordCompleted, router, session]);
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !hasSession) return undefined;
@@ -308,6 +308,29 @@ export default function ExerciseSessionScreen() {
     }
   };
 
+  const finishAndOpenResultRecord = async () => {
+    if (isCompleting) return;
+    setIsCompleting(true);
+    try {
+      const completedSummary = await completeSession();
+      markRoutineCompleted({
+        calories: completedSummary.calories,
+        durationMinutes: completedSummary.durationMinutes,
+        itemCount: completedSummary.completedCount,
+      });
+      // Keep the completed session alive until the user explicitly submits their result record.
+      // This lets the result-record Back action return to this completion screen.
+      requestAnimationFrame(() =>
+        router.push({ pathname: '/exercise/result', params: { source: 'completion' } }),
+      );
+    } catch (error) {
+      console.error('Exercise session completion failed:', error);
+      Alert.alert('운동 결과 저장 실패', getExerciseApiErrorMessage(error));
+    } finally {
+      setIsCompleting(false);
+    }
+  };
+
   let content: ReactNode;
   if (session.phase === 'rest') {
     content = (
@@ -335,7 +358,11 @@ export default function ExerciseSessionScreen() {
         allSkipped={session.phase === 'all-skipped'}
         disabled={isCompleting}
         layout={layout}
-        onFinish={() => void finishAndReturnHome()}
+        onFinish={() =>
+          void (session.phase === 'all-skipped'
+            ? finishAndReturnHome()
+            : finishAndOpenResultRecord())
+        }
         session={session}
         summary={summary}
       />
