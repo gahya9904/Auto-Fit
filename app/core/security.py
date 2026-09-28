@@ -1,14 +1,19 @@
+import secrets
+
 from fastapi import (
     Depends,
     HTTPException,
     status,
 )
+
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
 )
 
-from app.core.config import get_settings
+from app.core.config import (
+    get_settings,
+)
 
 
 security = HTTPBearer(
@@ -22,7 +27,7 @@ def verify_api_key(
     ),
 ) -> None:
     """
-    Backend → AI Server 간 Bearer 인증 검증.
+    Backend -> AI Server 간 Bearer 인증을 검증한다.
 
     Authorization:
         Bearer <AI_SERVER_API_KEY>
@@ -30,32 +35,67 @@ def verify_api_key(
 
     settings = get_settings()
 
-    expected_key = settings.ai_server_api_key
+    expected_key = (
+        settings.ai_server_api_key
+    )
 
+    # 서버 자체 인증 설정이 없는 경우
     if not expected_key:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="AI server authentication is not configured.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "AI server authentication "
+                "is not configured."
+            ),
         )
 
+    # Authorization Header 없음
     if credentials is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization credentials.",
+            status_code=(
+                status.HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Missing authorization credentials."
+            ),
         )
 
-    if credentials.scheme.lower() != "bearer":
+    # Bearer Scheme 확인
+    if (
+        credentials.scheme.lower()
+        != "bearer"
+    ):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization scheme.",
+            status_code=(
+                status.HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Invalid authorization scheme."
+            ),
         )
 
-    if credentials.credentials != expected_key:
+    provided_key = (
+        credentials.credentials
+    )
+
+    # timing-safe 문자열 비교
+    if not secrets.compare_digest(
+        provided_key,
+        expected_key,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid AI server API key.",
+            status_code=(
+                status.HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Invalid AI server API key."
+            ),
         )
 
 
-# 새 코드에서도 의미가 명확한 이름을 사용할 수 있도록 alias 제공
-verify_ai_server_key = verify_api_key
+# 기존 코드에서 명확한 이름을 사용할 수 있도록 alias 유지
+verify_ai_server_key = (
+    verify_api_key
+)

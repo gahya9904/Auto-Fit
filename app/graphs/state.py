@@ -73,3 +73,5 @@ class AnalysisState(
     # =====================================================
 
     warnings: list[str]
+
+AnalysisGraphState = AnalysisState

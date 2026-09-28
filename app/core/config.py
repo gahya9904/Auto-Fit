@@ -1,21 +1,31 @@
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    SettingsConfigDict,
+)
 
 
 class Settings(BaseSettings):
+    # AI Server -> OpenAI 인증
     openai_api_key: str | None = None
+
     openai_model: str = "gpt-5"
 
+    # Backend -> AI Server 인증
     ai_server_api_key: str | None = None
 
-    app_name: str = "Healthcare AI Server"
+    app_name: str = (
+        "Healthcare AI Server"
+    )
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
+    model_config = (
+        SettingsConfigDict(
+            env_file=".env",
+            env_file_encoding="utf-8",
+            case_sensitive=False,
+            extra="ignore",
+        )
     )
 
 

@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -19,6 +19,11 @@ ChatRole = Literal[
     "user",
     "assistant",
 ]
+
+
+# =========================================================
+# Internal Chat Models
+# =========================================================
 
 
 class ChatHistoryItem(BaseModel):
@@ -54,7 +59,6 @@ class ChatRequest(BaseModel):
         max_length=500,
     )
 
-    # Backend에서 최근 대화만 전달
     history: list[ChatHistoryItem] = Field(
         default_factory=list,
         max_length=6,
@@ -88,3 +92,46 @@ class ChatResponse(BaseModel):
     target_meal: str | None = None
 
     data: dict | None = None
+
+
+# =========================================================
+# Backend Compatibility Models
+# =========================================================
+
+
+class BackendChatHistoryItem(BaseModel):
+    role: str
+    content: str
+
+
+class BackendChatRequest(BaseModel):
+    """
+    기존 Backend -> AI Server /chat 계약.
+
+    Backend 코드를 변경하지 않고
+    AI Server에서 호환한다.
+    """
+
+    question: str = Field(
+        min_length=1,
+        max_length=8000,
+    )
+
+    user_info: dict[str, Any] = Field(
+        default_factory=dict
+    )
+
+    chat_history: list[BackendChatHistoryItem] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+
+class BackendChatResponse(BaseModel):
+    """
+    기존 Backend가 기대하는 응답 계약.
+    """
+
+    answer: str
+
+    model: str

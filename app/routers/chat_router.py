@@ -10,12 +10,15 @@ from fastapi.security import (
     HTTPAuthorizationCredentials,
 )
 
+from app.core.config import get_settings
 from app.core.security import (
     security,
     verify_api_key,
 )
 
 from app.schemas.chat import (
+    BackendChatRequest,
+    BackendChatResponse,
     ChatIntentResult,
     ChatRequest,
     ChatResponse,
@@ -27,6 +30,10 @@ from app.services.chat_intent_service import (
 
 from app.services.chat_orchestrator_service import (
     process_chat,
+)
+
+from app.services.llm_service import (
+    generate_backend_chat_response,
 )
 
 
@@ -41,7 +48,64 @@ router = APIRouter(
 
 
 # =========================================================
-# Production Chat API
+# Backend Compatibility Chat API
+# =========================================================
+
+
+@router.post(
+    "/chat",
+    response_model=BackendChatResponse,
+)
+async def backend_compatible_chat(
+    request: BackendChatRequest,
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        security
+    ),
+) -> BackendChatResponse:
+    """
+    기존 Auto-Fit Backend와 호환되는 Chat API.
+
+    Backend 계약:
+    request:
+        question
+        user_info
+        chat_history
+
+    response:
+        answer
+        model
+    """
+
+    verify_api_key(
+        credentials
+    )
+
+    try:
+        answer = await generate_backend_chat_response(
+            request
+        )
+
+        settings = get_settings()
+
+        return BackendChatResponse(
+            answer=answer,
+            model=settings.openai_model,
+        )
+
+    except Exception:
+        # 사용자 질문 및 개인정보는 로그에 기록하지 않는다.
+        logger.exception(
+            "Backend-compatible chat failed."
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Chat processing failed.",
+        )
+
+
+# =========================================================
+# Internal / Future Chat Orchestration API
 # =========================================================
 
 
@@ -56,10 +120,9 @@ async def orchestrate_chat(
     ),
 ) -> ChatResponse:
     """
-    Backend -> AI Server 운영용 챗봇 API.
+    AI Server 내부 확장형 챗봇 API.
 
-    Backend가 DB에서 필요한 context를 구성하여 전달한다.
-    AI Server는 DB에 직접 접근하지 않는다.
+    context/history 기반 개인화 기능을 사용할 수 있다.
     """
 
     verify_api_key(
@@ -72,8 +135,6 @@ async def orchestrate_chat(
         )
 
     except Exception:
-        # 사용자 질문, 건강정보, 식단정보 등은
-        # 로그에 직접 출력하지 않는다.
         logger.exception(
             "Chat orchestration failed."
         )
@@ -100,7 +161,7 @@ async def test_chat_intent(
     ),
 ) -> ChatIntentResult:
     """
-    개발용 의도 분류 확인 API.
+    개발용 intent 분류 확인 API.
     """
 
     verify_api_key(
@@ -109,7 +170,8 @@ async def test_chat_intent(
 
     try:
         return await classify_chat_intent(
-            request.content
+            message=request.content,
+            history=request.history,
         )
 
     except Exception:
