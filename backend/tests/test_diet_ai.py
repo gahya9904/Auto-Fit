@@ -78,6 +78,56 @@ def test_generate_ai_meals_rejects_changed_slots() -> None:
         asyncio.run(generate_ai_meals(BASE_MEALS[:2], [], fake_model))
 
 
+def test_generate_ai_meals_selects_safe_candidate_per_slot() -> None:
+    slots = BASE_MEALS[:2]
+
+    async def fake_model(prompt: str) -> str:
+        candidates = []
+        for slot in slots:
+            candidates.extend(
+                [
+                    {
+                        "meal_type": slot["meal_type"],
+                        "meal_order": slot["meal_order"],
+                        "recommendation_note": "제외 후보",
+                        "foods": [
+                            {
+                                "food_name": "우유 오트밀",
+                                "quantity": 300,
+                                "unit": "g",
+                                "calories": 400,
+                                "carbohydrates": 60,
+                                "protein": 18,
+                                "fat": 10,
+                            }
+                        ],
+                    },
+                    {
+                        "meal_type": slot["meal_type"],
+                        "meal_order": slot["meal_order"],
+                        "recommendation_note": "안전 후보",
+                        "foods": [
+                            {
+                                "food_name": "채소 비빔밥",
+                                "quantity": 300,
+                                "unit": "g",
+                                "calories": 400,
+                                "carbohydrates": 60,
+                                "protein": 18,
+                                "fat": 10,
+                            }
+                        ],
+                    },
+                ]
+            )
+        return json.dumps({"meals": candidates}, ensure_ascii=False)
+
+    meals = asyncio.run(generate_ai_meals(slots, ["우유"], fake_model))
+
+    assert len(meals) == 2
+    assert all(meal["foods"][0]["food_name"] == "채소 비빔밥" for meal in meals)
+
+
 def test_mix_meals_keeps_db_catalog_remainder() -> None:
     ai_meals = [
         {
