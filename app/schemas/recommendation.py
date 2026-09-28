@@ -12,16 +12,15 @@ from pydantic import (
 # =========================================================
 
 
-class RecommendationSource(BaseModel):
-    source_org: str
-    title: str
+RecommendationSource = dict[str, str]
 
 
 # =========================================================
 # Exercise
 # =========================================================
 
-TrainingType = Literal[
+
+ExerciseTrainingType = Literal[
     "weight_training",
     "home_training",
     "bodyweight",
@@ -32,13 +31,6 @@ TrainingType = Literal[
 
 
 class ExerciseRecommendationRequest(BaseModel):
-    """
-    Backend -> AI Server 운동 추천 요청.
-
-    metric_statuses에는 Rule Engine 상태값만 전달한다.
-    원본 건강 수치와 개인정보는 전달하지 않는다.
-    """
-
     metric_statuses: dict[str, str] = Field(
         default_factory=dict
     )
@@ -55,7 +47,9 @@ class ExerciseRecommendationRequest(BaseModel):
 
     location: str | None = None
 
-    preferred_training_types: list[TrainingType] = Field(
+    preferred_training_types: list[
+        ExerciseTrainingType
+    ] = Field(
         default_factory=list
     )
 
@@ -63,42 +57,54 @@ class ExerciseRecommendationRequest(BaseModel):
 class ExerciseItem(BaseModel):
     name: str
 
-    duration_minutes: int = Field(
-        ge=1
+    duration_minutes: int | None = Field(
+        default=None,
+        ge=1,
+        le=300,
     )
 
-    intensity: str
+    intensity: str | None = None
 
     instructions: list[str] = Field(
-        default_factory=list
+        default_factory=list,
+        max_length=3,
     )
 
 
 class ExerciseSession(BaseModel):
-    session_name: str
+    name: str
+
+    focus: str | None = None
+
+    estimated_duration_minutes: int | None = Field(
+        default=None,
+        ge=1,
+        le=300,
+    )
 
     exercises: list[ExerciseItem] = Field(
-        default_factory=list
+        default_factory=list,
+        max_length=4,
     )
 
 
 class ExerciseRecommendationResponse(BaseModel):
-    summary: str = ""
+    summary: str
 
     weekly_frequency: int = Field(
-        default=0,
-        ge=0,
+        ge=1,
         le=7,
     )
 
-    intensity: str = ""
+    intensity: str
 
     sessions: list[ExerciseSession] = Field(
         default_factory=list
     )
 
     cautions: list[str] = Field(
-        default_factory=list
+        default_factory=list,
+        max_length=5,
     )
 
     sources: list[RecommendationSource] = Field(
@@ -107,10 +113,47 @@ class ExerciseRecommendationResponse(BaseModel):
 
 
 # =========================================================
-# Diet - Common Types
+# Diet Request
 # =========================================================
 
-DayType = Literal[
+
+class DietRecommendationRequest(BaseModel):
+    """
+    Backend -> AI 식단 추천 입력.
+
+    refrigerator_ingredients:
+    - 냉장고 정보가 있으면 재료명 배열
+    - 없으면 null 또는 []
+    """
+
+    metric_statuses: dict[str, str] = Field(
+        default_factory=dict
+    )
+
+    food_allergens: list[str] = Field(
+        default_factory=list
+    )
+
+    goal_type: str | None = None
+
+    additional_input: (
+        str
+        | list[str]
+        | None
+    ) = None
+
+    refrigerator_ingredients: (
+        list[str]
+        | None
+    ) = None
+
+
+# =========================================================
+# Diet Meal
+# =========================================================
+
+
+DietDay = Literal[
     "monday",
     "tuesday",
     "wednesday",
@@ -121,7 +164,7 @@ DayType = Literal[
 ]
 
 
-MealType = Literal[
+DietMealType = Literal[
     "breakfast",
     "lunch",
     "dinner",
@@ -129,125 +172,42 @@ MealType = Literal[
 ]
 
 
-# =========================================================
-# Diet - Weekly Request
-# =========================================================
-
-
-class DietRecommendationRequest(BaseModel):
+class MealNutrition(BaseModel):
     """
-    Backend -> AI Server 주간 식단 추천 요청.
+    메뉴 1인분 기준 예상 영양값.
 
-    최종 팀 API 기준:
-
-    metric_statuses
-        기존 건강 분석 상태값
-
-    food_allergens
-        기존 알레르기 데이터
-
-    goal_type
-        종합 분석의 goal.text 또는 Backend 변환값
-
-    additional_input
-        섭취 제한 / 선호 식단 / 싫어하는 음식 등을
-        하나의 기타 입력으로 통합
-
-    refrigerator_ingredients
-        기존 냉장고 재료
-
-    additional_input은 Backend 구조에 따라
-    문자열 또는 문자열 배열 모두 허용한다.
+    실제 임상 처방값이 아니라
+    추천 메뉴의 예상값으로 사용한다.
     """
 
-    # -----------------------------------------------------
-    # 건강 상태
-    # -----------------------------------------------------
-
-    metric_statuses: dict[str, str] = Field(
-        default_factory=dict
+    carbohydrate_g: float = Field(
+        ge=0,
+        le=1000,
     )
 
-    # -----------------------------------------------------
-    # 최우선 안전 조건
-    # -----------------------------------------------------
-
-    food_allergens: list[str] | None = Field(
-        default=None,
-        max_length=20,
+    protein_g: float = Field(
+        ge=0,
+        le=1000,
     )
 
-    # -----------------------------------------------------
-    # 사용자 목표
-    # -----------------------------------------------------
-
-    goal_type: str | None = Field(
-        default=None,
-        max_length=100,
-    )
-
-    # -----------------------------------------------------
-    # 통합 기타 입력
-    #
-    # dietary_restrictions
-    # preferred_diet_types
-    # disliked_foods
-    #
-    # 를 모두 하나로 받는다.
-    # -----------------------------------------------------
-
-    additional_input: str | list[str] | None = None
-
-    # -----------------------------------------------------
-    # 냉장고 재료
-    # -----------------------------------------------------
-
-    refrigerator_ingredients: list[str] | None = Field(
-        default=None,
-        max_length=50,
+    fat_g: float = Field(
+        ge=0,
+        le=1000,
     )
 
 
-# =========================================================
-# Diet - Nutrition Strategy
-# =========================================================
-
-
-class NutritionBalance(BaseModel):
+class DietMeal(BaseModel):
     """
-    정확한 의료 처방용 kcal/g 값이 아니라
-    영양 구성 방향을 제공한다.
-    """
+    추천 식사 한 끼.
 
-    energy_strategy: str = Field(
-        default="",
-        max_length=150,
-    )
+    ingredients 의미:
+    전체 조리 재료가 아니다.
 
-    carbohydrate_strategy: str = Field(
-        default="",
-        max_length=150,
-    )
+    냉장고 데이터가 있는 경우:
+    → 해당 메뉴에 실제 사용된 냉장고 재료만 반환
 
-    protein_strategy: str = Field(
-        default="",
-        max_length=150,
-    )
-
-    fat_strategy: str = Field(
-        default="",
-        max_length=150,
-    )
-
-
-# =========================================================
-# Diet - Meal
-# =========================================================
-
-
-class MealRecommendation(BaseModel):
-    """
-    단순 재료 목록이 아니라 실제 완성 음식 형태로 반환한다.
+    냉장고 데이터가 없는 경우:
+    → None
     """
 
     menu_name: str = Field(
@@ -257,63 +217,57 @@ class MealRecommendation(BaseModel):
 
     menu_description: str = Field(
         default="",
-        max_length=120,
+        max_length=150,
     )
 
-    ingredients: list[str] = Field(
-        default_factory=list,
-        min_length=1,
-        max_length=8,
+    estimated_calories_kcal: int = Field(
+        ge=0,
+        le=3000,
     )
+
+    nutrition: MealNutrition
+
+    ingredients: list[str] | None = None
 
     guidance: str = Field(
         default="",
-        max_length=80,
+        max_length=150,
     )
 
 
 class DailyMeals(BaseModel):
-    """
-    하루 구성은 반드시:
-
-    아침
-    점심
-    저녁
-    간식 1회
-    """
-
-    breakfast: MealRecommendation
-    lunch: MealRecommendation
-    dinner: MealRecommendation
-    snack: MealRecommendation
+    breakfast: DietMeal
+    lunch: DietMeal
+    dinner: DietMeal
+    snack: DietMeal
 
 
-class DailyDietPlan(BaseModel):
-    day: DayType
+class DietDayPlan(BaseModel):
+    day: DietDay
+
     meals: DailyMeals
 
 
 # =========================================================
-# Diet - Weekly Response
+# Diet Strategy
 # =========================================================
 
 
-class DietRecommendationResponse(BaseModel):
-    summary: str = Field(
-        default="",
-        max_length=500,
-    )
+class NutritionBalance(BaseModel):
+    energy_strategy: str = ""
+    carbohydrate_strategy: str = ""
+    protein_strategy: str = ""
+    fat_strategy: str = ""
 
-    # Auto-Fit 종합 식단 전략
-    strategy: str = Field(
-        default="",
-        max_length=500,
-    )
+
+class DietRecommendationResponse(BaseModel):
+    summary: str
+
+    strategy: str
 
     nutrition_balance: NutritionBalance
 
-    # 정확히 7일
-    weekly_plan: list[DailyDietPlan] = Field(
+    weekly_plan: list[DietDayPlan] = Field(
         min_length=7,
         max_length=7,
     )
@@ -342,9 +296,13 @@ class DietRecommendationResponse(BaseModel):
         default_factory=list
     )
 
-    @model_validator(mode="after")
-    def validate_week(self):
-        required_days = {
+    @model_validator(
+        mode="after"
+    )
+    def validate_week(
+        self,
+    ):
+        expected_days = {
             "monday",
             "tuesday",
             "wednesday",
@@ -354,80 +312,127 @@ class DietRecommendationResponse(BaseModel):
             "sunday",
         }
 
-        actual_days = {
-            item.day
-            for item in self.weekly_plan
-        }
+        actual_days = [
+            plan.day
+            for plan in self.weekly_plan
+        ]
 
-        if actual_days != required_days:
+        # 정확히 7개의 서로 다른 요일이어야 함
+        if (
+            len(actual_days) != 7
+            or set(actual_days) != expected_days
+        ):
             raise ValueError(
-                "weekly_plan must contain Monday through Sunday exactly once."
+                "weekly_plan must contain "
+                "monday through sunday exactly once."
             )
 
         return self
 
 
 # =========================================================
-# Diet - Replace Meal Request
+# Replace Meal
 # =========================================================
 
 
 class ReplaceMealRequest(BaseModel):
-    """
-    기존 식단의 특정 요일 / 특정 식사 하나만 재추천한다.
-
-    additional_input 역시 주간 식단과 동일하게
-    하나의 기타 입력 필드만 사용한다.
-    """
-
     metric_statuses: dict[str, str] = Field(
         default_factory=dict
     )
 
-    target_day: DayType
+    target_day: DietDay
 
-    target_meal: MealType
+    target_meal: DietMealType
 
-    current_menu_name: str | None = Field(
-        default=None,
-        max_length=100,
+    current_menu_name: str
+
+    current_ingredients: list[str] = Field(
+        default_factory=list
     )
 
-    current_ingredients: list[str] | None = Field(
-        default=None,
-        max_length=10,
+    food_allergens: list[str] = Field(
+        default_factory=list
     )
 
-    food_allergens: list[str] | None = Field(
-        default=None,
-        max_length=20,
-    )
+    goal_type: str | None = None
 
-    goal_type: str | None = Field(
-        default=None,
-        max_length=100,
-    )
+    additional_input: (
+        str
+        | list[str]
+        | None
+    ) = None
 
-    additional_input: str | list[str] | None = None
-
-    refrigerator_ingredients: list[str] | None = Field(
-        default=None,
-        max_length=50,
-    )
+    refrigerator_ingredients: (
+        list[str]
+        | None
+    ) = None
 
 
 class ReplaceMealResponse(BaseModel):
-    day: DayType
+    day: DietDay
 
-    meal_type: MealType
+    meal_type: DietMealType
 
-    meal: MealRecommendation
+    meal: DietMeal
 
     cautions: list[str] = Field(
         default_factory=list,
-        max_length=4,
+        max_length=5,
     )
 
     sources: list[RecommendationSource] = Field(
         default_factory=list
     )
+
+
+# =========================================================
+# Backend-compatible Wrapper
+# =========================================================
+
+
+class ExerciseGenerateResponse(BaseModel):
+    """
+    Backend 공개 API:
+
+    POST /api/exercise/recommendations/generate
+
+    {
+        "ok": true,
+        "generator": "...",
+        "result": {...}
+    }
+    """
+
+    ok: bool = True
+
+    generator: str
+
+    result: ExerciseRecommendationResponse
+
+
+class DietGenerateResponse(BaseModel):
+    """
+    Backend 공개 API:
+
+    POST /api/diet/recommendations/generate
+    """
+
+    ok: bool = True
+
+    generator: str
+
+    result: DietRecommendationResponse
+
+
+class DietMealRegenerateResponse(BaseModel):
+    """
+    Backend 공개 API:
+
+    POST /api/diet/meals/{diet_meal_id}/regenerate
+    """
+
+    ok: bool = True
+
+    generator: str
+
+    meal: ReplaceMealResponse

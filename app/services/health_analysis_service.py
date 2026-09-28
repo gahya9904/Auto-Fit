@@ -570,14 +570,13 @@ async def _generate_llm_draft(
 """
 
     response = await client.responses.parse(
-        model=(
-            settings.openai_model
-        ),
+        model=settings.openai_model,
         instructions=instructions,
         input=prompt,
-        text_format=(
-            LLMHealthAnalysisDraft
-        ),
+        reasoning={
+            "effort": "minimal"
+        },
+        text_format=LLMHealthAnalysisDraft,
         max_output_tokens=2200,
     )
 

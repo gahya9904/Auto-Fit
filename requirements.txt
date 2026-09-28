@@ -10,7 +10,6 @@ joblib>=1.4.0
 scikit-learn>=1.5.0
 numpy
 pandas
-tabpfn
 langgraph
 chromadb
 pypdf>=5.0.0

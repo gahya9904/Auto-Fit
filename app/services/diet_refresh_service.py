@@ -476,6 +476,9 @@ diet_suggestion만 새로 생성한다.
         ),
         instructions=instructions,
         input=prompt,
+        reasoning={
+            "effort": "minimal"
+        },
         text_format=(
             LLMDietRefreshDraft
         ),

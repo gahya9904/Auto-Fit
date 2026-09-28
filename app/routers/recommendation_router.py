@@ -6,17 +6,22 @@ from fastapi import (
     HTTPException,
 )
 
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+)
+
 from app.core.security import (
+    security,
     verify_api_key,
 )
 
 from app.schemas.recommendation import (
+    DietGenerateResponse,
+    DietMealRegenerateResponse,
     DietRecommendationRequest,
-    DietRecommendationResponse,
+    ExerciseGenerateResponse,
     ExerciseRecommendationRequest,
-    ExerciseRecommendationResponse,
     ReplaceMealRequest,
-    ReplaceMealResponse,
 )
 
 from app.services.diet_recommendation_service import (
@@ -36,113 +41,214 @@ logger = logging.getLogger(
 
 router = APIRouter(
     prefix="/recommend",
-    tags=["Recommendation"],
+    tags=[
+        "recommendation",
+    ],
+)
+
+
+GENERATOR_NAME = (
+    "auto-fit-ai"
 )
 
 
 # =========================================================
-# Exercise
+# Exercise Recommendation
 # =========================================================
 
 
 @router.post(
     "/exercise",
-    response_model=ExerciseRecommendationResponse,
-    dependencies=[
-        Depends(
-            verify_api_key
-        )
-    ],
+    response_model=ExerciseGenerateResponse,
 )
 async def recommend_exercise(
     request: ExerciseRecommendationRequest,
-) -> ExerciseRecommendationResponse:
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        security
+    ),
+) -> ExerciseGenerateResponse:
+    """
+    사용자 건강 상태 및 운동 선호 조건을 기반으로
+    상세 운동 추천을 생성한다.
+    """
+
+    verify_api_key(
+        credentials
+    )
 
     try:
-        return await generate_exercise_recommendation(
-            request
+        result = (
+            await generate_exercise_recommendation(
+                request
+            )
+        )
+
+        return ExerciseGenerateResponse(
+            ok=True,
+            generator=(
+                GENERATOR_NAME
+            ),
+            result=result,
+        )
+
+    except RuntimeError:
+        logger.exception(
+            "Exercise recommendation "
+            "service unavailable."
+        )
+
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Exercise recommendation "
+                "service is temporarily unavailable."
+            ),
         )
 
     except Exception:
         logger.exception(
-            "Exercise recommendation generation failed."
+            "Exercise recommendation failed."
         )
 
         raise HTTPException(
             status_code=500,
             detail=(
-                "운동 추천을 생성하지 못했습니다."
+                "Exercise recommendation failed."
             ),
         )
 
 
 # =========================================================
-# Weekly Diet
+# Diet Recommendation
 # =========================================================
 
 
 @router.post(
     "/diet",
-    response_model=DietRecommendationResponse,
-    dependencies=[
-        Depends(
-            verify_api_key
-        )
-    ],
+    response_model=DietGenerateResponse,
 )
 async def recommend_diet(
     request: DietRecommendationRequest,
-) -> DietRecommendationResponse:
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        security
+    ),
+) -> DietGenerateResponse:
+    """
+    건강 상태, 사용자 목표, 알레르기,
+    냉장고 재료를 기반으로 7일 식단을 생성한다.
+    """
+
+    verify_api_key(
+        credentials
+    )
 
     try:
-        return await generate_diet_recommendation(
-            request
+        result = (
+            await generate_diet_recommendation(
+                request
+            )
+        )
+
+        return DietGenerateResponse(
+            ok=True,
+            generator=(
+                GENERATOR_NAME
+            ),
+            result=result,
+        )
+
+    except RuntimeError:
+        logger.exception(
+            "Diet recommendation "
+            "service unavailable."
+        )
+
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Diet recommendation service "
+                "is temporarily unavailable."
+            ),
         )
 
     except Exception:
         logger.exception(
-            "Diet recommendation generation failed."
+            "Diet recommendation failed."
         )
 
         raise HTTPException(
             status_code=500,
             detail=(
-                "주간 식단 추천을 생성하지 못했습니다."
+                "Diet recommendation failed."
             ),
         )
 
 
 # =========================================================
-# Replace Single Meal
+# Replace Meal
 # =========================================================
 
 
 @router.post(
     "/diet/replace-meal",
-    response_model=ReplaceMealResponse,
-    dependencies=[
-        Depends(
-            verify_api_key
-        )
-    ],
+    response_model=(
+        DietMealRegenerateResponse
+    ),
 )
 async def replace_diet_meal(
     request: ReplaceMealRequest,
-) -> ReplaceMealResponse:
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        security
+    ),
+) -> DietMealRegenerateResponse:
+    """
+    특정 요일/식사 슬롯의 메뉴 하나만
+    새 메뉴로 교체한다.
+    """
+
+    verify_api_key(
+        credentials
+    )
 
     try:
-        return await generate_replacement_meal(
-            request
+        result = (
+            await generate_replacement_meal(
+                request
+            )
+        )
+
+        return (
+            DietMealRegenerateResponse(
+                ok=True,
+                generator=(
+                    GENERATOR_NAME
+                ),
+                meal=result,
+            )
+        )
+
+    except RuntimeError:
+        logger.exception(
+            "Diet meal replacement "
+            "service unavailable."
+        )
+
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Diet meal replacement service "
+                "is temporarily unavailable."
+            ),
         )
 
     except Exception:
         logger.exception(
-            "Diet meal replacement generation failed."
+            "Diet meal replacement failed."
         )
 
         raise HTTPException(
             status_code=500,
             detail=(
-                "대체 식단을 생성하지 못했습니다."
+                "Diet meal replacement failed."
             ),
         )

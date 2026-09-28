@@ -254,6 +254,9 @@ preferred_training_types는 사용자가 프론트엔드에서 직접 선택한
     ensure_ascii=False,
 )}
 """.strip(),
+        reasoning={
+            "effort": "minimal"
+        },
         text_format=(
             ExerciseRecommendationResponse
         ),

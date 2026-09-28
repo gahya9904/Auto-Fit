@@ -69,114 +69,33 @@ class RAGVectorStore:
         )
 
     def search(
-    self,
-    query: str,
-    n_results: int = 5,
-    topic: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """
-        query를 embedding하여 유사 문서를 검색한다.
+        self,
+        query_embedding,
+        n_results=5,
+        topic=None,
+    ):
+        where = None
 
-        topic이 전달되면
-        해당 health topic 문서만 검색한다.
-        """
+        if topic:
+            where = {
+                "topic": topic
+            }
 
-        if not query.strip():
-            return []
-
-        embedding_service = get_embedding_service()
-
-        query_embedding = embedding_service.embed_text(
-            query
-        )
-
-        query_kwargs: dict[str, Any] = {
+        query_kwargs = {
             "query_embeddings": [
                 query_embedding
             ],
             "n_results": n_results,
-            "include": [
-                "documents",
-                "metadatas",
-                "distances",
-            ],
         }
 
-        if topic:
-            query_kwargs["where"] = {
-                "topic": topic
-            }
+        if where is not None:
+            query_kwargs["where"] = where
 
-            result = self.collection.query(
-                **query_kwargs
-            )
+        result = self.collection.query(
+            **query_kwargs
+        )
 
-            documents = (
-                result.get("documents")
-                or [[]]
-            )[0]
-
-            metadatas = (
-                result.get("metadatas")
-                or [[]]
-            )[0]
-
-            distances = (
-                result.get("distances")
-                or [[]]
-            )[0]
-
-            results: list[
-                dict[str, Any]
-            ] = []
-
-            for (
-                document,
-                metadata,
-                distance,
-            ) in zip(
-                documents,
-                metadatas,
-                distances,
-            ):
-                metadata = metadata or {}
-
-                results.append(
-                    {
-                        "content": document,
-                        "source_org": metadata.get(
-                            "source_org"
-                        ),
-                        "title": metadata.get(
-                            "title"
-                        ),
-                        "document_type": metadata.get(
-                            "document_type"
-                        ),
-                        "published_year": metadata.get(
-                            "published_year"
-                        ),
-                        "url": metadata.get(
-                            "url"
-                        ),
-                        "verified": metadata.get(
-                            "verified",
-                            False,
-                        ),
-                        "language": metadata.get(
-                            "language"
-                        ),
-                        "topic": metadata.get(
-                            "topic"
-                        ),
-                        "chunk_index": metadata.get(
-                            "chunk_index"
-                        ),
-                        "distance": distance,
-                    }
-                )
-
-            return results
+        return result
 
 
     def add_chunks(
