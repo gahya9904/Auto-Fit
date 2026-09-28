@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import asyncio
 import hashlib
+import secrets
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -3057,6 +3058,38 @@ app.include_router(
 @app.get("/health", tags=["System"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/internal/diet-refresh", tags=["System"], include_in_schema=False)
+async def trigger_daily_diet_refresh(
+    x_cron_token: Annotated[str | None, Header()] = None,
+) -> dict[str, int | bool]:
+    expected_token = os.getenv("DIET_REFRESH_CRON_TOKEN", "")
+    if not expected_token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Diet refresh scheduler is not configured",
+        )
+    if not x_cron_token or not secrets.compare_digest(x_cron_token, expected_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid scheduler credentials",
+        )
+
+    # Import lazily because the CLI entry point reuses functions from this module.
+    from backend.app.diet_refresh import refresh_daily_diets
+
+    succeeded, failed = await refresh_daily_diets()
+    if failed:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "One or more diet refreshes failed",
+                "succeeded": succeeded,
+                "failed": failed,
+            },
+        )
+    return {"ok": True, "succeeded": succeeded, "failed": failed}
 
 
 @app.post("/api/test/roundtrip", tags=["System"])

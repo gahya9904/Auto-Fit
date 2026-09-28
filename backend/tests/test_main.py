@@ -21,6 +21,47 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_daily_diet_refresh_requires_configured_token(monkeypatch) -> None:
+    monkeypatch.delenv("DIET_REFRESH_CRON_TOKEN", raising=False)
+
+    client = TestClient(main.app)
+    response = client.post("/internal/diet-refresh")
+
+    assert response.status_code == 503
+
+
+def test_daily_diet_refresh_rejects_invalid_token(monkeypatch) -> None:
+    monkeypatch.setenv("DIET_REFRESH_CRON_TOKEN", "expected-token")
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/internal/diet-refresh",
+        headers={"X-Cron-Token": "wrong-token"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_daily_diet_refresh_runs_with_valid_token(monkeypatch) -> None:
+    from backend.app import diet_refresh
+
+    monkeypatch.setenv("DIET_REFRESH_CRON_TOKEN", "expected-token")
+
+    async def fake_refresh() -> tuple[int, int]:
+        return 12, 0
+
+    monkeypatch.setattr(diet_refresh, "refresh_daily_diets", fake_refresh)
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/internal/diet-refresh",
+        headers={"X-Cron-Token": "expected-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "succeeded": 12, "failed": 0}
+
+
 def test_roundtrip_returns_message_and_profile(monkeypatch) -> None:
     async def fake_user() -> main.AuthenticatedUser:
         return main.AuthenticatedUser(id="user-123", email="user@example.com")

@@ -4,12 +4,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_render_cron_runs_at_kst_midnight() -> None:
-    blueprint = (ROOT / "render.yaml").read_text()
+def test_github_action_runs_at_kst_midnight() -> None:
+    workflow = (ROOT / ".github/workflows/daily-diet-refresh.yml").read_text()
 
-    assert "name: auto-fit-diet-refresh-kst" in blueprint
-    assert 'schedule: "0 15 * * *"' in blueprint
-    assert "startCommand: python -m backend.app.diet_refresh" in blueprint
+    assert "- cron: \"0 15 * * *\"" in workflow
+    assert "secrets.DIET_REFRESH_CRON_TOKEN" in workflow
+    assert "/internal/diet-refresh" in workflow
 
 
 def test_diet_migration_enforces_ai_source_mix() -> None:
