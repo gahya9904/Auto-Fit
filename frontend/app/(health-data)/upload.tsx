@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Alert,
   Dimensions,
@@ -157,6 +157,7 @@ function SelectedFileContent({ onRemove, selectedFiles }: SelectedFileContentPro
 
 export default function HealthDataUploadScreen() {
   const router = useRouter();
+  const { source } = useLocalSearchParams<{ source?: string }>();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { isSelecting, pickDocument, removeFile, selectedFiles, takePhoto } = useHealthFilePicker();
@@ -240,14 +241,17 @@ export default function HealthDataUploadScreen() {
         uploadedFileId: response.uploaded_file_id,
       }));
 
-      router.push({ pathname: '/ocr-result', params: { uploads: JSON.stringify(uploads) } });
+      router.push({
+        pathname: '/ocr-result',
+        params: { source, uploads: JSON.stringify(uploads) },
+      });
     } catch (error) {
       console.error('Health document upload failed:', error);
       Alert.alert('건강 데이터 업로드에 실패했어요.', getHealthDocumentErrorMessage(error));
     } finally {
       setIsUploading(false);
     }
-  }, [router, selectedFiles]);
+  }, [router, selectedFiles, source]);
 
   return (
     <View style={styles.root}>

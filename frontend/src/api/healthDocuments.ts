@@ -153,6 +153,7 @@ export type HealthDocumentListItem = {
   document_type: HealthDocumentType;
   file_name: string;
   original_file_name: string;
+  status: HealthDocumentStatus;
   uploaded_at: string;
   uploaded_file_id: string;
 };
@@ -212,6 +213,21 @@ export function getHealthDocuments({
   return apiRequest<HealthDocumentListResponse>(
     `/api/health-documents${query ? `?${query}` : ''}`,
   );
+}
+
+/** Lists every health document so management totals never use a partial page count. */
+export async function getAllHealthDocuments() {
+  const limit = 100;
+  let offset = 0;
+  const items: HealthDocumentListItem[] = [];
+
+  do {
+    const page = await getHealthDocuments({ limit, offset });
+    items.push(...page.items);
+    if (!page.has_more) return items;
+    offset += page.items.length;
+    if (page.items.length === 0) return items;
+  } while (true);
 }
 
 export function updateHealthDocumentOcrResult(

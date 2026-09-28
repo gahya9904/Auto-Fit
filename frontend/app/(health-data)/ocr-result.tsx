@@ -32,7 +32,6 @@ import HeightIcon from '@/assets/icons/data/Height.svg';
 import HemoglobinIcon from '@/assets/icons/data/Hemoglobin.svg';
 import MuscleIcon from '@/assets/icons/data/Muscle.svg';
 import WeightIcon from '@/assets/icons/data/Weight.svg';
-import CameraIcon from '@/assets/icons/system/Camera.svg';
 import DocumentIcon from '@/assets/icons/system/Document.svg';
 import CheckIcon from '@/assets/icons/system/Check.svg';
 import ShieldCheckIcon from '@/assets/icons/system/ShieldCheck.svg';
@@ -46,13 +45,12 @@ import {
   uploadHealthDocument,
 } from '@/src/api/healthDocuments';
 import {
-  AppBottomSheet,
   AppCard,
   BackButton,
   CustomScrollIndicator,
   useCustomScrollIndicator,
 } from '@/src/components/common';
-import { HealthUploadOptionCard } from '@/src/features/health-data/HealthUploadOptionCard';
+import { HealthDataUploadBottomSheet } from '@/src/components/health-data/HealthDataUploadBottomSheet';
 import {
   type HealthCheckupOCRResult,
   type InbodyOCRResult,
@@ -62,7 +60,6 @@ import {
 } from '@/src/features/health-data/ocrResults';
 import {
   type SelectedHealthFile,
-  useHealthFilePicker,
 } from '@/src/features/health-data/useHealthFilePicker';
 import { colors, fontFamilies, radius } from '@/src/theme';
 
@@ -560,13 +557,14 @@ function MetricRow({
 
 export default function OCRResultScreen() {
   const router = useRouter();
-  const { uploads } = useLocalSearchParams<{
+  const { source, uploads } = useLocalSearchParams<{
+    source?: string;
     uploads?: string;
   }>();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const { isSelecting, pickDocument, takePhoto } = useHealthFilePicker();
   const uploadItems = useMemo(() => parseUploadRouteItems(uploads), [uploads]);
+  const isFromHealthDataManagement = source === 'healthDataManagement';
   const [results, setResults] = useState<OCRResultItem[]>([]);
   const [isLoadingResults, setIsLoadingResults] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -869,10 +867,8 @@ export default function OCRResultScreen() {
     setEditingMetricKey(key);
   };
 
-  const handleReuploadSelection = async (selectFile: () => Promise<SelectedHealthFile | null>) => {
+  const handleReuploadSelection = async (file: SelectedHealthFile) => {
     if (isReuploading || isSaving) return;
-    const file = await selectFile();
-    if (!file) return;
 
     setIsReuploading(true);
     try {
@@ -981,7 +977,11 @@ export default function OCRResultScreen() {
 
     if (isLastResult) {
       Keyboard.dismiss();
-      router.push('/total-analysis');
+      if (isFromHealthDataManagement) {
+        router.dismissTo('/health-data-management');
+      } else {
+        router.push('/total-analysis');
+      }
       return;
     }
 
@@ -1232,7 +1232,7 @@ export default function OCRResultScreen() {
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.nextButtonText}>다음</Text>
+              <Text style={styles.nextButtonText}>{isFromHealthDataManagement ? '완료' : '다음'}</Text>
             </Pressable>
           </View>
         </View>
@@ -1245,45 +1245,12 @@ export default function OCRResultScreen() {
           topInset={Math.max(8, insets.top + 4)}
         />
       ) : null}
-      <AppBottomSheet
-        contentStyle={styles.reuploadSheetContent}
-        handleStyle={styles.reuploadSheetHandle}
+      <HealthDataUploadBottomSheet
+        isBusy={isReuploading || isSaving}
         onClose={() => setIsReuploadSheetOpen(false)}
-        overlayStyle={styles.reuploadSheetOverlay}
-        separateAnimations
-        sheetStyle={styles.reuploadSheet}
+        onSelectFile={handleReuploadSelection}
         visible={isReuploadSheetOpen}
-      >
-        <View style={styles.reuploadOptions}>
-          <HealthUploadOptionCard
-            buttonLabel="카메라 열기"
-            description={[
-              '처방전, 검진 결과, 체성분',
-              '리포트 등을 촬영하여',
-              '업로드할 수 있어요.',
-            ]}
-            disabled={isSelecting || isReuploading || isSaving}
-            Icon={CameraIcon}
-            onPress={() => void handleReuploadSelection(takePhoto)}
-            style={styles.reuploadOptionCard}
-            title="카메라로 촬영하기"
-          />
-          <HealthUploadOptionCard
-            buttonLabel="파일 선택"
-            description={[
-              '이미지, PDF, CSV 파일을',
-              '선택하여 여러 개의 파일을',
-              '한 번에 업로드할 수 있어요.',
-            ]}
-            disabled={isSelecting || isReuploading || isSaving}
-            Icon={DocumentIcon}
-            onPress={() => void handleReuploadSelection(pickDocument)}
-            secondary
-            style={styles.reuploadOptionCard}
-            title="문서/파일 선택하기"
-          />
-        </View>
-      </AppBottomSheet>
+      />
     </View>
   );
 }

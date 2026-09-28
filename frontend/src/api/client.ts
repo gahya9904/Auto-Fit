@@ -15,6 +15,12 @@ type ApiErrorBody = {
   message?: unknown;
 };
 
+export type ApiResponseMeta = Pick<Response, 'ok' | 'status'>;
+
+type ApiRequestOptions = {
+  onResponse?: (response: ApiResponseMeta) => void;
+};
+
 export class ApiError extends Error {
   code?: string;
   detail?: unknown;
@@ -86,7 +92,11 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiRequest<T>(
+  path: string,
+  init: RequestInit = {},
+  options: ApiRequestOptions = {},
+): Promise<T> {
   let supabase;
   try {
     supabase = getSupabaseClient();
@@ -119,6 +129,8 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       error instanceof Error ? error.message : '네트워크 연결을 확인해 주세요.',
     );
   }
+
+  options.onResponse?.({ ok: response.ok, status: response.status });
 
   const payload = await readJson(response);
   if (!response.ok) {
