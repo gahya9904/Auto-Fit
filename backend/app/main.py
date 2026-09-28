@@ -2261,6 +2261,8 @@ async def fetch_diet_recommendation(
         {meal["menu_image_key"] for meal in meals if meal.get("menu_image_key")}
     )
     cached_images: dict[str, dict[str, Any]] = {}
+    feedback_by_meal: dict[str, dict[str, Any]] = {}
+
     async def load_images():
         if not menu_image_keys:
             return
@@ -2282,8 +2284,36 @@ async def fetch_diet_recommendation(
             image["image_key"]: image for image in image_response.json()
         })
 
-    # Wait for both probes even on failure so no child outlives the request/client.
-    results = await asyncio.gather(load_foods(), load_images(), return_exceptions=True)
+    async def load_feedback():
+        if not meal_ids:
+            return
+        async with timed_http_client("feedback", shared_client) as client:
+            feedback_response = await client.get(
+                f"{settings.supabase_url}/rest/v1/diet_feedback",
+                headers=service_headers(settings),
+                params={
+                    "select": (
+                        "diet_feedback_id,diet_meal_id,meal_log_id,feedback_type,"
+                        "actual_food_name,feedback_note,recorded_at"
+                    ),
+                    "user_id": f"eq.{user_id}",
+                    "diet_meal_id": f"in.({','.join(meal_ids)})",
+                },
+            )
+        if not feedback_response.is_success:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Supabase diet feedback query failed",
+            )
+        feedback_by_meal.update({
+            feedback["diet_meal_id"]: feedback
+            for feedback in feedback_response.json()
+        })
+
+    # Wait for all probes even on failure so no child outlives the request/client.
+    results = await asyncio.gather(
+        load_foods(), load_images(), load_feedback(), return_exceptions=True
+    )
     for result in results:
         if isinstance(result, BaseException):
             raise result
@@ -2320,7 +2350,11 @@ async def fetch_diet_recommendation(
     return {
         "recommendation": recommendation,
         "meals": [
-            {**meal, "foods": foods_by_meal[meal["diet_meal_id"]]}
+            {
+                **meal,
+                "foods": foods_by_meal[meal["diet_meal_id"]],
+                "feedback": feedback_by_meal.get(meal["diet_meal_id"]),
+            }
             for meal in meals
         ],
     }

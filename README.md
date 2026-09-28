@@ -120,6 +120,7 @@ backend/.venv/bin/python -m backend.tests.diet_live_integration \
 - `GET /api/diet/nutrition-summary?date=YYYY-MM-DD`: KST 날짜별 영양 목표와 실제 섭취량 조회
 - `POST /api/diet/meals/{diet_meal_id}/regenerate`: 추천 식단의 선택한 한 끼만 재추천
 - `POST /api/diet/meals/{diet_meal_id}/feedback`: 추천 식사를 먹음·변경·건너뜀으로 기록
+- `PATCH /api/diet/meals/{diet_meal_id}/feedback`: 기존 추천 식사 피드백 수정
 - `GET /api/diet/meal-logs?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`: 최대 367일 범위의 식사 기록 조회
 
 `PATCH /api/profile`은 클라이언트가 보낸 `user_id`를 허용하지 않습니다. 서버가 검증한 Supabase 사용자 ID만 쿼리 조건으로 사용합니다.

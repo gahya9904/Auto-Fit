@@ -223,6 +223,7 @@ summary는 완료 상태 세션을 기준으로 최근 7일(오늘 포함 7일)�
 | POST | `/api/diet/recommendations/generate` | `{}` | `ok, generator, result` | 200 |
 | POST | `/api/diet/meals/{diet_meal_id}/regenerate` | `{}` | `ok, generator, meal` | 200 |
 | POST | `/api/diet/meals/{diet_meal_id}/feedback` | DietMealFeedbackRequest | `ok, result.feedback, result.meal_log` | 200 |
+| PATCH | `/api/diet/meals/{diet_meal_id}/feedback` | DietMealFeedbackUpdateRequest | `ok, result.feedback, result.meal_log` | 200 |
 | GET | `/api/diet/meal-logs` | query: `from_date, to_date` 필수 | `period, count, logs[]` | 200 |
 
 재료 추가 예:
@@ -237,8 +238,11 @@ PATCH는 변경할 필드를 하나 이상 보내며, 생략한 필드는 유지
 result.recommendation: diet_recommendation_id, recommendation_date, target_calories,
 target_carbohydrates, target_protein, target_fat, recommendation_summary, ai_reason, status.
 result.meals[]: diet_meal_id, meal_type, meal_order, recommended_calories, recommendation_note,
-image_storage_path, image_url, status, foods[]. `image_url`은 공개 Supabase Storage URL이며
+image_storage_path, image_url, status, foods[], feedback. `image_url`은 공개 Supabase Storage URL이며
 추천 식단 카드의 이미지 소스로 바로 사용할 수 있다.
+`feedback`은 아직 피드백이 없으면 null이며, 있으면 diet_feedback_id, diet_meal_id,
+meal_log_id, feedback_type, actual_food_name, feedback_note, recorded_at을 포함한다. 카드 상태는
+`feedback.feedback_type`을 우선 사용하고 null이면 아직 선택하지 않은 상태로 복원한다.
 `menu_image_key`, `image_source`, `image_generation_status`, `image_generation_required`는
 이미지 캐시 상태를 나타낸다. `image_generation_required=true`이면 캐시에 완성된 이미지가
 없다는 뜻이며, 향후 이미지 모델 작업 큐를 시작하는 기준으로 사용한다.
