@@ -38,6 +38,7 @@ def test_generate_ai_meals_accepts_only_requested_slots() -> None:
         assert "user_id" not in prompt
         assert "두부" not in prompt
         assert "excluded_allergens" not in prompt
+        slot = json.loads(prompt.rsplit("\n", 1)[-1])["slot"]
         return json.dumps(
             {
                 "meals": [
@@ -57,7 +58,6 @@ def test_generate_ai_meals_accepts_only_requested_slots() -> None:
                             }
                         ],
                     }
-                    for slot in slots
                 ]
             },
             ensure_ascii=False,
@@ -80,19 +80,23 @@ def test_generate_ai_meals_rejects_changed_slots() -> None:
 
 def test_generate_ai_meals_selects_safe_candidate_per_slot() -> None:
     slots = BASE_MEALS[:2]
+    attempts: dict[int, int] = {}
 
     async def fake_model(prompt: str) -> str:
-        candidates = []
-        for slot in slots:
-            candidates.extend(
-                [
+        slot = json.loads(prompt.rsplit("\n", 1)[-1])["slot"]
+        order = slot["meal_order"]
+        attempts[order] = attempts.get(order, 0) + 1
+        food_name = "우유 오트밀" if attempts[order] == 1 else "채소 비빔밥"
+        return json.dumps(
+            {
+                "meals": [
                     {
                         "meal_type": slot["meal_type"],
-                        "meal_order": slot["meal_order"],
-                        "recommendation_note": "제외 후보",
+                        "meal_order": order,
+                        "recommendation_note": "AI 추천",
                         "foods": [
                             {
-                                "food_name": "우유 오트밀",
+                                "food_name": food_name,
                                 "quantity": 300,
                                 "unit": "g",
                                 "calories": 400,
@@ -101,31 +105,17 @@ def test_generate_ai_meals_selects_safe_candidate_per_slot() -> None:
                                 "fat": 10,
                             }
                         ],
-                    },
-                    {
-                        "meal_type": slot["meal_type"],
-                        "meal_order": slot["meal_order"],
-                        "recommendation_note": "안전 후보",
-                        "foods": [
-                            {
-                                "food_name": "채소 비빔밥",
-                                "quantity": 300,
-                                "unit": "g",
-                                "calories": 400,
-                                "carbohydrates": 60,
-                                "protein": 18,
-                                "fat": 10,
-                            }
-                        ],
-                    },
+                    }
                 ]
-            )
-        return json.dumps({"meals": candidates}, ensure_ascii=False)
+            },
+            ensure_ascii=False,
+        )
 
     meals = asyncio.run(generate_ai_meals(slots, ["우유"], fake_model))
 
     assert len(meals) == 2
     assert all(meal["foods"][0]["food_name"] == "채소 비빔밥" for meal in meals)
+    assert attempts == {1: 2, 2: 2}
 
 
 def test_mix_meals_keeps_db_catalog_remainder() -> None:
