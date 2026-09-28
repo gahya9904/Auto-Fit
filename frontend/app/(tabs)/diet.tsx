@@ -629,6 +629,8 @@ function recommendationStatusToMealStatus(value: unknown): MealStatus {
       return 'eaten';
     case 'changed':
       return 'modified';
+    case 'skipped':
+      return 'skipped';
     case 'recommended':
     default:
       return 'recommended';
