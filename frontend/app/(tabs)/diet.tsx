@@ -986,8 +986,8 @@ const MealCard = memo(function MealCard({
         </View>
 
         <View style={styles.intakeItems}>
-          {displayedIntake.map(([name, amount]) => (
-            <View key={name} style={styles.intakeItem}>
+          {displayedIntake.map(([name, amount], index) => (
+            <View key={`${name}-${index}`} style={styles.intakeItem}>
               <Text style={styles.intakeName}>{name}</Text>
               <Text numberOfLines={1} style={styles.intakeAmount}>
                 {amount}
