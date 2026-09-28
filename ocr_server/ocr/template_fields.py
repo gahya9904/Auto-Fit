@@ -82,6 +82,19 @@ def template_items(result: Optional[TemplateResult], schema: dict) -> Dict[str, 
     return items
 
 
+def template_is_reliable(result: TemplateResult, items: Dict[str, dict]) -> bool:
+    """양식이 맞았다고 해도 칸 위치가 실제로 들어맞았는지 본다.
+
+    InBody 는 값이 비어 있는 결과지가 없으므로, 칸의 절반도 못 읽었으면 '모양만 비슷한 다른 양식'으로 본다
+    (실측: 팀이 770 모양으로 만든 이미지 → 770 양식으로 맞았지만 칸이 한 줄씩 밀려 24칸 중 1칸만 정답,
+     같은 이미지를 General 로 읽으면 15칸 정답). 이때는 양식 결과를 버리고 General 결과를 쓴다.
+    공단 양식은 빈 양식(값 없는 서식)이 실제로 올라오므로 이 검사를 하지 않는다 — General 이 기준표 숫자를 집기 때문.
+    """
+    if doc_of(result) != "inbody":
+        return True
+    return len(items) >= 0.5 * len(result.fields)
+
+
 def template_page(general: dict, items: Dict[str, dict]) -> dict:
     """양식이 맞은 쪽의 결과: General 파서 값은 모두 비우고 Template 칸 값만 남긴 뒤 교차검증을 돌린다.
 

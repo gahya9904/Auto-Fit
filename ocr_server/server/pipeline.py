@@ -23,7 +23,7 @@ from typing import List, Optional
 from ocr.engines.clova_engine import ClovaOCREngine
 from ocr.engines.clova_template import ClovaTemplateEngine
 from ocr.parser import load_schema, parse_boxes
-from ocr.template_fields import doc_of, fill_bmi, template_items, template_page
+from ocr.template_fields import doc_of, fill_bmi, template_is_reliable, template_items, template_page
 from ocr.validate import apply_cross_checks
 from server.documents import BODY, CHECKUP, classify
 from server.field_map import FIELDS, INTERNAL_DOC
@@ -146,11 +146,16 @@ def run(data: bytes, requested_type: Optional[str]) -> dict:
     # (자동 판별이 전부 실패하고 요청 종류로 읽는 경우에만 모든 페이지를 쓴다)
     used = [i for i, t in enumerate(page_types) if t == doc_type] or list(range(len(pages)))
     results = []
+    templates_rejected: List[str] = []
     for i in used:
         general = parse_boxes(page_boxes[i], internal_doc, _SCHEMA)
-        if doc_of(templates[i]) == internal_doc:
-            results.append(template_page(general, template_items(templates[i], _SCHEMA)))
+        matched = doc_of(templates[i]) == internal_doc
+        items = template_items(templates[i], _SCHEMA) if matched else {}
+        if matched and template_is_reliable(templates[i], items):
+            results.append(template_page(general, items))
         else:
+            if matched:
+                templates_rejected.append(templates[i].template)  # 모양은 맞았지만 칸이 안 맞음 → General 사용
             results.append(general)
     merged = _merge(results)
     apply_cross_checks(merged)  # 여러 쪽에서 모은 값끼리 한 번 더 대조
@@ -185,6 +190,8 @@ def run(data: bytes, requested_type: Optional[str]) -> dict:
     }
     if template_errors:
         meta["template_errors"] = template_errors
+    if templates_rejected:
+        meta["templates_rejected"] = templates_rejected  # 양식 모양은 맞았지만 칸 위치가 안 맞아 General 로 읽음
     if found == 0:
         raise OcrProblem("NO_FIELDS_FOUND", 422, "문서는 확인했지만 읽을 수 있는 값이 없습니다. 더 밝고 선명하게 다시 찍어 주세요.")
 
