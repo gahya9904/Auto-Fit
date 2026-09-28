@@ -1,10 +1,12 @@
 from langgraph.graph import (
-    StateGraph,
-    START,
     END,
+    START,
+    StateGraph,
 )
 
-from app.graphs.state import AnalysisGraphState
+from app.graphs.state import (
+    AnalysisState,
+)
 
 from app.graphs.nodes.rule_engine_node import (
     rule_engine_node,
@@ -23,14 +25,37 @@ from app.graphs.nodes.llm_node import (
 )
 
 
+# =========================================================
+# Graph Builder
+# =========================================================
+
+
 def build_analysis_graph():
+    """
+    Auto-Fit 건강 분석 LangGraph.
+
+    실행 순서:
+
+    START
+      ↓
+    Rule Engine
+      ↓
+    Merge
+      ↓
+    RAG
+      ↓
+    LLM
+      ↓
+    END
+    """
+
     graph = StateGraph(
-        AnalysisGraphState
+        AnalysisState
     )
 
-    # --------------------------------------------------
-    # Node 등록
-    # --------------------------------------------------
+    # =====================================================
+    # Nodes
+    # =====================================================
 
     graph.add_node(
         "rule_engine",
@@ -52,9 +77,9 @@ def build_analysis_graph():
         llm_node,
     )
 
-    # --------------------------------------------------
-    # Edge 연결
-    # --------------------------------------------------
+    # =====================================================
+    # Edges
+    # =====================================================
 
     graph.add_edge(
         START,
@@ -81,7 +106,17 @@ def build_analysis_graph():
         END,
     )
 
+    # =====================================================
+    # Compile
+    # =====================================================
+
     return graph.compile()
 
 
-analysis_graph = build_analysis_graph()
+# =========================================================
+# Application Graph
+# =========================================================
+
+analysis_graph = (
+    build_analysis_graph()
+)

@@ -18,10 +18,6 @@ from app.schemas.analysis import (
     AnalysisResponse,
 )
 
-from app.services.feature_selector_service import (
-    feature_selector_service,
-)
-
 from app.graphs.analysis_graph import (
     analysis_graph,
 )
@@ -37,6 +33,10 @@ router = APIRouter(
 )
 
 
+# =========================================================
+# Health Analysis
+# =========================================================
+
 @router.post(
     "",
     response_model=AnalysisResponse,
@@ -46,8 +46,16 @@ async def analyze_health(
     credentials: HTTPAuthorizationCredentials | None = Depends(
         security
     ),
-):
-    verify_api_key(credentials)
+) -> AnalysisResponse:
+    """
+    Backend에서 전달받은 건강 데이터를
+    Privacy / Feature Selector를 거쳐
+    LangGraph 분석 파이프라인으로 전달한다.
+    """
+
+    verify_api_key(
+        credentials
+    )
 
     try:
         # --------------------------------------------------
@@ -57,85 +65,52 @@ async def analyze_health(
         raw_payload = request.model_dump()
 
         # --------------------------------------------------
-        # 2. Privacy + Feature Selector
+        # 2. 안전한 분석 입력 생성
+        #
+        # 내부적으로:
+        # Privacy Filtering
+        # -> FeatureSelectorService
+        # -> rule_engine_input
+        # -> rag_input
+        #
+        # 순서로 처리된다.
         # --------------------------------------------------
 
         safe_inputs = (
-            feature_selector_service
-            .build_safe_analysis_inputs(
+            analysis_input_service
+            .build_inputs(
                 raw_payload
             )
         )
 
-        safe_health_data = safe_inputs[
-            "safe_health_data"
-        ]
-
         # --------------------------------------------------
-        # 3. body / health 데이터 분리
-        # --------------------------------------------------
-
-        body_fields = {
-            "age",
-            "age_group",
-            "gender",
-            "height_cm",
-            "weight_kg",
-            "bmi",
-            "body_fat_percentage",
-            "skeletal_muscle_mass_kg",
-            "visceral_fat_level",
-            "waist_hip_ratio",
-            "basal_metabolic_rate",
-        }
-
-        health_fields = {
-            "systolic_bp",
-            "diastolic_bp",
-            "fasting_glucose",
-            "hba1c",
-            "total_cholesterol",
-            "ldl",
-            "hdl",
-            "triglyceride",
-            "ast",
-            "alt",
-            "gamma_gtp",
-            "creatinine",
-        }
-
-        safe_body_data = {
-            key: value
-            for key, value in safe_health_data.items()
-            if key in body_fields
-        }
-
-        safe_health_check_data = {
-            key: value
-            for key, value in safe_health_data.items()
-            if key in health_fields
-        }
-
-        # --------------------------------------------------
-        # 4. LangGraph 실행
+        # 3. LangGraph 실행
+        #
+        # Graph Node에서는 더 이상 원본
+        # body_data / health_data를 직접 사용하지 않고
+        # 안전하게 만들어진 입력만 사용한다.
         # --------------------------------------------------
 
         graph_result = await analysis_graph.ainvoke(
             {
-                "body_data": safe_body_data,
-                "health_data": safe_health_check_data,
                 "rule_engine_input": safe_inputs[
                     "rule_engine_input"
                 ],
+
                 "rag_input": safe_inputs[
                     "rag_input"
                 ],
+
+                "unsupported_fields": safe_inputs[
+                    "unsupported_fields"
+                ],
+
                 "warnings": [],
             }
         )
 
         # --------------------------------------------------
-        # 5. Rule Engine 결과
+        # 4. Rule Engine 결과
         # --------------------------------------------------
 
         rule_result = graph_result.get(
@@ -154,7 +129,7 @@ async def analyze_health(
         )
 
         # --------------------------------------------------
-        # 6. RAG + LLM 최종 결과
+        # 5. RAG + LLM 최종 결과
         # --------------------------------------------------
 
         final_answer = graph_result.get(
@@ -163,17 +138,20 @@ async def analyze_health(
         )
 
         # --------------------------------------------------
-        # 7. 경고 메시지
+        # 6. Warning
         # --------------------------------------------------
 
-        warnings = graph_result.get(
-            "warnings",
-            [],
+        warnings = list(
+            graph_result.get(
+                "warnings",
+                [],
+            )
         )
 
-        unsupported_fields = safe_inputs[
-            "unsupported_fields"
-        ]
+        unsupported_fields = safe_inputs.get(
+            "unsupported_fields",
+            [],
+        )
 
         if unsupported_fields:
             warnings.append(
@@ -181,16 +159,29 @@ async def analyze_health(
             )
 
         # --------------------------------------------------
-        # 8. 최종 응답
+        # 7. 최종 응답
         # --------------------------------------------------
 
         return AnalysisResponse(
             user_id=None,
-            body_analysis=body_analysis,
-            health_analysis=health_analysis,
-            final_answer=final_answer or None,
+
+            body_analysis=(
+                body_analysis
+            ),
+
+            health_analysis=(
+                health_analysis
+            ),
+
+            final_answer=(
+                final_answer
+            ),
+
             warnings=warnings,
-            analysis_version="langgraph-v1",
+
+            analysis_version=(
+                "langgraph-v1"
+            ),
         )
 
     except Exception:
@@ -200,40 +191,66 @@ async def analyze_health(
         )
 
 
-# --------------------------------------------------
-# 개발용 안전 입력 확인 API
-# --------------------------------------------------
+# =========================================================
+# Development Debug API
+# =========================================================
 
-@router.post("/debug-inputs")
+@router.post(
+    "/debug-inputs"
+)
 async def debug_analysis_inputs(
     request: AnalysisRequest,
     credentials: HTTPAuthorizationCredentials | None = Depends(
         security
     ),
 ):
-    verify_api_key(credentials)
+    """
+    개발 환경에서 Feature Selector 이후
+    안전 입력을 확인하기 위한 API.
+
+    raw 사용자 데이터 전체를 반환하지 않는다.
+    """
+
+    verify_api_key(
+        credentials
+    )
 
     try:
-        raw_payload = request.model_dump()
+        raw_payload = (
+            request.model_dump()
+        )
 
-        safe_inputs = analysis_input_service.build_inputs(
-            raw_payload
+        safe_inputs = (
+            analysis_input_service
+            .build_inputs(
+                raw_payload
+            )
         )
 
         return {
-            "rule_engine_input": safe_inputs[
-                "rule_engine_input"
-            ],
-            "rag_input": safe_inputs[
-                "rag_input"
-            ],
-            "unsupported_fields": safe_inputs[
-                "unsupported_fields"
-            ],
+            "rule_engine_input": (
+                safe_inputs[
+                    "rule_engine_input"
+                ]
+            ),
+
+            "rag_input": (
+                safe_inputs[
+                    "rag_input"
+                ]
+            ),
+
+            "unsupported_fields": (
+                safe_inputs[
+                    "unsupported_fields"
+                ]
+            ),
         }
 
     except Exception:
         raise HTTPException(
             status_code=500,
-            detail="Failed to prepare safe analysis inputs",
+            detail=(
+                "Failed to prepare safe analysis inputs"
+            ),
         )
