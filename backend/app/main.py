@@ -30,12 +30,18 @@ from backend.app.chat_health_scores import (
 from backend.app.chat_answers import answer_question
 from backend.app.chat_exercise_info import load_exercise_types
 from backend.app.chat_intents import is_off_topic_question
-from backend.app.chat_model import get_model_config
+from backend.app.chat_model import get_model_config, request_model
 from backend.app.chat_records import answer_records
 from backend.app.chat_storage import ChatStore, fail as chat_fail
 from backend.app.chat_rate_limit import ChatRateLimiter
 from backend.app.http_client import client_scope
 from backend.app.diet_timing import DietTimingMiddleware, timed_http_client
+from backend.app.diet_ai import (
+    DietAIUnavailable,
+    generate_ai_meals,
+    mix_meals,
+    select_ai_slots,
+)
 from backend.app.home import HomeResponse, build_home_response
 from backend.app.health_documents import create_health_documents_router
 from backend.app.account_deletion import create_account_deletion_router
@@ -2208,6 +2214,75 @@ async def create_diet_recommendation(
     return response.json()
 
 
+async def fetch_food_catalog(settings: Settings) -> list[dict[str, Any]]:
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+        response = await client.get(
+            f"{settings.supabase_url}/rest/v1/food_items",
+            headers=service_headers(settings),
+            params={
+                "select": (
+                    "food_item_id,name,serving_size,serving_unit,calories,"
+                    "carbohydrates,protein,fat,source_type"
+                ),
+                "order": "name.asc",
+                "limit": "500",
+            },
+        )
+    if not response.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Supabase food catalog query failed",
+        )
+    return response.json()
+
+
+async def build_daily_diet_recommendation_plan(
+    user_id: str,
+    inventory: list[dict[str, Any]],
+    allergy_names: list[str],
+    food_catalog: list[dict[str, Any]],
+    target_date: date | None = None,
+) -> dict[str, Any]:
+    recommendation_date = target_date or datetime.now(KST).date()
+    plan = build_diet_recommendation_plan(inventory, allergy_names)
+    plan["recommendation"]["recommendation_date"] = recommendation_date.isoformat()
+    ai_slots = select_ai_slots(plan["meals"], user_id, recommendation_date)
+    ai_meals = await generate_ai_meals(
+        ai_slots,
+        allergy_names,
+        request_model,
+    )
+    plan["meals"] = mix_meals(
+        plan["meals"], ai_meals, food_catalog, allergy_names
+    )
+    ai_count = sum(
+        meal.get("source_type") == "ai_generated" for meal in plan["meals"]
+    )
+    plan["recommendation"]["ai_reason"] = (
+        f"DB 음식 영양정보와 AI 생성 식단 {ai_count}개를 혼합했습니다. "
+        "사용 가능한 냉장고 재료와 알레르기 제외 조건을 반영했습니다."
+    )
+    plan["recommendation"]["target_calories"] = sum(
+        int(meal["recommended_calories"]) for meal in plan["meals"]
+    )
+    plan["recommendation"]["target_carbohydrates"] = sum(
+        int(food.get("carbohydrates") or 0)
+        for meal in plan["meals"]
+        for food in meal["foods"]
+    )
+    plan["recommendation"]["target_protein"] = sum(
+        int(food.get("protein") or 0)
+        for meal in plan["meals"]
+        for food in meal["foods"]
+    )
+    plan["recommendation"]["target_fat"] = sum(
+        int(food.get("fat") or 0)
+        for meal in plan["meals"]
+        for food in meal["foods"]
+    )
+    return plan
+
+
 async def fetch_diet_recommendation(
     user_id: str,
     settings: Settings,
@@ -2260,7 +2335,7 @@ async def fetch_diet_recommendation(
         "select": (
             "diet_meal_id,diet_recommendation_id,meal_type,meal_order,"
             "recommended_calories,recommendation_note,image_storage_path,"
-            "menu_image_key,status,created_at"
+            "menu_image_key,source_type,status,created_at"
         ),
         "diet_recommendation_id": f"eq.{recommendation['diet_recommendation_id']}",
         "order": "meal_order.asc",
@@ -2462,7 +2537,7 @@ async def fetch_diet_meal_context(
                 "select": (
                     "diet_meal_id,diet_recommendation_id,meal_type,meal_order,"
                     "recommended_calories,recommendation_note,image_storage_path,"
-                    "menu_image_key,status"
+                    "menu_image_key,source_type,status"
                 ),
                 "diet_meal_id": f"eq.{diet_meal_id}",
                 "limit": "1",
@@ -3512,9 +3587,12 @@ async def generate_diet_recommendation(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    inventory = await fetch_food_inventory(user.id, settings)
-    catalog = await fetch_allergy_catalog(settings)
-    selected = await fetch_user_allergies(user.id, settings)
+    inventory, catalog, selected, food_catalog = await asyncio.gather(
+        fetch_food_inventory(user.id, settings),
+        fetch_allergy_catalog(settings),
+        fetch_user_allergies(user.id, settings),
+        fetch_food_catalog(settings),
+    )
     catalog_names = {
         row["allergy_type_id"]: row["name"] for row in catalog
     }
@@ -3522,14 +3600,27 @@ async def generate_diet_recommendation(
         row.get("custom_name") or catalog_names.get(row.get("allergy_type_id"))
         for row in selected
     ]
-    plan = build_diet_recommendation_plan(
-        inventory,
-        [name for name in allergy_names if name],
-    )
+    try:
+        plan = await build_daily_diet_recommendation_plan(
+            user.id,
+            inventory,
+            [name for name in allergy_names if name],
+            food_catalog,
+        )
+    except DietAIUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI diet generator is temporarily unavailable",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Food catalog cannot build a mixed diet recommendation",
+        ) from exc
     await assign_menu_images(plan["meals"], settings)
     await create_diet_recommendation(user.id, plan, settings)
     result = await fetch_latest_diet_recommendation(user.id, settings)
-    return {"ok": True, "generator": "rules_v1", "result": result}
+    return {"ok": True, "generator": "mixed_ai_v1", "result": result}
 
 
 @app.post("/api/diet/meals/{diet_meal_id}/regenerate", tags=["Diet"])

@@ -1759,6 +1759,19 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
     async def fake_allergies(user_id, settings):
         return [{"allergy_type_id": "allergy-1", "custom_name": None}]
 
+    async def fake_food_catalog(settings):
+        return [{"food_item_id": "food-1", "name": "현미밥", "calories": 200}]
+
+    async def fake_daily_plan(user_id, inventory, allergy_names, food_catalog, target_date=None):
+        assert user_id == "authenticated-user"
+        assert inventory == [{"custom_name": "브로콜리"}]
+        assert allergy_names == ["우유"]
+        assert food_catalog[0]["name"] == "현미밥"
+        plan = main.build_diet_recommendation_plan(inventory, allergy_names)
+        for index, meal in enumerate(plan["meals"]):
+            meal["source_type"] = "ai_generated" if index < 2 else "db_catalog"
+        return plan
+
     async def fake_create(user_id, plan, settings):
         assert user_id == "authenticated-user"
         assert "그릭요거트" not in {
@@ -1780,6 +1793,8 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
     monkeypatch.setattr(main, "fetch_food_inventory", fake_inventory)
     monkeypatch.setattr(main, "fetch_allergy_catalog", fake_catalog)
     monkeypatch.setattr(main, "fetch_user_allergies", fake_allergies)
+    monkeypatch.setattr(main, "fetch_food_catalog", fake_food_catalog)
+    monkeypatch.setattr(main, "build_daily_diet_recommendation_plan", fake_daily_plan)
     monkeypatch.setattr(main, "assign_menu_images", fake_assign)
     monkeypatch.setattr(main, "create_diet_recommendation", fake_create)
     monkeypatch.setattr(main, "fetch_latest_diet_recommendation", fake_latest)
@@ -1788,7 +1803,7 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
             "/api/diet/recommendations/generate", json={}
         )
         assert response.status_code == 200
-        assert response.json()["generator"] == "rules_v1"
+        assert response.json()["generator"] == "mixed_ai_v1"
     finally:
         main.app.dependency_overrides.clear()
 
