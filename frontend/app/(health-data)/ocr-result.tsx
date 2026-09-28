@@ -943,10 +943,12 @@ export default function OCRResultScreen() {
       return;
     }
 
+    const isLastResult = currentIndex >= results.length - 1;
     let savedResult = updateResultData(currentResult, committedValues);
-    if (currentResult.status !== 'confirmed') {
-      setIsSaving(true);
-      try {
+
+    setIsSaving(true);
+    try {
+      if (currentResult.status !== 'confirmed') {
         const updatedResponse = await updateHealthDocumentOcrResult(currentResult.uploadedFileId, {
           extracted_data: buildExtractedDataUpdate(currentResult, committedValues),
         });
@@ -954,22 +956,30 @@ export default function OCRResultScreen() {
           updatedResponse,
           selectedFileFromResult(currentResult),
         );
-        await confirmHealthDocument(updatedResult.uploadedFileId);
-        savedResult = { ...updatedResult, status: 'confirmed' };
+        savedResult = updatedResult;
         setResults((current) =>
           current.map((result, index) => (index === currentIndex ? savedResult : result)),
         );
         setMetricValues({ ...savedResult.data });
-      } catch (error) {
-        console.error('Health document save or confirm failed:', error);
-        Alert.alert('OCR 결과를 저장하지 못했어요.', getHealthDocumentErrorMessage(error));
-        return;
-      } finally {
-        setIsSaving(false);
       }
+
+      if (isLastResult) {
+        await Promise.all(
+          results.map((result) => confirmHealthDocument(result.uploadedFileId)),
+        );
+        savedResult = { ...savedResult, status: 'confirmed' };
+        setResults((current) => current.map((result) => ({ ...result, status: 'confirmed' })));
+        setMetricValues({ ...savedResult.data });
+      }
+    } catch (error) {
+      console.error('Health document save or confirm failed:', error);
+      Alert.alert('OCR 결과를 저장하지 못했어요.', getHealthDocumentErrorMessage(error));
+      return;
+    } finally {
+      setIsSaving(false);
     }
 
-    if (currentIndex >= results.length - 1) {
+    if (isLastResult) {
       Keyboard.dismiss();
       router.push('/total-analysis');
       return;

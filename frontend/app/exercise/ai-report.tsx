@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import SmileyIcon from '@/assets/icons/face/Smiley.svg';
 import SparkleIcon from '@/assets/icons/deco/Sparkle.svg';
@@ -34,6 +35,7 @@ const metricIcons = [TargetIcon, ChartBarIcon, SmileyIcon, UserIcon];
 
 export default function ExerciseAiReportScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { resultSource, source } = useLocalSearchParams<{
     resultSource?: string;
     source?: string;
@@ -43,6 +45,19 @@ export default function ExerciseAiReportScreen() {
   const report = createMockExerciseAiReport(latestSession);
   const responsiveHeight =
     Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
+  const homeHeaderHeightProgress = Math.max(
+    0,
+    Math.min(1, (responsiveHeight - compactHeight) / (referenceHeight - compactHeight)),
+  );
+  const homeHeaderVerticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * homeHeaderHeightProgress;
+  const availableWidth = windowWidth - insets.left - insets.right;
+  const homeHeaderWidthScale = Math.min(1, availableWidth / 412);
+  const frameWidthScale = Math.min(1, windowWidth / 412);
+  const homeHeaderCanvasTop = Math.max(0, insets.top + 8 - 38 * homeHeaderWidthScale);
+  const headerTop =
+    (homeHeaderCanvasTop + homeHeaderVerticalValue(38, 30) * homeHeaderWidthScale) /
+    Math.max(frameWidthScale, 0.01);
   const widthScale = Math.min(1, windowWidth / 412);
   const logicalHeight = responsiveHeight / Math.max(widthScale, 0.01);
   const heightProgress = Math.max(
@@ -67,14 +82,14 @@ export default function ExerciseAiReportScreen() {
   // Shared with the result-record screen so both completion CTAs share one baseline.
   const ctaTop = verticalValue(850, 683);
   const layout = {
-    // The 48dp BackButton is centered on the same 21dp line as the header title.
-    backTop: verticalValue(24, 9),
+    // Match the exercise Home title's Safe Area-aware header baseline.
+    backTop: headerTop - 14,
     contentHeight: ctaTop + 45,
     ctaTop,
     heroHeight,
     heroImageWidth: verticalValue(140, 117),
     heroTop,
-    headerTop: verticalValue(38, 22),
+    headerTop,
     insightHeight,
     insightInnerHeight: verticalValue(110, 95),
     insightTop,

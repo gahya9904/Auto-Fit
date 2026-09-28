@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   BackHandler,
+  Dimensions,
   Platform,
   Pressable,
   StyleSheet,
@@ -9,6 +10,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BarbellIcon from '@/assets/icons/deco/Barbell.svg';
 import FireIcon from '@/assets/icons/deco/Fire.svg';
@@ -56,6 +58,7 @@ function formatDuration(durationMinutes: number | null | undefined) {
 
 export default function ExerciseResultScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { source } = useLocalSearchParams<{ source?: string }>();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { latestSession, markResultRecordCompleted } = useExerciseRoutine();
@@ -63,6 +66,20 @@ export default function ExerciseResultScreen() {
   const [record, setRecord] = useState(createInitialExerciseResultRecord);
   const widthScale = Math.min(1, windowWidth / referenceWidth);
   const logicalHeight = windowHeight / Math.max(widthScale, 0.01);
+  const homeResponsiveHeight =
+    Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
+  const homeHeaderHeightProgress = Math.max(
+    0,
+    Math.min(1, (homeResponsiveHeight - compactHeight) / (referenceHeight - compactHeight)),
+  );
+  const homeHeaderVerticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * homeHeaderHeightProgress;
+  const availableWidth = windowWidth - insets.left - insets.right;
+  const homeHeaderWidthScale = Math.min(1, availableWidth / referenceWidth);
+  const homeHeaderCanvasTop = Math.max(0, insets.top + 8 - 38 * homeHeaderWidthScale);
+  const headerTop =
+    (homeHeaderCanvasTop + homeHeaderVerticalValue(38, 30) * homeHeaderWidthScale) /
+    Math.max(widthScale, 0.01);
   const heightProgress = Math.max(
     0,
     Math.min(1, (logicalHeight - compactHeight) / (referenceHeight - compactHeight)),
@@ -81,15 +98,15 @@ export default function ExerciseResultScreen() {
   // Shared with the AI report so both post-workout CTAs sit on the same baseline.
   const ctaTop = verticalValue(850, 683);
   const layout = {
-    // The 48dp BackButton is centered on the 21dp header title line.
-    backTop: verticalValue(24, 9),
+    // Match the exercise Home title's Safe Area-aware header baseline.
+    backTop: headerTop - 14,
     cardGap: verticalValue(18, 9),
     ctaTop,
     difficultyHeight,
     difficultyTop,
     discomfortHeight,
     discomfortTop,
-    headerTop: verticalValue(38, 22),
+    headerTop,
     introTop: verticalValue(89, 57),
     stateHeight,
     stateTop,
