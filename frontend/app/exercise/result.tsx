@@ -78,9 +78,11 @@ export default function ExerciseResultScreen() {
   const stateTop = difficultyTop + difficultyHeight + cardGap;
   const discomfortTop = stateTop + stateHeight + cardGap;
   const summaryTop = discomfortTop + discomfortHeight + cardGap;
-  const ctaTop = summaryTop + summaryHeight + verticalValue(30, 10);
+  // Shared with the AI report so both post-workout CTAs sit on the same baseline.
+  const ctaTop = verticalValue(850, 683);
   const layout = {
-    backTop: verticalValue(20, 8),
+    // The 48dp BackButton is centered on the 21dp header title line.
+    backTop: verticalValue(24, 9),
     cardGap: verticalValue(18, 9),
     ctaTop,
     difficultyHeight,
@@ -132,7 +134,12 @@ export default function ExerciseResultScreen() {
     // TODO: Send `record` when an exercise-result feedback API is available.
     markResultRecordCompleted();
     clearSession();
-    requestAnimationFrame(() => router.replace('/exercise/ai-report'));
+    requestAnimationFrame(() =>
+      router.replace({
+        pathname: '/exercise/ai-report',
+        params: { resultSource: source === 'completion' ? 'completion' : 'home', source: 'record' },
+      }),
+    );
   };
 
   useEffect(() => {

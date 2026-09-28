@@ -1,34 +1,101 @@
 import { useCallback, useEffect } from 'react';
-import { BackHandler, Image, Platform, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  BackHandler,
+  Dimensions,
+  Image,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
-import BarbellIcon from '@/assets/icons/deco/Barbell.svg';
-import FireIcon from '@/assets/icons/deco/Fire.svg';
-import LightbulbIcon from '@/assets/icons/system/Lightbulb.svg';
-import RefreshIcon from '@/assets/icons/system/Refresh.svg';
-import SparkleIcon from '@/assets/icons/deco/Sparkle_Fill.svg';
+import SmileyIcon from '@/assets/icons/face/Smiley.svg';
+import SparkleIcon from '@/assets/icons/deco/Sparkle.svg';
 import TargetIcon from '@/assets/icons/deco/Target.svg';
+import ChartBarIcon from '@/assets/icons/graph/ChartBar.svg';
 import UserIcon from '@/assets/icons/input/User.svg';
+import ArrowsClockwiseIcon from '@/assets/icons/system/ArrowsClockwise.svg';
+import CheckCircleIcon from '@/assets/icons/system/CheckCircle.svg';
 import CheckCircleOutIcon from '@/assets/icons/system/CheckCircleOut.svg';
 import { BackButton } from '@/src/components/common/BackButton';
-import { ExerciseActionButton } from '@/src/components/exercise/ExerciseActionButton';
 import { ExerciseScreenFrame } from '@/src/components/exercise/ExerciseScreenFrame';
 import { createMockExerciseAiReport } from '@/src/features/exercise/exerciseResultMocks';
 import { useExerciseRoutine } from '@/src/features/exercise/ExerciseRoutineContext';
 import { colors, fontFamilies } from '@/src/theme';
 
-const contentHeight = 917;
+const referenceHeight = 917;
+const compactHeight = 740;
 const aiImage = require('@/assets/images/illustrations/exercise/AI.png');
-
-const metricIcons = [TargetIcon, BarbellIcon, UserIcon, FireIcon];
+const upImage = require('@/assets/images/illustrations/exercise/Up.png');
+const metricIcons = [TargetIcon, ChartBarIcon, SmileyIcon, UserIcon];
 
 export default function ExerciseAiReportScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const { resultSource, source } = useLocalSearchParams<{
+    resultSource?: string;
+    source?: string;
+  }>();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { latestSession, resultRecordCompleted } = useExerciseRoutine();
   const report = createMockExerciseAiReport(latestSession);
+  const responsiveHeight =
+    Platform.OS === 'web' ? windowHeight : Dimensions.get('screen').height;
+  const widthScale = Math.min(1, windowWidth / 412);
+  const logicalHeight = responsiveHeight / Math.max(widthScale, 0.01);
+  const heightProgress = Math.max(
+    0,
+    Math.min(1, (logicalHeight - compactHeight) / (referenceHeight - compactHeight)),
+  );
+  const verticalValue = (expanded: number, compact: number) =>
+    compact + (expanded - compact) * heightProgress;
+  const heroTop = verticalValue(75, 55);
+  const heroHeight = verticalValue(110, 92);
+  const heroToSummaryGap = verticalValue(24, 10);
+  // Figma uses a shared card rhythm: 30dp between sections, with the
+  // insight-to-next gap only 1dp tighter on the 412×917 reference canvas.
+  const sectionGap = verticalValue(30, 12);
+  const insightToNextGap = sectionGap - verticalValue(1, 0);
+  const summaryHeight = verticalValue(250, 200);
+  const summaryTop = heroTop + heroHeight + heroToSummaryGap;
+  const insightHeight = verticalValue(160, 145);
+  const insightTop = summaryTop + summaryHeight + sectionGap;
+  const nextHeight = verticalValue(140, 131);
+  const nextTop = insightTop + insightHeight + insightToNextGap;
+  // Shared with the result-record screen so both completion CTAs share one baseline.
+  const ctaTop = verticalValue(850, 683);
+  const layout = {
+    // The 48dp BackButton is centered on the same 21dp line as the header title.
+    backTop: verticalValue(24, 9),
+    contentHeight: ctaTop + 45,
+    ctaTop,
+    heroHeight,
+    heroImageWidth: verticalValue(140, 117),
+    heroTop,
+    headerTop: verticalValue(38, 22),
+    insightHeight,
+    insightInnerHeight: verticalValue(110, 95),
+    insightTop,
+    nextHeight,
+    nextTop,
+    summaryHeight,
+    summaryMetricHeight: verticalValue(90, 70),
+    summaryTop,
+  };
   const returnHome = useCallback(() => router.dismissTo('/exercise'), [router]);
+  const handleBack = useCallback(() => {
+    if (source === 'record') {
+      router.replace({
+        pathname: '/exercise/result',
+        params: { source: resultSource === 'completion' ? 'completion' : 'home' },
+      });
+      return;
+    }
+
+    returnHome();
+  }, [resultSource, returnHome, router, source]);
 
   useEffect(() => {
     if (resultRecordCompleted) return undefined;
@@ -41,258 +108,311 @@ export default function ExerciseAiReportScreen() {
   useEffect(() => {
     if (Platform.OS !== 'android') return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      returnHome();
+      handleBack();
       return true;
     });
     return () => subscription.remove();
-  }, [returnHome]);
+  }, [handleBack]);
 
   if (!resultRecordCompleted) return null;
 
   return (
-    <ExerciseScreenFrame contentHeight={contentHeight}>
-      <BackButton onPress={returnHome} style={[styles.back, { top: Math.max(23, insets.top - 20) }]} />
-      <Text style={styles.headerTitle}>AI 분석</Text>
+    <ExerciseScreenFrame contentHeight={layout.contentHeight}>
+      <BackButton onPress={handleBack} style={[styles.back, { top: layout.backTop }]} />
+      <Text pointerEvents="none" style={[styles.headerTitle, { top: layout.headerTop }]}>
+        AI 분석
+      </Text>
 
-      <View style={styles.intro}>
-        <View style={styles.introText}>
-          <View style={styles.introTitleRow}>
-            <SparkleIcon color={colors.primary} fill={colors.primary} height={21} width={21} />
-            <Text style={styles.introTitle}>오늘 운동 결과 분석</Text>
-          </View>
-          <Text style={styles.introDescription}>운동 기록을 바탕으로 오늘의 운동을 분석했어요.</Text>
+      <View style={[styles.hero, { height: layout.heroHeight, top: layout.heroTop }]}>
+        <View style={styles.heroText}>
+          <SparkleIcon
+            color={colors.primaryDark}
+            fill={colors.primaryDark}
+            height={20}
+            width={20}
+          />
+          <Text style={styles.heroTitle}>오늘 운동 결과 분석</Text>
+          <Text style={styles.heroDescription}>
+            AI가 당신의 운동을 분석하고{`\n`}더 나은 루틴을 제안해드려요.
+          </Text>
         </View>
-        <Image resizeMode="contain" source={aiImage} style={styles.aiImage} />
+        <Image
+          resizeMode="cover"
+          source={aiImage}
+          style={[styles.aiImage, { height: layout.heroHeight, width: layout.heroImageWidth }]}
+        />
       </View>
 
-      <View style={styles.summarySection}>
-        <View style={styles.sectionTitleRow}>
-          <CheckCircleOutIcon color={colors.primary} height={22} width={22} />
-          <Text style={styles.sectionTitle}>운동 요약</Text>
+      <View style={[styles.summaryCard, { height: layout.summaryHeight, top: layout.summaryTop }]}>
+        <View style={styles.cardHeading}>
+          <CheckCircleOutIcon color={colors.primaryDark} height={18} width={18} />
+          <Text style={styles.cardHeadingText}>운동 요약</Text>
         </View>
-        <View style={styles.metricGrid}>
-          {report.metrics.map(({ description, label, value }, index) => {
+        <View style={[styles.metricGrid, { marginTop: verticalValue(18, 8) }]}>
+          {report.metrics.map(({ label, value }, index) => {
             const Icon = metricIcons[index];
             return (
-              <View key={label} style={styles.metricCard}>
-                <View style={styles.metricHeading}>
-                  <Icon color={colors.primary} fill={colors.primary} height={17} width={17} />
-                  <Text style={styles.metricLabel}>{label}</Text>
+              <View key={label} style={[styles.metricCard, { height: layout.summaryMetricHeight }]}>
+                <View style={styles.metricIconCircle}>
+                  <Icon
+                    color={colors.primaryDark}
+                    fill={colors.primaryDark}
+                    height={25}
+                    width={25}
+                  />
                 </View>
-                <Text style={styles.metricValue}>{value}</Text>
-                <Text style={styles.metricDescription}>{description}</Text>
+                <View style={styles.metricText}>
+                  <Text numberOfLines={1} style={styles.metricLabel}>
+                    {label}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.metricValue}>
+                    {value}
+                  </Text>
+                </View>
               </View>
             );
           })}
         </View>
       </View>
 
-      <View style={styles.insightCard}>
-        <View style={styles.insightIcon}>
-          <LightbulbIcon color={colors.primary} height={26} width={26} />
+      <View style={[styles.insightCard, { height: layout.insightHeight, top: layout.insightTop }]}>
+        <View style={styles.cardHeading}>
+          <SparkleIcon
+            color={colors.primaryDark}
+            fill={colors.primaryDark}
+            height={20}
+            width={20}
+          />
+          <Text style={styles.cardHeadingText}>AI 인사이트</Text>
         </View>
-        <View style={styles.insightText}>
-          <Text style={styles.insightTitle}>{report.insight.title}</Text>
-          <Text style={styles.insightDescription}>{report.insight.description}</Text>
-        </View>
-      </View>
-
-      <View style={styles.nextCard}>
-        <View style={styles.nextHeading}>
-          <RefreshIcon color={colors.primary} height={21} width={21} />
-          <Text style={styles.nextTitle}>다음 운동에 반영</Text>
-        </View>
-        <View style={styles.nextList}>
-          {report.nextWorkout.map(({ description, title }) => (
-            <View key={title} style={styles.nextItem}>
-              <View style={styles.bullet} />
-              <Text style={styles.nextItemText}>
-                {title}
-                {description ? <Text style={styles.nextItemDescription}> {description}</Text> : null}
-              </Text>
-            </View>
-          ))}
+        <View style={[styles.insightInner, { height: layout.insightInnerHeight }]}>
+          <View style={styles.insightText}>
+            <Text style={styles.insightTitle}>{report.insight.title}</Text>
+            <Text
+              style={[
+                styles.insightDescription,
+                { lineHeight: verticalValue(18, 15), marginTop: verticalValue(5, 3) },
+              ]}
+            >
+              {report.insight.description}
+            </Text>
+          </View>
+          <Image resizeMode="contain" source={upImage} style={styles.upImage} />
         </View>
       </View>
 
-      <View style={styles.noticeCard}>
-        <Text style={styles.noticeTitle}>꾸준한 기록이 더 정확한 분석으로 이어져요!</Text>
-        <Text style={styles.noticeDescription}>더 나은 운동을 위해 계속 기록해주세요.</Text>
+      <View style={[styles.nextCard, { height: layout.nextHeight, top: layout.nextTop }]}>
+        <View style={styles.cardHeading}>
+          <ArrowsClockwiseIcon color={colors.primaryDark} height={20} width={20} />
+          <Text style={styles.cardHeadingText}>다음 운동에 반영</Text>
+        </View>
+        <View
+          style={[
+            styles.nextList,
+            { gap: verticalValue(6, 2), marginTop: verticalValue(8, 4) },
+          ]}
+        >
+          {report.nextWorkout.map(({ description, title }, index) => {
+            const hasDetail = index === report.nextWorkout.length - 1 && Boolean(description);
+            return (
+              <View key={title} style={[styles.nextItem, hasDetail && styles.nextItemDetailed]}>
+                <CheckCircleIcon color={colors.primaryDark} height={20} width={20} />
+                <View style={styles.nextItemText}>
+                  <Text style={styles.nextItemTitle}>
+                    {title}
+                    {!hasDetail && description ? ` ${description}` : ''}
+                  </Text>
+                  {hasDetail && description ? (
+                    <Text style={styles.nextItemDescription}>{description}</Text>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
+        </View>
       </View>
 
-      <View style={styles.saveCta}>
-        <ExerciseActionButton
-          borderRadius={10}
-          gradient
-          labelStyle={styles.saveCtaLabel}
-          onPress={returnHome}
-          title="저장"
-        />
-      </View>
+      <Pressable accessibilityRole="button" onPress={returnHome} style={[styles.saveCta, { top: layout.ctaTop }]}>
+        <Text style={styles.saveCtaLabel}>저장</Text>
+      </Pressable>
     </ExerciseScreenFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  aiImage: { height: 110, position: 'absolute', right: 10, top: -12, width: 140 },
-  back: { left: 10, position: 'absolute' },
-  bullet: { backgroundColor: colors.primary, borderRadius: 99, height: 4, marginTop: 7, width: 4 },
+  aiImage: { height: 110, position: 'absolute', right: 0, top: 0, width: 140 },
+  back: { left: 10, position: 'absolute', zIndex: 1 },
+  cardHeading: { alignItems: 'center', flexDirection: 'row', gap: 10, height: 20 },
+  cardHeadingText: {
+    color: colors.textPrimary,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 16,
+    lineHeight: 20,
+  },
   headerTitle: {
     color: colors.textPrimary,
-    fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 20,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 15,
     left: 0,
-    lineHeight: 28,
+    letterSpacing: 1.5,
+    lineHeight: 21,
     position: 'absolute',
     textAlign: 'center',
-    top: 38,
     width: 412,
   },
+  hero: { height: 110, left: 21, position: 'absolute', width: 370 },
+  heroDescription: {
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.pretendardSemiBold,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  heroText: { left: 0, position: 'absolute', top: 0, width: 220 },
+  heroTitle: {
+    color: colors.textPrimary,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 22,
+    lineHeight: 27,
+    marginTop: 4,
+  },
   insightCard: {
-    alignItems: 'center',
-    backgroundColor: colors.primaryLight,
-    borderRadius: 15,
-    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
     left: 21,
-    minHeight: 152,
-    paddingHorizontal: 17,
+    padding: 12,
     position: 'absolute',
-    top: 460,
+    shadowColor: '#000000',
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
     width: 370,
   },
   insightDescription: {
-    color: colors.textBody,
-    fontFamily: fontFamilies.pretendardMedium,
+    color: colors.textPrimary,
+    fontFamily: fontFamilies.pretendardRegular,
     fontSize: 12,
     lineHeight: 18,
+    marginTop: 5,
+  },
+  insightInner: {
+    backgroundColor: '#F0FAF9',
+    borderRadius: 12,
     marginTop: 6,
+    overflow: 'hidden',
+    width: 344,
   },
-  insightIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 99,
-    height: 45,
-    justifyContent: 'center',
-    marginRight: 13,
-    width: 45,
-  },
-  insightText: { flex: 1 },
+  insightText: { left: 12, position: 'absolute', right: 78, top: 11 },
   insightTitle: {
     color: colors.primaryDark,
-    fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 17,
-    lineHeight: 23,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 14,
+    lineHeight: 18,
   },
-  intro: { height: 104, left: 21, position: 'absolute', top: 78, width: 370 },
-  introDescription: {
-    color: colors.textSecondary,
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 7,
-  },
-  introText: { left: 0, position: 'absolute', top: 5 },
-  introTitle: {
-    color: colors.textPrimary,
-    fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 21,
-    lineHeight: 29,
-  },
-  introTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },
   metricCard: {
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    height: 94,
-    paddingHorizontal: 11,
-    paddingTop: 10,
-    width: 169,
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    width: 170,
   },
-  metricDescription: {
-    color: colors.textSecondary,
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 10,
-    lineHeight: 14,
-    marginTop: 3,
+  metricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 18,
+    width: 346,
   },
-  metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 13 },
-  metricHeading: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  metricIconCircle: {
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
   metricLabel: {
-    color: colors.textSecondary,
-    fontFamily: fontFamilies.pretendardMedium,
+    color: colors.textPrimary,
+    fontFamily: fontFamilies.pretendardSemiBold,
     fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 16,
   },
+  metricText: { gap: 4, marginLeft: 10, width: 88 },
   metricValue: {
     color: colors.primaryDark,
-    fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 21,
-    lineHeight: 28,
-    marginTop: 3,
+    fontFamily: fontFamilies.pretendardBold,
+    fontSize: 20,
+    lineHeight: 25,
   },
   nextCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 15,
+    borderRadius: 16,
     borderWidth: 1,
-    height: 140,
     left: 21,
-    paddingHorizontal: 17,
-    paddingTop: 15,
+    padding: 12,
     position: 'absolute',
-    top: 627,
+    shadowColor: '#000000',
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
     width: 370,
   },
-  nextHeading: { alignItems: 'center', flexDirection: 'row', gap: 7 },
-  nextItem: { flexDirection: 'row', gap: 7 },
-  nextItemDescription: { color: colors.textSecondary, fontFamily: fontFamilies.pretendardMedium },
-  nextItemText: {
-    color: colors.textBody,
-    flex: 1,
+  nextItem: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 20 },
+  nextItemDescription: {
+    color: colors.textSecondary,
     fontFamily: fontFamilies.pretendardMedium,
     fontSize: 12,
-    lineHeight: 18,
+    lineHeight: 14,
+    marginTop: 2,
   },
-  nextList: { gap: 5, marginTop: 10 },
-  nextTitle: {
+  nextItemDetailed: { alignItems: 'flex-start' },
+  nextItemText: { flex: 1 },
+  nextItemTitle: {
     color: colors.textPrimary,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  noticeCard: {
+  nextList: { gap: 6, marginTop: 8 },
+  saveCta: {
     alignItems: 'center',
-    backgroundColor: colors.primaryLight,
+    backgroundColor: colors.primary,
     borderRadius: 10,
-    height: 54,
+    height: 45,
     justifyContent: 'center',
     left: 21,
     position: 'absolute',
-    top: 782,
+    shadowColor: '#000000',
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2.5,
     width: 370,
   },
-  noticeDescription: {
-    color: colors.textSecondary,
-    fontFamily: fontFamilies.pretendardMedium,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 2,
-  },
-  noticeTitle: {
-    color: colors.primaryDark,
+  saveCtaLabel: {
+    color: colors.surface,
     fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 20,
+    lineHeight: 28,
   },
-  saveCta: { left: 21, position: 'absolute', top: 850, width: 370 },
-  saveCtaLabel: { fontSize: 18, lineHeight: 24 },
-  sectionTitle: {
-    color: colors.textPrimary,
-    fontFamily: fontFamilies.pretendardSemiBold,
-    fontSize: 17,
-    lineHeight: 23,
+  summaryCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    left: 21,
+    padding: 12,
+    position: 'absolute',
+    shadowColor: '#000000',
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    width: 370,
   },
-  sectionTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
-  summarySection: { left: 21, position: 'absolute', top: 197, width: 370 },
+  upImage: { bottom: 7, height: 70, position: 'absolute', right: 7, width: 70 },
 });

@@ -8,6 +8,7 @@ import { colors, fontFamilies } from '@/src/theme';
 interface ExerciseActionButtonProps {
   borderRadius?: number;
   gap?: number;
+  hideTrailingArrow?: boolean;
   icon?: ReactNode;
   compact?: boolean;
   gradient?: boolean;
@@ -21,6 +22,7 @@ interface ExerciseActionButtonProps {
 export function ExerciseActionButton({
   borderRadius,
   gap,
+  hideTrailingArrow = false,
   icon,
   compact = false,
   gradient = false,
@@ -70,7 +72,7 @@ export function ExerciseActionButton({
         >
           {title}
         </Text>
-        {!secondary && !icon ? (
+        {!secondary && !icon && !hideTrailingArrow ? (
           <View style={styles.arrowCircle}>
             <ArrowRight color={colors.primary} fill={colors.primary} height={16} width={16} />
           </View>

@@ -181,7 +181,7 @@ export default function ExerciseScreen() {
     if (heroStatus === 'completed') {
       router.push(
         resultRecordCompleted
-          ? '/exercise/ai-report'
+          ? { pathname: '/exercise/ai-report', params: { source: 'home' } }
           : { pathname: '/exercise/result', params: { source: 'home' } },
       );
     }
