@@ -1706,7 +1706,7 @@ async def create_food_inventory_item(
 ) -> dict[str, Any]:
     freshness = "unknown"
     if body.expires_on:
-        remaining_days = (body.expires_on - date.today()).days
+        remaining_days = (body.expires_on - datetime.now(KST).date()).days
         freshness = (
             "expired"
             if remaining_days < 0
@@ -1765,6 +1765,32 @@ def inventory_freshness(
     if remaining_days <= 3:
         return "expiring_soon"
     return "fresh"
+
+
+def usable_food_inventory(
+    inventory: list[dict[str, Any]],
+    reference_date: date | None = None,
+) -> list[dict[str, Any]]:
+    """Return only inventory that can be used by a recommendation today."""
+    today = reference_date or datetime.now(KST).date()
+    usable: list[dict[str, Any]] = []
+    for row in inventory:
+        if row.get("is_available") is False:
+            continue
+        quantity = row.get("quantity")
+        if quantity is not None and Decimal(str(quantity)) <= 0:
+            continue
+        expires_on = row.get("expires_on")
+        if isinstance(expires_on, str):
+            try:
+                expires_on = date.fromisoformat(expires_on)
+            except ValueError:
+                continue
+        freshness = inventory_freshness(expires_on, today)
+        if freshness == "expired":
+            continue
+        usable.append({**row, "expires_on": expires_on, "freshness_status": freshness})
+    return usable
 
 
 async def update_food_inventory_item(
@@ -1843,6 +1869,7 @@ def build_diet_recommendation_plan(
     inventory: list[dict[str, Any]],
     allergy_names: list[str] | None = None,
 ) -> dict[str, Any]:
+    inventory = usable_food_inventory(inventory)
     inventory_names = [
         row["custom_name"] for row in inventory if row.get("custom_name")
     ]
@@ -1956,6 +1983,22 @@ def build_diet_recommendation_plan(
             int(food["calories"]) for food in safe_foods
         )
 
+    normalized_inventory = {
+        "".join(name.split()).casefold(): name for name in inventory_names
+    }
+    used_inventory_names: list[str] = []
+    for meal in meals:
+        matched = []
+        for food in meal["foods"]:
+            food_key = "".join(food["food_name"].split()).casefold()
+            for inventory_key, inventory_name in normalized_inventory.items():
+                if inventory_key == food_key or inventory_key in food_key or food_key in inventory_key:
+                    matched.append(inventory_name)
+                    if inventory_name not in used_inventory_names:
+                        used_inventory_names.append(inventory_name)
+        if matched:
+            meal["recommendation_note"] += f" · 냉장고 사용: {', '.join(dict.fromkeys(matched))}"
+
     allergy_note = (
         f" 알레르기 제외 식재료: {', '.join(dict.fromkeys(excluded_foods))}."
         if excluded_foods
@@ -1963,7 +2006,7 @@ def build_diet_recommendation_plan(
     )
     return {
         "recommendation": {
-            "recommendation_date": date.today().isoformat(),
+            "recommendation_date": datetime.now(KST).date().isoformat(),
             "target_calories": 1650,
             "target_carbohydrates": 210,
             "target_protein": 85,
@@ -1971,7 +2014,9 @@ def build_diet_recommendation_plan(
             "recommendation_summary": "체지방 감량 목표를 위한 균형 식단",
             "ai_reason": (
                 "운동 목표, 사용 가능한 냉장고 재료와 알레르기 정보를 반영한 "
-                f"규칙 기반 테스트 식단입니다.{allergy_note}"
+                "규칙 기반 테스트 식단입니다."
+                + (f" 실제 메뉴에 반영된 냉장고 재료: {', '.join(used_inventory_names)}." if used_inventory_names else "")
+                + allergy_note
             ),
         },
         "meals": meals,

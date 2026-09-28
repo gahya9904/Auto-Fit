@@ -1,5 +1,6 @@
 import httpx
 import json
+from datetime import date
 from fastapi.testclient import TestClient
 
 from backend.app import main
@@ -1565,6 +1566,33 @@ def test_build_diet_plan_reflects_inventory_and_excludes_allergens() -> None:
     assert "냉장고 반영: 브로콜리" in result["meals"][0]["recommendation_note"]
     assert not {"두부구이", "그릭요거트", "호두", "연어구이"} & food_names
     assert "알레르기 제외 식재료" in result["recommendation"]["ai_reason"]
+
+
+def test_usable_food_inventory_recomputes_freshness_and_excludes_invalid_rows() -> None:
+    result = main.usable_food_inventory(
+        [
+            {"custom_name": "두부", "quantity": "1", "expires_on": "2026-09-30", "is_available": True},
+            {"custom_name": "우유", "quantity": "1", "expires_on": "2026-09-27", "is_available": True},
+            {"custom_name": "달걀", "quantity": "0", "expires_on": "2026-10-01", "is_available": True},
+            {"custom_name": "브로콜리", "quantity": "1", "expires_on": "2026-10-01", "is_available": False},
+        ],
+        date(2026, 9, 28),
+    )
+
+    assert [row["custom_name"] for row in result] == ["두부"]
+    assert result[0]["freshness_status"] == "expiring_soon"
+
+
+def test_diet_plan_marks_only_inventory_that_is_present_in_actual_meals() -> None:
+    result = main.build_diet_recommendation_plan([
+        {"custom_name": "브로콜리", "quantity": "200", "unit": "g", "is_available": True},
+        {"custom_name": "오이", "quantity": "1", "unit": "개", "is_available": True},
+    ])
+
+    notes = [meal["recommendation_note"] for meal in result["meals"]]
+    assert any("냉장고 사용: 브로콜리" in note for note in notes)
+    assert all("냉장고 사용: 오이" not in note for note in notes)
+    assert "실제 메뉴에 반영된 냉장고 재료: 브로콜리" in result["recommendation"]["ai_reason"]
 
 
 def test_extract_menu_tags_normalizes_food_names() -> None:

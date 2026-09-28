@@ -1,8 +1,9 @@
 # Auto-Fit 프론트엔드 협업용 전체 API 안내
 
-기준일: 2026-09-17. 근거: `backend/app/main.py`, 라우터·챗봇 모듈, 저장소 SQL, 기존 검증 기록.
-현재 FastAPI operation은 **53개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
+기준일: 2026-09-28. 근거: `backend/app/main.py`, 라우터·챗봇 모듈, 저장소 SQL, 기존 검증 기록.
+현재 FastAPI operation은 **59개**다. 아래 목록은 구현된 코드 기준이며 서버 배포 완료 목록은 아니다.
 종합 분석 팝업의 신규 조회 2개는 [팝업 API 계약](analysis-popup-api-contract.md)을 확인한다.
+메인 종합 분석 결과 조회는 [메인 API 계약](main-analysis-api-contract.md)을 확인한다.
 
 ## 공유 파일
 
@@ -276,7 +277,7 @@ feedback_type: eaten/different_food/skipped. different_food만 actual_items 1~20
 logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 null일 수 있다.
 이 API는 diet_meal_id와 연결된 기록이다. 추천 식단과 무관한 독립 식사 등록 API는 아직 없다.
 
-## 7. 건강 문서 업로드·검토·목록 (5개)
+## 7. 건강 문서 업로드·검토·목록 (6개)
 
 파일만 전송하면 서버가 문서 종류를 판별하고 응답의 `document_type`에 따라 화면을 분기한다. 실제 OCR 연결 후 판별 불가 시 저장 없이 422 `UNKNOWN_DOCUMENT`/`UNSUPPORTED_DOCUMENT`를 반환한다. URL이 없는 임시 모드는 종류 판별 없이 PDF/이미지 모두 고정 샘플을 반환한다. 종류 생략 시 기본 건강검진 샘플이며 서버 HEALTH_DOCUMENT_OCR_MOCK_DOCUMENT_TYPE=body_composition 설정으로 체성분 샘플도 테스트한다. 실제 판별은 OCR 서버 연결 후 수행한다. 상세 타입·단위·상태·오류·재업로드 계약은 [건강 문서 API](health-documents-api.md)를 참고한다.
 
@@ -287,6 +288,8 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 | GET | `/api/health-documents/{uploaded_file_id}` | 경로 UUID | `uploaded_file_id, document_type, file_name, original_file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
 | PATCH | `/api/health-documents/{uploaded_file_id}/ocr-result` | `extracted_data` | `uploaded_file_id, document_type, file_name, original_file_name, uploaded_at, ocr_status, status, extracted_data, error` | 200 |
 | POST | `/api/health-documents/{uploaded_file_id}/confirm` | 본문 없음 | `uploaded_file_id, document_type, status, health_checkup_id, body_composition_id, already_confirmed` | 200 |
+| GET | `/api/health-assessments/input` | 없음 | `ready, missing[], health_checkup, body_composition, diet_context` | 200 |
+| POST | `/api/health-assessments/{assessment_id}/diet-personalization/refresh` | 본문 없음 | 갱신된 `MainAnalysisResponse` | 200 |
 
 - 응답의 `document_type`: 서버가 결정한 `health_checkup` 또는 `body_composition` (`inbody`가 아님). 업로드·재업로드 요청에서는 생략한다.
 - `DocumentPickerAsset.name`을 `original_file_name`으로 보내고 응답의 `original_file_name`을 표시한다. DB에 보존하며 기존 원본명이 없는 행은 file_name으로 대체한다.
@@ -294,6 +297,8 @@ logs[]는 각 식사에 items[]를 포함한다. skipped의 result.meal_log는 n
 - PATCH는 보낸 필드만 변경하며 null은 값을 비운다. 확정 문서 수정은 409다.
 - 확정 전 건강검진은 `checkup_date`, 인바디는 timezone을 포함한 `measured_at`이 필수다.
 - confirm은 같은 파일로 반복 호출해도 기존 건강 데이터를 반환한다.
+- 건강검진과 인바디를 각각 confirm한 뒤 `/api/health-assessments/input`을 호출한다. 둘 다 있으면 `ready=true`; 하나라도 없으면 200과 함께 `ready=false`, `missing[]`을 반환한다.
+- 통합 입력은 로그인 사용자의 최신 확정 레코드만 조회하며 `raw_data`, `user_id`는 노출하지 않는다.
 - 파일은 private Storage 버킷에 저장하며 현재 다운로드 URL은 제공하지 않는다.
 
 ```bash
@@ -360,7 +365,7 @@ curl -X POST "$API_BASE/api/health-documents" \
 | 수행 중 불편함 | POST discomfort → 반환 session/adjusted_items로 남은 화면 갱신 |
 | 운동 목표·기록 | GET/PUT goals/active, 기간을 선택해 GET history/progress |
 | 식단 | GET/PATCH/DELETE inventory → GET recommendations?date=... 또는 POST generate → 필요 시 POST meals/{id}/regenerate → POST feedback → GET nutrition-summary/meal-logs |
-| 건강 데이터 업로드 | POST health-documents → PATCH ocr-result → POST confirm |
+| 건강 데이터 업로드·분석 입력 | 문서별 POST health-documents → PATCH ocr-result → POST confirm → 두 문서 확정 후 GET health-assessments/input |
 | 챗봇 재진입 | GET chats?status=active&limit=1 → 없으면 POST chats → GET messages |
 | 챗봇 질문 | UUID 생성 → POST messages → assistant_message 표시 → 실패 시 같은 UUID로 재시도 |
 
@@ -390,7 +395,7 @@ curl -X POST "$API_BASE/api/health-documents" \
 | 마이페이지 초기 표시 | GET profile 전용 조회 없음 |
 | 프로필 사진·키·현재 체중·선호 운동 편집 | 현재 PATCH profile 필드로 모두 지원되지 않음 |
 | 건강 문서 실제 OCR 자동 인식 | 업로드·수동 검토·확정 API는 있으나 OCR 엔진 연동 없음 |
-| 건강 데이터 상세·삭제, 종합 건강 분석 | 전용 API 없음. 챗봇 건강 점수 조회와 별도 |
+| 건강 데이터 상세·삭제, 최초 종합 건강 분석 생성 | 통합 분석 입력 조회와 기존 평가의 냉장고 개인화 갱신 저장은 구현됨. 상세·삭제 및 최초 건강 평가·모델 분석 생성 API는 없음. 메인 조회는 저장된 `raw_result.total_analysis`를 우선 사용하고, 없으면 평가 당시 목표·확정 판정이 충분한 경우 제한된 임시 문구를 생성 |
 | 월간 건강 리포트·인바디 변화 | 전용 API 없음. 운동 progress와 별도 |
 | 냉장고 재료 다중 삭제 | 단건 PATCH/DELETE만 있으며 bulk API는 없음 |
 | 음식 검색·사진 인식·독립 식사 추가·수정 | 전용 API 없음 |
