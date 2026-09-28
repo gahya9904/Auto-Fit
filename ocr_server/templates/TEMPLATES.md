@@ -1,6 +1,6 @@
 # CLOVA Template OCR 양식 정의
 
-- 위치: 네이버 클라우드 콘솔 > CLOVA OCR > Domain **AutoFit Template Benchmark (58076)** > 템플릿 빌더
+- 위치: 네이버 클라우드 콘솔 > CLOVA OCR > Domain **AutoFit Template Basic (58314, Basic 요금제 월 1,000건)** > 템플릿 빌더 (9/28 무료 도메인 58076 에서 복사)
 - 모델: Basic (체크박스 인식은 Premium 전용이라 쓰지 않음)
 - 빌더의 내보내기(zip)는 암호화되어 있어 코드로 옮길 수 없습니다. 아래 표가 빌더에 그려 둔 내용의 기록입니다.
 - **칸 이름 = 서버 내부 항목 key** (`schema/health_fields.json`). 서버가 `ocr/template_fields.py` 에서 그대로 받아 씁니다.
@@ -10,16 +10,16 @@
 
 | ID | 이름 | 문서 | 칸 |
 |---|---|---|---|
-| 43539 | nhis2026_p1 | 공단 일반건강검진 결과통보서 (별지 제6호서식, 2026.1.1. 개정) 1쪽 | checkup_date |
-| 43540 | nhis2026_p2 | 같은 양식 2쪽 | height_weight, waist, vision, bp, hb, glucose, tc, hdl, tg, ldl, cr, egfr, ast, alt, ggt |
-| 43541 | nhis_old_p1 | 공단 결과통보서 개정 전 양식 1쪽 | checkup_date |
-| 43542 | nhis_old_p2 | 개정 전 양식 2쪽 | (nhis2026_p2 와 같은 15칸) |
-| 43543 | inbody270 | InBody270 결과지 | 21칸 (아래) |
-| 43544 | inbody770 | InBody770(S) 결과지 | 24칸 (아래) |
+| 43580 | nhis2026_p1 | 공단 일반건강검진 결과통보서 (별지 제6호서식, 2026.1.1. 개정) 1쪽 | checkup_date |
+| 43581 | nhis2026_p2 | 같은 양식 2쪽 | height_weight, waist, vision, bp, hb, glucose, tc, hdl, tg, ldl, cr, egfr, ast, alt, ggt |
+| 43582 | nhis_old_p1 | 공단 결과통보서 개정 전 양식 1쪽 | checkup_date |
+| 43583 | nhis_old_p2 | 개정 전 양식 2쪽 | (nhis2026_p2 와 같은 15칸) |
+| 43584 | inbody270 | InBody270 결과지 | 21칸 (아래) |
+| 43585 | inbody770 | InBody770(S) 결과지 | 24칸 (아래) |
 
 - 공단 양식의 요단백·종합판정은 **체크박스(□)** 라 칸을 만들지 않았습니다. 서버는 이 두 항목을 null 로 둡니다(`CHECKBOX_FIELDS`).
 - 공단 양식에는 성별·나이 칸이 없습니다(주민번호에만 있음, 기획서 5.6 에 따라 읽지 않음).
-- 43496 synthetic_checkup_v1, 43497 synthetic_inbody_v1 은 합성 데이터 실험용입니다. 서버는 무시합니다(`TEMPLATE_DOCS` 에 없음).
+- 43578 synthetic_checkup_v1, 43579 synthetic_inbody_v1 은 합성 데이터 실험용입니다. 서비스 배포하지 않았고 서버도 무시합니다(`TEMPLATE_DOCS` 에 없음).
 
 ## InBody270 (샘플 1382×1960, 좌표 = x, y, 너비, 높이)
 

@@ -38,6 +38,7 @@ PAIRS = {"height_weight": ("height", "weight"), "bp": ("sbp", "dbp")}
 
 # 시력(좌/우) '1.4 / 0.8'
 _VISION_RE = re.compile(r"(\d(?:[.,]\d{1,2})?)\s*/\s*(\d(?:[.,]\d{1,2})?)")
+_NUM_RE = re.compile(r"\d+(?:[.,]\d+)?")
 
 
 def doc_of(result: Optional[TemplateResult]) -> Optional[str]:
@@ -68,6 +69,9 @@ def template_items(result: Optional[TemplateResult], schema: dict) -> Dict[str, 
         text = tf.text.splitlines()[0].strip() if tf.text else ""
         if name in PAIRS:
             parts = text.split("/")
+            if len(parts) != 2:
+                # 양식에 인쇄된 '/' 를 OCR 이 놓치는 경우('166.1 88.5') — 숫자가 딱 두 개면 짝으로 본다
+                parts = _NUM_RE.findall(text) if "/" not in text else []
             if len(parts) == 2:
                 first, second = PAIRS[name]
                 put(first, parts[0].strip(), tf.conf)
