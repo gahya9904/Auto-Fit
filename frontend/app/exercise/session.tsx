@@ -297,6 +297,7 @@ export default function ExerciseSessionScreen() {
         calories: completedSummary.calories,
         durationMinutes: completedSummary.durationMinutes,
         itemCount: completedSummary.completedCount,
+        sessionId: session.sessionId,
       });
       clearSession();
       requestAnimationFrame(() => router.replace('/exercise'));
@@ -317,6 +318,7 @@ export default function ExerciseSessionScreen() {
         calories: completedSummary.calories,
         durationMinutes: completedSummary.durationMinutes,
         itemCount: completedSummary.completedCount,
+        sessionId: session.sessionId,
       });
       // Keep the completed session alive until the user explicitly submits their result record.
       // This lets the result-record Back action return to this completion screen.

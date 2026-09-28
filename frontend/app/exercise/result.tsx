@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   BackHandler,
+  Alert,
   Dimensions,
   Platform,
   Pressable,
@@ -24,6 +25,10 @@ import CheckBoldIcon from '@/assets/icons/system/Check_Bold.svg';
 import CheckCircleIcon from '@/assets/icons/system/CheckCircle.svg';
 import LightbulbIcon from '@/assets/icons/system/Lightbulb.svg';
 import { BackButton } from '@/src/components/common/BackButton';
+import {
+  getExerciseApiErrorMessage,
+  saveExerciseSessionFeedback,
+} from '@/src/api/exercise';
 import {
   createInitialExerciseResultRecord,
   exerciseDiscomfortAreas,
@@ -51,6 +56,14 @@ const faceIcons = {
   'very-tired': SmileyXEyesIcon,
 } satisfies Record<ExercisePostState, typeof SmileyIcon>;
 
+const postConditionValues = {
+  'very-good': 'very_good',
+  good: 'good',
+  neutral: 'normal',
+  tired: 'bad',
+  'very-tired': 'very_bad',
+} as const;
+
 function formatDuration(durationMinutes: number | null | undefined) {
   if (durationMinutes === null || durationMinutes === undefined) return '35:28';
   return `${String(durationMinutes).padStart(2, '0')}:00`;
@@ -64,6 +77,7 @@ export default function ExerciseResultScreen() {
   const { latestSession, markResultRecordCompleted } = useExerciseRoutine();
   const { clearSession } = useExerciseSession();
   const [record, setRecord] = useState(createInitialExerciseResultRecord);
+  const [isSaving, setIsSaving] = useState(false);
   const widthScale = Math.min(1, windowWidth / referenceWidth);
   const logicalHeight = windowHeight / Math.max(widthScale, 0.01);
   const homeResponsiveHeight =
@@ -147,16 +161,39 @@ export default function ExerciseResultScreen() {
       };
     });
   };
-  const saveRecord = () => {
-    // TODO: Send `record` when an exercise-result feedback API is available.
-    markResultRecordCompleted();
-    clearSession();
-    requestAnimationFrame(() =>
-      router.replace({
-        pathname: '/exercise/ai-report',
-        params: { resultSource: source === 'completion' ? 'completion' : 'home', source: 'record' },
-      }),
-    );
+  const saveRecord = async () => {
+    if (isSaving) return;
+    const sessionId = latestSession?.sessionId;
+    if (!sessionId) {
+      Alert.alert('기록 저장 실패', '완료된 운동 세션 정보를 찾지 못했어요.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await saveExerciseSessionFeedback(sessionId, {
+        note: null,
+        perceivedDifficulty: record.difficulty,
+        postCondition: postConditionValues[record.postState],
+        uncomfortableAreas: record.discomfortAreas.filter((area) => area !== 'none'),
+      });
+      markResultRecordCompleted();
+      clearSession();
+      requestAnimationFrame(() =>
+        router.replace({
+          pathname: '/exercise/ai-report',
+          params: {
+            resultSource: source === 'completion' ? 'completion' : 'home',
+            source: 'record',
+          },
+        }),
+      );
+    } catch (error) {
+      console.error('Exercise feedback save failed:', error);
+      Alert.alert('기록 저장 실패', getExerciseApiErrorMessage(error));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -282,7 +319,12 @@ export default function ExerciseResultScreen() {
           </View>
         </View>
 
-        <Pressable accessibilityRole="button" onPress={saveRecord} style={[styles.saveCta, { top: layout.ctaTop }]}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={isSaving}
+          onPress={() => void saveRecord()}
+          style={[styles.saveCta, { top: layout.ctaTop }]}
+        >
           <Text style={styles.saveCtaLabel}>기록 완료</Text>
         </Pressable>
       </View>

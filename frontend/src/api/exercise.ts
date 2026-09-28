@@ -23,6 +23,13 @@ export type ExerciseItemResultInput = {
   skipped: boolean;
 };
 
+export type ExerciseSessionFeedbackInput = {
+  note: string | null;
+  perceivedDifficulty: number;
+  postCondition: 'very_bad' | 'bad' | 'normal' | 'good' | 'very_good';
+  uncomfortableAreas: string[];
+};
+
 type ExerciseApiResponse = Record<string, unknown>;
 
 export function getLatestExerciseRecommendation() {
@@ -31,6 +38,27 @@ export function getLatestExerciseRecommendation() {
 
 export function getLatestExerciseSession() {
   return apiRequest<ExerciseApiResponse>('/api/exercise/sessions/latest');
+}
+
+export function getExerciseSessionFeedback(sessionId: string) {
+  return apiRequest<ExerciseApiResponse>(
+    `/api/exercise/sessions/${encodeURIComponent(sessionId)}/feedback`,
+  );
+}
+
+export function saveExerciseSessionFeedback(sessionId: string, input: ExerciseSessionFeedbackInput) {
+  return apiRequest<ExerciseApiResponse>(
+    `/api/exercise/sessions/${encodeURIComponent(sessionId)}/feedback`,
+    {
+      body: JSON.stringify({
+        note: input.note,
+        perceived_difficulty: input.perceivedDifficulty,
+        post_condition: input.postCondition,
+        uncomfortable_areas: input.uncomfortableAreas,
+      }),
+      method: 'PUT',
+    },
+  );
 }
 
 export function getExerciseSummary() {

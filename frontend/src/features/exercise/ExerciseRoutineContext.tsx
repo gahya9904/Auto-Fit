@@ -15,6 +15,7 @@ import {
   getExerciseProgress,
   getExercisePreferences,
   getExerciseSummary,
+  getExerciseSessionFeedback,
   getLatestExerciseRecommendation,
   getLatestExerciseSession,
   getExerciseApiErrorMessage,
@@ -45,6 +46,7 @@ export type ExerciseSessionSummary = {
   date: string | null;
   durationMinutes: number | null;
   itemCount: number | null;
+  sessionId: string | null;
 };
 
 export type ExerciseHomeMetrics = {
@@ -236,7 +238,12 @@ function mapExerciseSession(response: unknown): ExerciseSessionSummary | null {
       readString(session, ['session_date', 'exercise_date', 'started_at', 'created_at']),
     durationMinutes: readNumber(session, ['duration_minutes', 'total_duration_minutes']),
     itemCount: readNumber(session, ['item_count', 'completed_item_count']),
+    sessionId: readString(session, ['exercise_session_id', 'session_id', 'id']),
   };
+}
+
+function hasExerciseSessionFeedback(response: unknown) {
+  return isRecord(response) && response.feedback !== null && response.feedback !== undefined;
 }
 
 function mapStartedExerciseSession(response: unknown): StartedExerciseSession | null {
@@ -471,17 +478,34 @@ export function ExerciseRoutineProvider({ children }: { children: ReactNode }) {
       activeGoalResult.status === 'fulfilled' ? activeGoalResult.value : null,
       progressResult.status === 'fulfilled' ? progressResult.value : null,
     );
-    setLatestSession(nextSession);
-    setHomeMetrics(nextHomeMetrics);
 
     const todayDateKey = getTodayDateKey();
     const sessionDate = nextSession?.date ? toDateKey(nextSession.date) : null;
     const hasCompletedSessionToday =
       nextSession?.completed === true && sessionDate === todayDateKey;
+    let nextResultRecordCompleted = false;
+
+    if (hasCompletedSessionToday && nextSession?.sessionId) {
+      try {
+        const feedbackResponse = await getExerciseSessionFeedback(nextSession.sessionId);
+        if (!mountedRef.current || homeRequestId.current !== requestId) return;
+        nextResultRecordCompleted = hasExerciseSessionFeedback(feedbackResponse);
+      } catch (error) {
+        if (!mountedRef.current || homeRequestId.current !== requestId) return;
+        console.error('Exercise feedback restore failed:', error);
+        setHomeError(getExerciseApiErrorMessage(error));
+        setHomeLoadState('error');
+        return;
+      }
+    }
+
+    setLatestSession(nextSession);
+    setHomeMetrics(nextHomeMetrics);
 
     // 오늘 완료 세션은 추천 조회 결과와 관계없이 Home Hero에서 최우선입니다.
     if (hasCompletedSessionToday) {
       setRoutine(nextRoutine);
+      setResultRecordCompleted(nextResultRecordCompleted);
       setStatus('completed');
       setHomeLoadState('ready');
       return;
