@@ -69,13 +69,23 @@ from backend.app.security import (
 
 KST = ZoneInfo("Asia/Seoul")
 DUMMY_FOOD_NAME_PREFIX = re.compile(r"^\[DUMMY[^\]]*\]\s*", re.IGNORECASE)
+FOOD_NAME_PARENTHETICAL = re.compile(r"\s*(?:\([^()]*\)|（[^（）]*）)")
 DIET_GENERATION_LOCKS: dict[tuple[str, date], asyncio.Lock] = defaultdict(asyncio.Lock)
+
+
+def without_parenthetical_details(value: str) -> str:
+    display_value = value.strip()
+    previous_value = None
+    while display_value != previous_value:
+        previous_value = display_value
+        display_value = FOOD_NAME_PARENTHETICAL.sub("", display_value)
+    return " ".join(display_value.split())
 
 
 def normalize_recommended_foods(
     foods: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Return recommended foods with clean names and whole-number quantities."""
+    """Return display-safe names while preserving unabridged source values."""
     normalized: list[dict[str, Any]] = []
     for food in foods:
         item = food.copy()
@@ -83,7 +93,16 @@ def normalize_recommended_foods(
         if isinstance(food_name, str):
             normalized_name = DUMMY_FOOD_NAME_PREFIX.sub("", food_name).strip()
             if normalized_name:
-                item["food_name"] = normalized_name
+                display_name = without_parenthetical_details(normalized_name)
+                item["original_food_name"] = normalized_name
+                item["food_name"] = display_name or normalized_name
+                item["display_name"] = display_name or normalized_name
+        unit = item.get("unit")
+        if isinstance(unit, str):
+            display_unit = without_parenthetical_details(unit)
+            item["original_unit"] = unit.strip()
+            item["unit"] = display_unit or unit.strip()
+            item["display_unit"] = display_unit or unit.strip()
         quantity = item.get("quantity")
         if quantity is not None:
             item["quantity"] = int(
@@ -2535,6 +2554,7 @@ async def fetch_diet_recommendation(
     )
     cached_images: dict[str, dict[str, Any]] = {}
     feedback_by_meal: dict[str, dict[str, Any]] = {}
+    inventory_for_usage: list[dict[str, Any]] = []
 
     async def load_images():
         if not menu_image_keys:
@@ -2583,9 +2603,74 @@ async def fetch_diet_recommendation(
             for feedback in feedback_response.json()
         })
 
+    async def load_inventory_usage():
+        async with timed_http_client("inventory_usage", shared_client) as client:
+            inventory_response = await client.get(
+                f"{settings.supabase_url}/rest/v1/user_food_inventory",
+                headers=service_headers(settings),
+                params={
+                    "select": (
+                        "user_food_inventory_id,food_item_id,custom_name,quantity,"
+                        "unit,purchased_on,expires_on,is_available"
+                    ),
+                    "user_id": f"eq.{user_id}",
+                    "is_available": "eq.true",
+                    "order": "created_at.asc,user_food_inventory_id.asc",
+                    "limit": "500",
+                },
+            )
+        if not inventory_response.is_success:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Supabase food inventory query failed",
+            )
+        usage_date = recommendation_date
+        if usage_date is None and recommendation.get("recommendation_date"):
+            usage_date = date.fromisoformat(str(recommendation["recommendation_date"]))
+        inventory_rows = usable_food_inventory(
+            inventory_response.json(), usage_date
+        )
+        linked_food_ids = sorted({
+            str(item["food_item_id"])
+            for item in inventory_rows
+            if not item.get("custom_name") and item.get("food_item_id")
+        })
+        catalog_names: dict[str, str] = {}
+        if linked_food_ids:
+            async with timed_http_client("inventory_usage", shared_client) as client:
+                catalog_response = await client.get(
+                    f"{settings.supabase_url}/rest/v1/food_items",
+                    headers=service_headers(settings),
+                    params={
+                        "select": "food_item_id,name",
+                        "food_item_id": f"in.({','.join(linked_food_ids)})",
+                        "limit": "500",
+                    },
+                )
+            if not catalog_response.is_success:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Supabase food catalog query failed",
+                )
+            catalog_names = {
+                str(food["food_item_id"]): str(food["name"])
+                for food in catalog_response.json()
+                if food.get("food_item_id") and food.get("name")
+            }
+        for inventory_item in inventory_rows:
+            name = inventory_item.get("custom_name") or catalog_names.get(
+                str(inventory_item.get("food_item_id"))
+            )
+            if name:
+                inventory_for_usage.append({
+                    **inventory_item,
+                    "custom_name": str(name),
+                })
+
     # Wait for all probes even on failure so no child outlives the request/client.
     results = await asyncio.gather(
-        load_foods(), load_images(), load_feedback(), return_exceptions=True
+        load_foods(), load_images(), load_feedback(), load_inventory_usage(),
+        return_exceptions=True,
     )
     for result in results:
         if isinstance(result, BaseException):
@@ -2627,6 +2712,10 @@ async def fetch_diet_recommendation(
                 **meal,
                 "foods": foods_by_meal[meal["diet_meal_id"]],
                 "feedback": feedback_by_meal.get(meal["diet_meal_id"]),
+                "used_ingredients": find_used_inventory_items(
+                    [{"foods": foods_by_meal[meal["diet_meal_id"]]}],
+                    inventory_for_usage,
+                ),
             }
             for meal in meals
         ],

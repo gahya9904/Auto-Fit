@@ -22,6 +22,21 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_recommended_food_names_hide_parenthetical_details_and_preserve_source() -> None:
+    foods = main.normalize_recommended_foods([
+        {"food_name": "닭가슴살 샐러드 (저염 소스)", "quantity": 1, "unit": "개(중간)"},
+        {"food_name": "현미밥(잡곡 30%)", "quantity": 100, "unit": "g"},
+        {"food_name": "연어 샐러드(소스(별도))", "quantity": 120, "unit": "g"},
+    ])
+
+    assert [food["food_name"] for food in foods] == [
+        "닭가슴살 샐러드", "현미밥", "연어 샐러드",
+    ]
+    assert [food["unit"] for food in foods] == ["개", "g", "g"]
+    assert foods[0]["original_food_name"] == "닭가슴살 샐러드 (저염 소스)"
+    assert foods[0]["original_unit"] == "개(중간)"
+
+
 def test_mobile_diet_generation_test_page() -> None:
     client = TestClient(main.app)
     response = client.get("/test/diet-generation")

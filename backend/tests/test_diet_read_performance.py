@@ -25,7 +25,7 @@ def test_foods_and_images_overlap_and_preserve_response():
                 assert request.url.params["diet_recommendation_id"] == "eq.rec"
                 return httpx.Response(200, json=[{"diet_meal_id": "meal", "menu_image_key": "key"}])
             entered.add(path)
-            if len(entered) == 3:
+            if len(entered) == 4:
                 all_entered.set()
             await asyncio.wait_for(all_entered.wait(), timeout=1)
             if path == "diet_meal_foods":
@@ -34,8 +34,9 @@ def test_foods_and_images_overlap_and_preserve_response():
                     200,
                     json=[{
                         "diet_meal_id": "meal",
-                        "food_name": "[DUMMY 20260916] 현미밥",
+                        "food_name": "[DUMMY 20260916] 현미밥(잡곡)",
                         "quantity": 56.26,
+                        "unit": "g",
                     }],
                 )
             if path == "diet_feedback":
@@ -50,18 +51,39 @@ def test_foods_and_images_overlap_and_preserve_response():
                     "feedback_note": None,
                     "recorded_at": "2026-09-16T03:00:00Z",
                 }])
+            if path == "user_food_inventory":
+                return httpx.Response(200, json=[{
+                    "user_food_inventory_id": "inventory-1",
+                    "custom_name": "현미밥",
+                    "quantity": 2,
+                    "unit": "인분",
+                    "is_available": True,
+                }])
             assert path == "menu_images"
             return httpx.Response(200, json=[{"image_key": "key", "storage_path": "menu.png", "source_type": "cache", "generation_status": "completed"}])
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             result = await main.fetch_diet_recommendation("owner", TEST_SETTINGS, date(2026, 9, 16), client=client)
             assert not client.is_closed
-        assert entered == {"diet_meal_foods", "menu_images", "diet_feedback"}
+        assert entered == {
+            "diet_meal_foods", "menu_images", "diet_feedback",
+            "user_food_inventory",
+        }
         meal = result["meals"][0]
         assert meal["foods"] == [
-            {"diet_meal_id": "meal", "food_name": "현미밥", "quantity": 56}
+            {
+                "diet_meal_id": "meal",
+                "food_name": "현미밥",
+                "display_name": "현미밥",
+                "original_food_name": "현미밥(잡곡)",
+                "quantity": 56,
+                "unit": "g",
+                "display_unit": "g",
+                "original_unit": "g",
+            }
         ]
         assert meal["feedback"]["feedback_type"] == "skipped"
+        assert meal["used_ingredients"][0]["name"] == "현미밥"
         assert meal["image_url"].endswith("/menu-images/menu.png")
         assert meal["image_generation_required"] is False
 
@@ -76,7 +98,7 @@ def test_recommendation_returns_null_feedback_when_unrecorded():
                 return httpx.Response(200, json=[{"diet_recommendation_id": "rec"}])
             if path == "diet_meals":
                 return httpx.Response(200, json=[{"diet_meal_id": "meal", "menu_image_key": None}])
-            if path in {"diet_meal_foods", "diet_feedback"}:
+            if path in {"diet_meal_foods", "diet_feedback", "user_food_inventory"}:
                 return httpx.Response(200, json=[])
             raise AssertionError(f"unexpected request: {path}")
 
@@ -86,6 +108,46 @@ def test_recommendation_returns_null_feedback_when_unrecorded():
             )
 
         assert result["meals"][0]["feedback"] is None
+
+    asyncio.run(run())
+
+
+def test_completed_recommendation_restores_used_inventory_after_reload():
+    async def run():
+        async def handler(request):
+            path = request.url.path.rsplit("/", 1)[-1]
+            if path == "diet_recommendations":
+                return httpx.Response(200, json=[{"diet_recommendation_id": "rec"}])
+            if path == "diet_meals":
+                return httpx.Response(200, json=[{
+                    "diet_meal_id": "meal", "menu_image_key": None,
+                    "status": "completed",
+                }])
+            if path == "diet_meal_foods":
+                return httpx.Response(200, json=[{
+                    "diet_meal_id": "meal", "food_name": "바나나",
+                    "quantity": 1, "unit": "개(중간)",
+                }])
+            if path == "diet_feedback":
+                return httpx.Response(200, json=[{
+                    "diet_meal_id": "meal", "feedback_type": "eaten",
+                }])
+            if path == "user_food_inventory":
+                return httpx.Response(200, json=[{
+                    "user_food_inventory_id": "inventory-1",
+                    "custom_name": "바나나", "quantity": 6, "unit": "개",
+                    "is_available": True,
+                }])
+            raise AssertionError(f"unexpected request: {path}")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await main.fetch_diet_recommendation(
+                "owner", TEST_SETTINGS, date(2026, 9, 16), client=client
+            )
+
+        assert result["meals"][0]["used_ingredients"][0]["name"] == "바나나"
+        assert result["meals"][0]["foods"][0]["food_name"] == "바나나"
+        assert result["meals"][0]["foods"][0]["unit"] == "개"
 
     asyncio.run(run())
 
@@ -168,7 +230,9 @@ def test_food_query_failure_still_fails_and_waits_for_sibling():
             with pytest.raises(HTTPException) as error:
                 await main.fetch_diet_recommendation("owner", TEST_SETTINGS, date(2026, 9, 16), client=client)
             assert error.value.status_code == 502
-            assert siblings_finished == {"menu_images", "diet_feedback"}
+            assert siblings_finished == {
+                "menu_images", "diet_feedback", "user_food_inventory",
+            }
             assert not client.is_closed
 
     asyncio.run(run())
