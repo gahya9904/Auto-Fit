@@ -22,6 +22,15 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_mobile_diet_generation_test_page() -> None:
+    response = TestClient(main.app).get("/test/diet-generation")
+
+    assert response.status_code == 200
+    assert "4끼 전부 AI 생성 테스트" in response.text
+    assert "/api/diet/recommendations/generate-preview" in response.text
+    assert response.headers["cache-control"] == "no-store"
+
+
 def test_daily_diet_refresh_requires_configured_token(monkeypatch) -> None:
     monkeypatch.delenv("DIET_REFRESH_CRON_TOKEN", raising=False)
 
@@ -1911,6 +1920,73 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
         )
         assert response.status_code == 200
         assert response.json()["generator"] == "mixed_ai_v1"
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_preview_all_ai_diet_skips_catalog_and_persistence(monkeypatch) -> None:
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    async def fake_inventory(user_id, settings):
+        return [{"custom_name": "브로콜리"}]
+
+    async def fake_catalog(settings):
+        return [{"allergy_type_id": "allergy-1", "name": "우유"}]
+
+    async def fake_allergies(user_id, settings):
+        return [{"allergy_type_id": "allergy-1", "custom_name": None}]
+
+    async def reject_food_catalog(settings):
+        raise AssertionError("all-AI preview must not query the food catalog")
+
+    async def fake_daily_plan(
+        user_id,
+        inventory,
+        allergy_names,
+        food_catalog,
+        target_date=None,
+        all_ai=False,
+    ):
+        assert user_id == "authenticated-user"
+        assert inventory == [{"custom_name": "브로콜리"}]
+        assert allergy_names == ["우유"]
+        assert food_catalog == []
+        assert all_ai is True
+        return {
+            "recommendation": {"recommendation_date": "2026-09-29"},
+            "meals": [
+                {
+                    "meal_type": meal_type,
+                    "meal_order": index,
+                    "source_type": "ai_generated",
+                    "foods": [{"food_name": f"생성 식단 {index}"}],
+                }
+                for index, meal_type in enumerate(
+                    ["breakfast", "lunch", "dinner", "snack"], start=1
+                )
+            ],
+        }
+
+    async def reject_persistence(*args, **kwargs):
+        raise AssertionError("preview must not persist a recommendation")
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_food_inventory", fake_inventory)
+    monkeypatch.setattr(main, "fetch_allergy_catalog", fake_catalog)
+    monkeypatch.setattr(main, "fetch_user_allergies", fake_allergies)
+    monkeypatch.setattr(main, "fetch_food_catalog", reject_food_catalog)
+    monkeypatch.setattr(main, "build_daily_diet_recommendation_plan", fake_daily_plan)
+    monkeypatch.setattr(main, "create_diet_recommendation", reject_persistence)
+    try:
+        response = TestClient(main.app).post(
+            "/api/diet/recommendations/generate-preview", json={}
+        )
+        assert response.status_code == 200
+        assert response.json()["generator"] == "all_ai_preview_v1"
+        assert response.json()["persisted"] is False
+        assert len(response.json()["result"]["meals"]) == 4
     finally:
         main.app.dependency_overrides.clear()
 

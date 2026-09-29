@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from math import ceil
+from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -19,7 +20,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -3000,6 +3001,19 @@ app = FastAPI(
 )
 
 
+@app.get(
+    "/test/diet-generation",
+    response_class=FileResponse,
+    include_in_schema=False,
+)
+async def mobile_diet_generation_test() -> FileResponse:
+    return FileResponse(
+        Path(__file__).resolve().parents[2] / "mobile-diet-generation-test.html",
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.exception_handler(HTTPException)
 async def chat_http_error(request, exc):
     if request.url.path.startswith("/api/chats") and not isinstance(exc.detail, dict):
@@ -3674,6 +3688,45 @@ async def generate_diet_recommendation(
     await create_diet_recommendation(user.id, plan, settings)
     result = await fetch_latest_diet_recommendation(user.id, settings)
     return {"ok": True, "generator": "mixed_ai_v1", "result": result}
+
+
+@app.post("/api/diet/recommendations/generate-preview", tags=["Diet"])
+async def preview_all_ai_diet_recommendation(
+    body: GenerateDietRecommendationRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    inventory, catalog, selected = await asyncio.gather(
+        fetch_food_inventory(user.id, settings),
+        fetch_allergy_catalog(settings),
+        fetch_user_allergies(user.id, settings),
+    )
+    catalog_names = {
+        row["allergy_type_id"]: row["name"] for row in catalog
+    }
+    allergy_names = [
+        row.get("custom_name") or catalog_names.get(row.get("allergy_type_id"))
+        for row in selected
+    ]
+    try:
+        plan = await build_daily_diet_recommendation_plan(
+            user.id,
+            inventory,
+            [name for name in allergy_names if name],
+            [],
+            all_ai=True,
+        )
+    except DietAIUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI diet generator is temporarily unavailable",
+        ) from exc
+    return {
+        "ok": True,
+        "generator": "all_ai_preview_v1",
+        "persisted": False,
+        "result": plan,
+    }
 
 
 @app.post("/api/diet/meals/{diet_meal_id}/regenerate", tags=["Diet"])
