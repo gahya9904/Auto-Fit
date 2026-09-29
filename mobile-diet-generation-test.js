@@ -10,6 +10,13 @@ let accessToken=null;
 
 function setStatus(message,kind='info') { statusBox.textContent=message; statusBox.dataset.kind=kind; }
 
+function formatFoodQuantity(quantity,unit) {
+  if(quantity===null||quantity===undefined||quantity==='') return '';
+  const numericQuantity=Number(quantity);
+  const isGramUnit=/^(g|gram|grams|그램)$/i.test(String(unit||'').trim());
+  return isGramUnit&&Number.isFinite(numericQuantity)?String(Math.round(numericQuantity)):String(quantity);
+}
+
 document.querySelector('#login-form').addEventListener('submit',async event=>{
   event.preventDefault();
   const button=event.submitter; button.disabled=true;
@@ -47,7 +54,7 @@ document.querySelector('#generate').addEventListener('click',async event=>{
       const card=document.createElement('article'); card.className='meal';
       const title=document.createElement('h2'); title.textContent=`${mealLabels[meal.meal_type]||meal.meal_type} · AI 생성`;
       const list=document.createElement('ul');
-      (meal.foods||[]).forEach(food=>{const item=document.createElement('li');item.textContent=`${food.food_name} ${food.quantity||''}${food.unit||''}`;list.append(item);});
+      (meal.foods||[]).forEach(food=>{const item=document.createElement('li');item.textContent=`${food.food_name} ${formatFoodQuantity(food.quantity,food.unit)}${food.unit||''}`;list.append(item);});
       card.append(title,list); mealsElement.append(card);
     });
   } catch(error) { setStatus(`생성 실패: ${error.message}`,'error'); }

@@ -38,6 +38,8 @@ def test_mobile_diet_generation_test_page() -> None:
     script = client.get("/test/diet-generation.js")
     assert script.status_code == 200
     assert "/api/diet/recommendations/generate-preview" in script.text
+    assert "formatFoodQuantity(food.quantity,food.unit)" in script.text
+    assert "Math.round(numericQuantity)" in script.text
 
 
 def test_daily_diet_refresh_requires_configured_token(monkeypatch) -> None:
