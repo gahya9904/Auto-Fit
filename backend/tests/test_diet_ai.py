@@ -48,7 +48,7 @@ def test_generate_ai_meals_accepts_only_requested_slots() -> None:
                         "recommendation_note": "AI 추천",
                         "foods": [
                             {
-                                "food_name": "채소 비빔밥",
+                                "food_name": f"채소 비빔밥 {slot['meal_order']}",
                                 "quantity": 300,
                                 "unit": "g",
                                 "calories": 400,
@@ -86,7 +86,11 @@ def test_generate_ai_meals_selects_safe_candidate_per_slot() -> None:
         slot = json.loads(prompt.rsplit("\n", 1)[-1])["slot"]
         order = slot["meal_order"]
         attempts[order] = attempts.get(order, 0) + 1
-        food_name = "우유 오트밀" if attempts[order] == 1 else "채소 비빔밥"
+        food_name = (
+            "우유 오트밀"
+            if attempts[order] == 1
+            else f"채소 비빔밥 {order}"
+        )
         return json.dumps(
             {
                 "meals": [
@@ -114,8 +118,105 @@ def test_generate_ai_meals_selects_safe_candidate_per_slot() -> None:
     meals = asyncio.run(generate_ai_meals(slots, ["우유"], fake_model))
 
     assert len(meals) == 2
-    assert all(meal["foods"][0]["food_name"] == "채소 비빔밥" for meal in meals)
+    assert [meal["foods"][0]["food_name"] for meal in meals] == [
+        "채소 비빔밥 1",
+        "채소 비빔밥 2",
+    ]
     assert attempts == {1: 2, 2: 2}
+
+
+def test_generate_ai_meals_retries_repeated_representative_food() -> None:
+    slots = BASE_MEALS[:2]
+    attempts: dict[int, int] = {}
+
+    async def fake_model(prompt: str) -> str:
+        payload = json.loads(prompt.rsplit("\n", 1)[-1])
+        slot = payload["slot"]
+        order = slot["meal_order"]
+        attempts[order] = attempts.get(order, 0) + 1
+        food_name = (
+            "채소 비빔밥"
+            if order == 1 or attempts[order] == 1
+            else "닭가슴살 포케"
+        )
+        return json.dumps(
+            {
+                "meals": [
+                    {
+                        "meal_type": slot["meal_type"],
+                        "meal_order": order,
+                        "recommendation_note": "AI 추천",
+                        "foods": [
+                            {
+                                "food_name": food_name,
+                                "quantity": 300,
+                                "unit": "g",
+                                "calories": 400,
+                                "carbohydrates": 60,
+                                "protein": 18,
+                                "fat": 10,
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    meals = asyncio.run(generate_ai_meals(slots, [], fake_model))
+
+    assert [meal["foods"][0]["food_name"] for meal in meals] == [
+        "채소 비빔밥",
+        "닭가슴살 포케",
+    ]
+    assert attempts == {1: 1, 2: 2}
+
+
+def test_generate_ai_meals_avoids_previous_representative_food() -> None:
+    attempts = 0
+
+    async def fake_model(prompt: str) -> str:
+        nonlocal attempts
+        payload = json.loads(prompt.rsplit("\n", 1)[-1])
+        attempts += 1
+        assert "이전식단" in payload["avoid_food_names"]
+        food_name = "이전 식단" if attempts == 1 else "새로운 포케"
+        slot = payload["slot"]
+        return json.dumps(
+            {
+                "meals": [
+                    {
+                        "meal_type": slot["meal_type"],
+                        "meal_order": slot["meal_order"],
+                        "recommendation_note": "AI 추천",
+                        "foods": [
+                            {
+                                "food_name": food_name,
+                                "quantity": 300,
+                                "unit": "g",
+                                "calories": 400,
+                                "carbohydrates": 60,
+                                "protein": 18,
+                                "fat": 10,
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    meals = asyncio.run(
+        generate_ai_meals(
+            BASE_MEALS[:1],
+            [],
+            fake_model,
+            avoid_food_names=["이전 식단"],
+        )
+    )
+
+    assert meals[0]["foods"][0]["food_name"] == "새로운 포케"
+    assert attempts == 2
 
 
 def test_mix_meals_keeps_db_catalog_remainder() -> None:

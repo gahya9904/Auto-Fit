@@ -2245,6 +2245,7 @@ async def build_daily_diet_recommendation_plan(
     food_catalog: list[dict[str, Any]],
     target_date: date | None = None,
     all_ai: bool = False,
+    avoid_food_names: list[str] | None = None,
 ) -> dict[str, Any]:
     recommendation_date = target_date or datetime.now(KST).date()
     plan = build_diet_recommendation_plan(inventory, allergy_names)
@@ -2258,6 +2259,7 @@ async def build_daily_diet_recommendation_plan(
         ai_slots,
         allergy_names,
         request_model,
+        avoid_food_names,
     )
     plan["meals"] = (
         sorted(ai_meals, key=lambda meal: int(meal["meal_order"]))
@@ -2325,6 +2327,9 @@ async def fetch_diet_recommendation(
         )
     if recommendation_date is None:
         recommendation_params["status"] = "eq.active"
+        recommendation_params["recommendation_date"] = (
+            f"lte.{datetime.now(KST).date().isoformat()}"
+        )
     else:
         recommendation_params["recommendation_date"] = f"eq.{recommendation_date.isoformat()}"
     shared_client = client
@@ -2499,6 +2504,18 @@ async def fetch_latest_diet_recommendation(
     settings: Settings,
 ) -> dict[str, Any] | None:
     return await fetch_diet_recommendation(user_id, settings)
+
+
+def representative_food_names(
+    recommendation: dict[str, Any] | None,
+) -> list[str]:
+    if not recommendation:
+        return []
+    return [
+        str(meal["foods"][0]["food_name"])
+        for meal in recommendation.get("meals") or []
+        if meal.get("foods") and meal["foods"][0].get("food_name")
+    ]
 
 
 async def regenerate_diet_meal(
@@ -3679,11 +3696,13 @@ async def generate_diet_recommendation(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    inventory, catalog, selected, food_catalog = await asyncio.gather(
+    target_date = datetime.now(KST).date()
+    inventory, catalog, selected, food_catalog, previous = await asyncio.gather(
         fetch_food_inventory(user.id, settings),
         fetch_allergy_catalog(settings),
         fetch_user_allergies(user.id, settings),
         fetch_food_catalog(settings),
+        fetch_diet_recommendation(user.id, settings, target_date),
     )
     catalog_names = {
         row["allergy_type_id"]: row["name"] for row in catalog
@@ -3698,6 +3717,8 @@ async def generate_diet_recommendation(
             inventory,
             [name for name in allergy_names if name],
             food_catalog,
+            target_date=target_date,
+            avoid_food_names=representative_food_names(previous),
         )
     except DietAIUnavailable as exc:
         raise HTTPException(
@@ -3711,7 +3732,7 @@ async def generate_diet_recommendation(
         ) from exc
     await assign_menu_images(plan["meals"], settings)
     await create_diet_recommendation(user.id, plan, settings)
-    result = await fetch_latest_diet_recommendation(user.id, settings)
+    result = await fetch_diet_recommendation(user.id, settings, target_date)
     return {"ok": True, "generator": "mixed_ai_v1", "result": result}
 
 
@@ -3721,10 +3742,12 @@ async def preview_all_ai_diet_recommendation(
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    inventory, catalog, selected = await asyncio.gather(
+    target_date = datetime.now(KST).date()
+    inventory, catalog, selected, previous = await asyncio.gather(
         fetch_food_inventory(user.id, settings),
         fetch_allergy_catalog(settings),
         fetch_user_allergies(user.id, settings),
+        fetch_diet_recommendation(user.id, settings, target_date),
     )
     catalog_names = {
         row["allergy_type_id"]: row["name"] for row in catalog
@@ -3739,7 +3762,9 @@ async def preview_all_ai_diet_recommendation(
             inventory,
             [name for name in allergy_names if name],
             [],
+            target_date=target_date,
             all_ai=True,
+            avoid_food_names=representative_food_names(previous),
         )
     except DietAIUnavailable as exc:
         raise HTTPException(
