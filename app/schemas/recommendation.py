@@ -7,11 +7,6 @@ from pydantic import (
 )
 
 
-# =========================================================
-# Common
-# =========================================================
-
-
 RecommendationSource = dict[str, str]
 
 
@@ -36,7 +31,6 @@ class ExerciseRecommendationRequest(BaseModel):
     )
 
     goal_type: str | None = None
-
     experience_level: str | None = None
 
     available_minutes: int | None = Field(
@@ -73,7 +67,6 @@ class ExerciseItem(BaseModel):
 
 class ExerciseSession(BaseModel):
     name: str
-
     focus: str | None = None
 
     estimated_duration_minutes: int | None = Field(
@@ -118,14 +111,6 @@ class ExerciseRecommendationResponse(BaseModel):
 
 
 class DietRecommendationRequest(BaseModel):
-    """
-    Backend -> AI 식단 추천 입력.
-
-    refrigerator_ingredients:
-    - 냉장고 정보가 있으면 재료명 배열
-    - 없으면 null 또는 []
-    """
-
     metric_statuses: dict[str, str] = Field(
         default_factory=dict
     )
@@ -149,7 +134,7 @@ class DietRecommendationRequest(BaseModel):
 
 
 # =========================================================
-# Diet Meal
+# Diet Types
 # =========================================================
 
 
@@ -172,44 +157,83 @@ DietMealType = Literal[
 ]
 
 
+# =========================================================
+# Meal Nutrition
+# =========================================================
+
+
 class MealNutrition(BaseModel):
+    carbohydrate_g: int = Field(
+        ge=0,
+        le=1000,
+    )
+
+    protein_g: int = Field(
+        ge=0,
+        le=1000,
+    )
+
+    fat_g: int = Field(
+        ge=0,
+        le=1000,
+    )
+
+
+# =========================================================
+# Refrigerator Ingredient
+# =========================================================
+
+
+class DietIngredient(BaseModel):
     """
-    메뉴 1인분 기준 예상 영양값.
+    실제 추천 메뉴에 사용된 냉장고 재료.
 
-    실제 임상 처방값이 아니라
-    추천 메뉴의 예상값으로 사용한다.
+    전체 레시피 재료 목록이 아니다.
+    모든 수치값은 정수.
     """
 
-    carbohydrate_g: float = Field(
+    name: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    recommended_amount: int = Field(
+        ge=0,
+        le=10000,
+    )
+
+    unit: str = Field(
+        min_length=1,
+        max_length=20,
+    )
+
+    carbohydrate_g: int = Field(
         ge=0,
         le=1000,
     )
 
-    protein_g: float = Field(
+    protein_g: int = Field(
         ge=0,
         le=1000,
     )
 
-    fat_g: float = Field(
+    fat_g: int = Field(
         ge=0,
         le=1000,
     )
+
+    estimated_calories_kcal: int = Field(
+        ge=0,
+        le=5000,
+    )
+
+
+# =========================================================
+# Diet Meal
+# =========================================================
 
 
 class DietMeal(BaseModel):
-    """
-    추천 식사 한 끼.
-
-    ingredients 의미:
-    전체 조리 재료가 아니다.
-
-    냉장고 데이터가 있는 경우:
-    → 해당 메뉴에 실제 사용된 냉장고 재료만 반환
-
-    냉장고 데이터가 없는 경우:
-    → None
-    """
-
     menu_name: str = Field(
         min_length=1,
         max_length=100,
@@ -227,12 +251,22 @@ class DietMeal(BaseModel):
 
     nutrition: MealNutrition
 
-    ingredients: list[str] | None = None
+    # 냉장고가 없으면 None
+    # 냉장고가 있으면 실제 사용된 냉장고 재료만 포함
+    ingredients: (
+        list[DietIngredient]
+        | None
+    ) = None
 
     guidance: str = Field(
         default="",
         max_length=150,
     )
+
+
+# =========================================================
+# Daily Diet
+# =========================================================
 
 
 class DailyMeals(BaseModel):
@@ -244,12 +278,11 @@ class DailyMeals(BaseModel):
 
 class DietDayPlan(BaseModel):
     day: DietDay
-
     meals: DailyMeals
 
 
 # =========================================================
-# Diet Strategy
+# Nutrition Strategy
 # =========================================================
 
 
@@ -260,9 +293,13 @@ class NutritionBalance(BaseModel):
     fat_strategy: str = ""
 
 
+# =========================================================
+# Diet Response
+# =========================================================
+
+
 class DietRecommendationResponse(BaseModel):
     summary: str
-
     strategy: str
 
     nutrition_balance: NutritionBalance
@@ -296,12 +333,13 @@ class DietRecommendationResponse(BaseModel):
         default_factory=list
     )
 
-    @model_validator(
-        mode="after"
-    )
-    def validate_week(
-        self,
-    ):
+    @model_validator(mode="after")
+    def validate_week(self):
+        """
+        monday ~ sunday가
+        정확히 한 번씩 존재하는지 검증.
+        """
+
         expected_days = {
             "monday",
             "tuesday",
@@ -317,7 +355,6 @@ class DietRecommendationResponse(BaseModel):
             for plan in self.weekly_plan
         ]
 
-        # 정확히 7개의 서로 다른 요일이어야 함
         if (
             len(actual_days) != 7
             or set(actual_days) != expected_days
@@ -341,7 +378,6 @@ class ReplaceMealRequest(BaseModel):
     )
 
     target_day: DietDay
-
     target_meal: DietMealType
 
     current_menu_name: str
@@ -370,7 +406,6 @@ class ReplaceMealRequest(BaseModel):
 
 class ReplaceMealResponse(BaseModel):
     day: DietDay
-
     meal_type: DietMealType
 
     meal: DietMeal
@@ -386,53 +421,23 @@ class ReplaceMealResponse(BaseModel):
 
 
 # =========================================================
-# Backend-compatible Wrapper
+# Backend-compatible Response Wrapper
 # =========================================================
 
 
 class ExerciseGenerateResponse(BaseModel):
-    """
-    Backend 공개 API:
-
-    POST /api/exercise/recommendations/generate
-
-    {
-        "ok": true,
-        "generator": "...",
-        "result": {...}
-    }
-    """
-
     ok: bool = True
-
     generator: str
-
     result: ExerciseRecommendationResponse
 
 
 class DietGenerateResponse(BaseModel):
-    """
-    Backend 공개 API:
-
-    POST /api/diet/recommendations/generate
-    """
-
     ok: bool = True
-
     generator: str
-
     result: DietRecommendationResponse
 
 
 class DietMealRegenerateResponse(BaseModel):
-    """
-    Backend 공개 API:
-
-    POST /api/diet/meals/{diet_meal_id}/regenerate
-    """
-
     ok: bool = True
-
     generator: str
-
     meal: ReplaceMealResponse

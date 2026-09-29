@@ -2,15 +2,11 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from app.core.config import (
-    get_settings,
-)
-
-from app.graphs.nodes.rag_node import (
-    rag_node,
-)
+from app.core.config import get_settings
+from app.graphs.nodes.rag_node import rag_node
 
 from app.schemas.recommendation import (
+    DietIngredient,
     DietRecommendationRequest,
     DietRecommendationResponse,
     ReplaceMealRequest,
@@ -23,7 +19,7 @@ from app.services.diet_context_service import (
 
 
 # =========================================================
-# Text / Refrigerator Utility
+# Text Utility
 # =========================================================
 
 
@@ -34,36 +30,48 @@ def _normalize_text(
         value
         .strip()
         .lower()
+        .replace(" ", "")
     )
+
+
+# =========================================================
+# Refrigerator Utility
+# =========================================================
 
 
 def _normalize_refrigerator_ingredients(
     ingredients: list[str] | None,
 ) -> list[str]:
-    """
-    Backend가 전달한 냉장고 재료명을 정리한다.
-    """
-
     if not ingredients:
         return []
 
     result: list[str] = []
 
+    seen: set[str] = set()
+
     for ingredient in ingredients:
         if not ingredient:
             continue
 
-        cleaned = (
-            ingredient.strip()
+        cleaned = ingredient.strip()
+
+        if not cleaned:
+            continue
+
+        normalized = _normalize_text(
+            cleaned
         )
 
-        if (
+        if normalized in seen:
+            continue
+
+        result.append(
             cleaned
-            and cleaned not in result
-        ):
-            result.append(
-                cleaned
-            )
+        )
+
+        seen.add(
+            normalized
+        )
 
     return result
 
@@ -71,20 +79,11 @@ def _normalize_refrigerator_ingredients(
 def _build_refrigerator_map(
     ingredients: list[str],
 ) -> dict[str, str]:
-    """
-    normalize된 재료명 -> 실제 입력 재료명.
-    """
-
-    result: dict[
-        str,
-        str,
-    ] = {}
+    result: dict[str, str] = {}
 
     for item in ingredients:
-        normalized = (
-            _normalize_text(
-                item
-            )
+        normalized = _normalize_text(
+            item
         )
 
         if not normalized:
@@ -99,17 +98,15 @@ def _build_refrigerator_map(
 
 def _filter_used_refrigerator_ingredients(
     *,
-    generated_ingredients: list[str] | None,
+    generated_ingredients: (
+        list[DietIngredient]
+        | None
+    ),
     refrigerator_ingredients: list[str],
-) -> list[str] | None:
+) -> list[DietIngredient] | None:
     """
-    LLM이 반환한 ingredients를 서버에서 다시 검증한다.
-
-    냉장고 재료가 없는 경우:
-        ingredients = None
-
-    냉장고 재료가 있는 경우:
-        실제 냉장고 입력에 존재하는 재료만 허용
+    LLM 결과 중 실제 냉장고에 존재하는
+    재료만 ingredients에 남긴다.
     """
 
     if not refrigerator_ingredients:
@@ -124,13 +121,15 @@ def _filter_used_refrigerator_ingredients(
         )
     )
 
-    result: list[str] = []
+    result: list[
+        DietIngredient
+    ] = []
+
+    used_names: set[str] = set()
 
     for ingredient in generated_ingredients:
-        normalized = (
-            _normalize_text(
-                ingredient
-            )
+        normalized = _normalize_text(
+            ingredient.name
         )
 
         actual_name = (
@@ -139,16 +138,128 @@ def _filter_used_refrigerator_ingredients(
             )
         )
 
-        # 냉장고에 없는 재료는 ingredients에서 제거
         if actual_name is None:
             continue
 
-        if actual_name not in result:
-            result.append(
+        normalized_actual = (
+            _normalize_text(
                 actual_name
             )
+        )
+
+        if normalized_actual in used_names:
+            continue
+
+        validated = (
+            ingredient.model_copy(
+                update={
+                    "name": (
+                        actual_name
+                    )
+                }
+            )
+        )
+
+        result.append(
+            validated
+        )
+
+        used_names.add(
+            normalized_actual
+        )
 
     return result
+
+
+# =========================================================
+# Menu Diversity Validation
+# =========================================================
+
+
+def _collect_menu_names(
+    response: DietRecommendationResponse,
+) -> list[str]:
+    """
+    7일 × 4끼 = 28개 메뉴명 수집.
+    """
+
+    menu_names: list[str] = []
+
+    for day_plan in response.weekly_plan:
+        meals = day_plan.meals
+
+        menu_names.extend(
+            [
+                meals.breakfast.menu_name,
+                meals.lunch.menu_name,
+                meals.dinner.menu_name,
+                meals.snack.menu_name,
+            ]
+        )
+
+    return menu_names
+
+
+def _find_duplicate_menu_names(
+    response: DietRecommendationResponse,
+) -> list[str]:
+    """
+    동일한 메뉴명이 반복됐는지 확인한다.
+
+    공백/대소문자는 무시한다.
+    """
+
+    menu_names = (
+        _collect_menu_names(
+            response
+        )
+    )
+
+    counts: dict[str, int] = {}
+    display_names: dict[str, str] = {}
+
+    for name in menu_names:
+        normalized = (
+            _normalize_text(
+                name
+            )
+        )
+
+        counts[
+            normalized
+        ] = (
+            counts.get(
+                normalized,
+                0,
+            )
+            + 1
+        )
+
+        if normalized not in display_names:
+            display_names[
+                normalized
+            ] = name
+
+    duplicates = [
+        display_names[
+            normalized
+        ]
+        for normalized, count
+        in counts.items()
+        if count > 1
+    ]
+
+    return duplicates
+
+
+def _has_duplicate_menu_names(
+    response: DietRecommendationResponse,
+) -> bool:
+    return bool(
+        _find_duplicate_menu_names(
+            response
+        )
+    )
 
 
 # =========================================================
@@ -159,10 +270,6 @@ def _filter_used_refrigerator_ingredients(
 async def _get_diet_rag_context(
     metric_statuses: dict[str, str],
 ) -> list[dict[str, Any]]:
-    """
-    건강 상태에 해당하는 공식 가이드라인을 검색한다.
-    """
-
     if not metric_statuses:
         return []
 
@@ -194,10 +301,6 @@ async def _get_diet_rag_context(
 def _build_safe_rag_context(
     rag_context: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """
-    LLM에 전달할 RAG 정보를 최소화한다.
-    """
-
     safe_context: list[
         dict[str, Any]
     ] = []
@@ -221,7 +324,9 @@ def _build_safe_rag_context(
 
         safe_context.append(
             {
-                "content": content,
+                "content": (
+                    content
+                ),
                 "source_org": (
                     item.get(
                         "source_org"
@@ -244,7 +349,69 @@ def _build_safe_rag_context(
 
 
 # =========================================================
-# Weekly Plan Ingredient Validation
+# Refrigerator Prompt
+# =========================================================
+
+
+def _build_refrigerator_instruction(
+    refrigerator_ingredients: list[str],
+) -> str:
+    if refrigerator_ingredients:
+        return f"""
+[냉장고 재료]
+{refrigerator_ingredients}
+
+냉장고 활용 규칙:
+
+- 위 냉장고 재료를 활용할 수 있는 메뉴를 우선적으로 고려한다.
+- 하지만 모든 끼니에 냉장고 재료를 반드시 넣을 필요는 없다.
+- 냉장고 재료 때문에 7일 식단의 메뉴 다양성이 지나치게 제한되어서는 안 된다.
+- 동일한 냉장고 재료가 연속된 여러 끼니에서 주재료로 반복되지 않도록 한다.
+- 같은 냉장고 재료라도 조리법과 메뉴 형태를 다양하게 구성한다.
+- 필요하다면 일반적인 식재료를 추가하여 새로운 메뉴를 구성할 수 있다.
+- 알레르기와 건강 안전 조건이 냉장고 활용보다 항상 우선한다.
+
+ingredients 규칙:
+
+- ingredients는 전체 레시피 재료 목록이 아니다.
+- 실제 해당 메뉴에 사용된 냉장고 재료만 기록한다.
+- 냉장고에 없는 일반 재료나 조미료는 ingredients에 넣지 않는다.
+
+각 ingredients 항목에는 반드시:
+
+- name
+- recommended_amount
+- unit
+- carbohydrate_g
+- protein_g
+- fat_g
+- estimated_calories_kcal
+
+를 포함한다.
+
+recommended_amount와 모든 영양값은 정수로 반환한다.
+
+재료별 영양정보는
+recommended_amount만큼 섭취했을 때의
+예상 영양정보이다.
+""".strip()
+
+    return """
+[냉장고 재료]
+제공되지 않음.
+
+규칙:
+
+- 냉장고 재료가 없더라도 메뉴 다양성을 적극적으로 확보한다.
+- 일반적인 식재료를 이용하여 현실적으로 먹을 수 있는 식단을 구성한다.
+- 7일 동안 가능한 한 서로 다른 메뉴를 추천한다.
+- 모든 메뉴의 ingredients는 반드시 null이다.
+- 메뉴 총 kcal와 탄수화물/단백질/지방은 정상적으로 생성한다.
+""".strip()
+
+
+# =========================================================
+# Ingredient Post Validation
 # =========================================================
 
 
@@ -253,17 +420,10 @@ def _validate_weekly_plan_ingredients(
     response: DietRecommendationResponse,
     refrigerator_ingredients: list[str],
 ) -> DietRecommendationResponse:
-    """
-    7일 식단의 모든 Meal.ingredients를
-    서버에서 다시 검증한다.
-    """
-
     updated_days = []
 
     for day_plan in response.weekly_plan:
-        meals = (
-            day_plan.meals
-        )
+        meals = day_plan.meals
 
         breakfast = (
             meals.breakfast.model_copy(
@@ -344,10 +504,18 @@ def _validate_weekly_plan_ingredients(
         updated_meals = (
             meals.model_copy(
                 update={
-                    "breakfast": breakfast,
-                    "lunch": lunch,
-                    "dinner": dinner,
-                    "snack": snack,
+                    "breakfast": (
+                        breakfast
+                    ),
+                    "lunch": (
+                        lunch
+                    ),
+                    "dinner": (
+                        dinner
+                    ),
+                    "snack": (
+                        snack
+                    ),
                 }
             )
         )
@@ -372,42 +540,202 @@ def _validate_weekly_plan_ingredients(
 
 
 # =========================================================
-# Refrigerator Prompt
+# OpenAI Weekly Diet Generation
 # =========================================================
 
 
-def _build_refrigerator_instruction(
-    refrigerator_ingredients: list[str],
-) -> str:
+async def _request_weekly_diet_from_llm(
+    *,
+    client: AsyncOpenAI,
+    model: str,
+    metric_statuses: dict[str, str],
+    safety_tags: list[str],
+    food_allergens: list[str],
+    goal_type: str,
+    additional_input: (
+        str
+        | list[str]
+        | None
+    ),
+    refrigerator_instruction: str,
+    safe_rag_context: list[
+        dict[str, Any]
+    ],
+    retry_duplicates: (
+        list[str]
+        | None
+    ) = None,
+) -> DietRecommendationResponse:
     """
-    냉장고 재료 존재 여부에 따라
-    LLM 규칙을 구성한다.
+    실제 OpenAI Structured Output 호출.
     """
 
-    if refrigerator_ingredients:
-        return f"""
-[냉장고 재료]
-{refrigerator_ingredients}
+    diversity_retry_instruction = ""
 
-냉장고 재료 활용 규칙:
+    if retry_duplicates:
+        diversity_retry_instruction = f"""
+[이전 생성 결과에서 중복된 메뉴]
+{retry_duplicates}
 
-- 위 재료를 이용해서 만들 수 있는 요리를 우선적으로 생성한다.
-- 가능한 경우 냉장고 재료를 메뉴의 핵심 재료로 활용한다.
-- 단, 알레르기 및 건강 안전 조건이 항상 냉장고 활용보다 우선한다.
-- ingredients에는 해당 추천 메뉴에 실제 사용한 냉장고 재료 이름만 넣는다.
-- ingredients는 전체 레시피 재료 목록이 아니다.
-- 냉장고 입력에 없는 조미료 또는 보조 재료는 메뉴 구성에 사용할 수 있으나 ingredients에는 기록하지 않는다.
+이전 결과에 동일한 메뉴가 반복되었다.
+
+이번에는 위 메뉴를 포함한 중복이 다시 발생하지 않도록
+28개 식사 슬롯의 메뉴명을 모두 다르게 구성하라.
+
+이름만 살짝 바꾼 사실상 동일한 메뉴도 피하라.
 """.strip()
 
-    return """
-[냉장고 재료]
-제공되지 않음.
+    instructions = """
+너는 Auto-Fit의 개인 맞춤 식단 추천 AI다.
 
-냉장고 재료 활용 규칙:
+추천 우선순위:
 
-- 건강 상태와 사용자 목표를 고려한 일반 맞춤 식단을 생성한다.
-- 모든 메뉴의 ingredients는 반드시 null로 반환한다.
+1. 알레르기 및 명시적 섭취 제한
+2. 건강 상태 및 안전성
+3. 사용자의 목표
+4. 냉장고 재료 활용
+5. 영양 균형
+6. 메뉴 다양성
+7. 현실적인 조리 및 섭취 가능성
+
+
+건강 규칙:
+
+- 의료 진단이나 치료 처방을 하지 않는다.
+- 알레르기 재료는 절대 사용하지 않는다.
+- 제공되지 않은 건강 수치를 추측하지 않는다.
+- metric_statuses를 기준으로 건강 상태를 고려한다.
+
+
+주간 식단 규칙:
+
+- 정확히 7일을 생성한다.
+- monday부터 sunday까지 정확히 한 번씩 생성한다.
+- 매일 breakfast, lunch, dinner, snack을 정확히 하나씩 생성한다.
+
+
+메뉴 다양성 규칙:
+
+- 7일 전체에서 동일한 메뉴명을 반복하지 않는다.
+- 총 28개 식사 슬롯을 가능한 한 서로 다른 메뉴로 구성한다.
+- 동일한 메뉴의 이름만 조금 바꾸어 다른 메뉴처럼 생성하지 않는다.
+- 같은 주재료가 연속적으로 지나치게 반복되지 않도록 한다.
+- 같은 조리 방식이 연속적으로 반복되지 않도록 한다.
+- 볶음, 구이, 찜, 국, 찌개, 샐러드, 덮밥,
+  비빔밥, 샌드위치, 죽, 수프, 오믈렛 등
+  다양한 메뉴 형태와 조리법을 활용한다.
+- 한식 중심으로 구성하되 필요하면
+  현실적인 일반 메뉴도 적절히 섞을 수 있다.
+- breakfast, lunch, dinner, snack의 특성에
+  맞는 메뉴를 각각 구성한다.
+- 간식은 일반 식사 메뉴처럼 지나치게 무겁게 구성하지 않는다.
+
+
+냉장고 재료 다양성 규칙:
+
+- 냉장고 재료가 있더라도 모든 끼니에서
+  동일한 냉장고 재료를 강제로 사용하지 않는다.
+- 냉장고 재료를 우선 활용하되
+  전체 7일 식단의 다양성도 확보한다.
+- 동일한 냉장고 재료 조합을 반복하지 않는다.
+- 필요하면 냉장고에 없는 일반 식재료를 활용할 수 있다.
+- 단, ingredients에는 실제 냉장고에 존재하며
+  해당 메뉴에 사용된 재료만 기록한다.
+
+
+메뉴 출력 규칙:
+
+각 메뉴에는 반드시:
+
+- menu_name
+- menu_description
+- estimated_calories_kcal
+- nutrition.carbohydrate_g
+- nutrition.protein_g
+- nutrition.fat_g
+- ingredients
+- guidance
+
+를 생성한다.
+
+
+숫자 규칙:
+
+- estimated_calories_kcal은 정수
+- carbohydrate_g는 정수
+- protein_g는 정수
+- fat_g는 정수
+- ingredients 내부 모든 영양정보도 정수
+- ingredients.recommended_amount도 정수
+
+
+영양정보 규칙:
+
+- 메뉴 전체 영양정보는 1인분 기준 예상값이다.
+- 재료별 영양정보는 해당 recommended_amount 기준 예상값이다.
+- ingredients 영양정보의 합이 메뉴 전체 영양정보와
+  반드시 일치할 필요는 없다.
+- ingredients에는 냉장고 재료만 기록되기 때문이다.
+
+
+냉장고 재료가 없는 경우:
+
+- ingredients는 반드시 null이다.
+
+
+출력은 Structured Output Schema를 따른다.
 """.strip()
+
+    prompt = f"""
+[건강 상태]
+{metric_statuses}
+
+[건강 안전 태그]
+{safety_tags}
+
+[사용자 목표]
+{goal_type}
+
+[알레르기]
+{food_allergens}
+
+[추가 사용자 입력]
+{additional_input}
+
+{refrigerator_instruction}
+
+[검증된 건강 가이드라인 RAG]
+{safe_rag_context}
+
+{diversity_retry_instruction}
+
+위 정보를 바탕으로
+건강 조건을 만족하면서도
+7일 동안 메뉴가 다양하게 구성된
+실천 가능한 식단을 생성하라.
+"""
+
+    response = await client.responses.parse(
+        model=model,
+        instructions=instructions,
+        input=prompt,
+        reasoning={
+            "effort": "minimal"
+        },
+        text_format=(
+            DietRecommendationResponse
+        ),
+        max_output_tokens=6500,
+    )
+
+    result = response.output_parsed
+
+    if result is None:
+        raise RuntimeError(
+            "Diet recommendation output is empty"
+        )
+
+    return result
 
 
 # =========================================================
@@ -418,14 +746,7 @@ def _build_refrigerator_instruction(
 async def generate_diet_recommendation(
     request: DietRecommendationRequest,
 ) -> DietRecommendationResponse:
-    """
-    건강 상태, 사용자 목표, 알레르기,
-    냉장고 재료를 기반으로 7일 식단을 생성한다.
-    """
-
-    settings = (
-        get_settings()
-    )
+    settings = get_settings()
 
     if not settings.openai_api_key:
         raise RuntimeError(
@@ -487,120 +808,94 @@ async def generate_diet_recommendation(
         )
     )
 
-    instructions = """
-너는 Auto-Fit의 개인 맞춤 식단 추천 AI다.
-
-다음 우선순위를 반드시 지켜라.
-
-1. 알레르기 및 명시적인 섭취 금지 조건
-2. 사용자의 건강 상태와 안전성
-3. 사용자의 건강/체중 관리 목표
-4. 냉장고 재료 활용 가능성
-5. 영양 균형
-6. 현실적으로 먹을 수 있는 메뉴
-7. 메뉴 다양성
-
-중요 규칙:
-
-- 의료 진단이나 치료 처방을 하지 않는다.
-- 약물 관련 지시를 하지 않는다.
-- 알레르기 재료는 절대 추천 메뉴에 사용하지 않는다.
-- 제공되지 않은 건강 수치를 추측하지 않는다.
-- metric_statuses의 상태값을 기준으로 건강 상태를 고려한다.
-
-주간 식단 규칙:
-
-- 정확히 7일 식단을 생성한다.
-- monday, tuesday, wednesday, thursday,
-  friday, saturday, sunday를 정확히 한 번씩 생성한다.
-- 각 날짜에는 breakfast, lunch, dinner, snack을
-  정확히 하나씩 생성한다.
-- 같은 메뉴를 지나치게 반복하지 않는다.
-
-각 메뉴에는 반드시 다음 정보를 생성한다.
-
-1. menu_name
-2. menu_description
-3. estimated_calories_kcal
-4. nutrition.carbohydrate_g
-5. nutrition.protein_g
-6. nutrition.fat_g
-7. ingredients
-8. guidance
-
-영양 정보 규칙:
-
-- estimated_calories_kcal은 메뉴 1인분 기준 예상 kcal이다.
-- carbohydrate_g, protein_g, fat_g 역시
-  메뉴 1인분 기준 예상 영양값이다.
-- 정확한 임상 영양 처방값이라고 단정하지 않는다.
-- 메뉴와 영양값 사이에 명백한 모순이 생기지 않도록 한다.
-
-ingredients 규칙:
-
-- ingredients는 전체 레시피 재료 목록이 아니다.
-- 냉장고 재료가 제공된 경우,
-  추천 메뉴에 실제 사용한 냉장고 재료 이름만 넣는다.
-- 냉장고 재료가 제공되지 않은 경우,
-  ingredients는 반드시 null이다.
-
-냉장고 재료가 존재한다면
-그 재료를 이용해서 만들 수 있는 요리를 우선적으로 생성한다.
-
-단,
-알레르기와 건강 안전 조건은
-냉장고 활용보다 항상 우선한다.
-
-출력은 지정된 Structured Output Schema를 따른다.
-""".strip()
-
-    prompt = f"""
-[건강 상태 분류]
-{metric_statuses}
-
-[건강 안전 태그]
-{safety_tags}
-
-[사용자 목표]
-{goal_type}
-
-[알레르기]
-{food_allergens}
-
-[추가 사용자 입력]
-{additional_input}
-
-{refrigerator_instruction}
-
-[검증된 건강 가이드라인 RAG]
-{safe_rag_context}
-
-위 조건을 종합해서
-사용자가 실제로 실천할 수 있는 7일 식단을 생성하라.
-"""
-
-    response = await client.responses.parse(
-        model=settings.openai_model,
-        instructions=instructions,
-        input=prompt,
-        reasoning={
-            "effort": "minimal"
-        },
-        text_format=DietRecommendationResponse,
-        max_output_tokens=6500,
-    )
+    # -----------------------------------------------------
+    # 1차 생성
+    # -----------------------------------------------------
 
     result = (
-        response.output_parsed
+        await _request_weekly_diet_from_llm(
+            client=client,
+            model=(
+                settings.openai_model
+            ),
+            metric_statuses=(
+                metric_statuses
+            ),
+            safety_tags=(
+                safety_tags
+            ),
+            food_allergens=(
+                food_allergens
+            ),
+            goal_type=(
+                goal_type
+            ),
+            additional_input=(
+                additional_input
+            ),
+            refrigerator_instruction=(
+                refrigerator_instruction
+            ),
+            safe_rag_context=(
+                safe_rag_context
+            ),
+        )
     )
 
-    if result is None:
-        raise RuntimeError(
-            "Diet recommendation output is empty"
+    # -----------------------------------------------------
+    # 메뉴 중복 검사
+    # -----------------------------------------------------
+
+    duplicates = (
+        _find_duplicate_menu_names(
+            result
+        )
+    )
+
+    # -----------------------------------------------------
+    # 중복 존재 시 1회 재생성
+    # -----------------------------------------------------
+
+    if duplicates:
+        retry_result = (
+            await _request_weekly_diet_from_llm(
+                client=client,
+                model=(
+                    settings.openai_model
+                ),
+                metric_statuses=(
+                    metric_statuses
+                ),
+                safety_tags=(
+                    safety_tags
+                ),
+                food_allergens=(
+                    food_allergens
+                ),
+                goal_type=(
+                    goal_type
+                ),
+                additional_input=(
+                    additional_input
+                ),
+                refrigerator_instruction=(
+                    refrigerator_instruction
+                ),
+                safe_rag_context=(
+                    safe_rag_context
+                ),
+                retry_duplicates=(
+                    duplicates
+                ),
+            )
         )
 
-    # 냉장고 재료 정보는 LLM 결과를 그대로 신뢰하지 않고
-    # 실제 입력값 기준으로 다시 검증한다.
+        result = retry_result
+
+    # -----------------------------------------------------
+    # 냉장고 재료 후처리 검증
+    # -----------------------------------------------------
+
     result = (
         _validate_weekly_plan_ingredients(
             response=result,
@@ -621,13 +916,7 @@ ingredients 규칙:
 async def generate_replacement_meal(
     request: ReplaceMealRequest,
 ) -> ReplaceMealResponse:
-    """
-    특정 식사 슬롯 하나의 메뉴를 새로 생성한다.
-    """
-
-    settings = (
-        get_settings()
-    )
+    settings = get_settings()
 
     if not settings.openai_api_key:
         raise RuntimeError(
@@ -697,24 +986,40 @@ async def generate_replacement_meal(
     instructions = """
 너는 Auto-Fit의 한 끼 식단 재추천 AI다.
 
-우선순위:
+추천 우선순위:
 
-1. 알레르기 및 명시적인 섭취 금지 조건
-2. 건강 상태와 안전성
+1. 알레르기 및 섭취 제한
+2. 건강 상태 및 안전성
 3. 사용자 목표
 4. 냉장고 재료 활용
-5. 기존 메뉴와 다른 메뉴
+5. 기존 메뉴와의 차별성
 6. 영양 균형
-7. 현실적인 식사
+7. 메뉴 다양성
+
 
 규칙:
 
 - 현재 메뉴와 다른 메뉴를 생성한다.
-- 가능하면 기존 메뉴와 주재료 또는 조리 방식도 다르게 한다.
+- 메뉴 이름만 변경한 유사 메뉴를 생성하지 않는다.
+- 가능하면 주재료 또는 조리 방식을 변경한다.
+- 알레르기 재료는 사용하지 않는다.
 - 의료 진단이나 치료 지시를 하지 않는다.
-- 알레르기 재료는 절대 사용하지 않는다.
 
-새 메뉴에는 반드시 다음 값을 포함한다.
+
+냉장고 재료가 있는 경우:
+
+- 사용할 수 있는 냉장고 재료를 우선 고려한다.
+- 하지만 냉장고 재료 때문에 메뉴 다양성이 제한되면
+  일반 식재료를 추가해서 새로운 메뉴를 만들 수 있다.
+- 실제 사용한 냉장고 재료만 ingredients에 반환한다.
+
+
+냉장고 재료가 없는 경우:
+
+- ingredients는 반드시 null이다.
+
+
+새 메뉴에는:
 
 - menu_name
 - menu_description
@@ -725,26 +1030,19 @@ async def generate_replacement_meal(
 - ingredients
 - guidance
 
-estimated_calories_kcal 및 영양소는
-메뉴 1인분 기준 예상값이다.
+를 포함한다.
 
-ingredients는 전체 레시피 재료 목록이 아니다.
 
-냉장고 재료가 존재하는 경우:
-- 그 재료를 활용할 수 있는 메뉴를 우선 생성한다.
-- 실제 새 메뉴에 사용한 냉장고 재료 이름만
-  ingredients에 기록한다.
+모든 kcal, 탄수화물, 단백질, 지방,
+recommended_amount 값은 정수로 작성한다.
 
-냉장고 재료가 없는 경우:
-- ingredients는 반드시 null이다.
-
-출력은 지정된 Structured Output Schema를 따른다.
+출력은 Structured Output Schema를 따른다.
 """.strip()
 
     prompt = f"""
 [교체 대상]
 요일: {request.target_day}
-식사 유형: {request.target_meal}
+식사: {request.target_meal}
 
 [현재 메뉴]
 {request.current_menu_name}
@@ -764,7 +1062,7 @@ ingredients는 전체 레시피 재료 목록이 아니다.
 [알레르기]
 {food_allergens}
 
-[추가 사용자 입력]
+[추가 입력]
 {additional_input}
 
 {refrigerator_instruction}
@@ -772,24 +1070,26 @@ ingredients는 전체 레시피 재료 목록이 아니다.
 [검증된 건강 가이드라인 RAG]
 {safe_rag_context}
 
-현재 메뉴와 다른
+현재 메뉴와 확실히 다른
 새로운 메뉴 하나를 생성하라.
 """
 
     response = await client.responses.parse(
-        model=settings.openai_model,
+        model=(
+            settings.openai_model
+        ),
         instructions=instructions,
         input=prompt,
         reasoning={
             "effort": "minimal"
         },
-        text_format=ReplaceMealResponse,
+        text_format=(
+            ReplaceMealResponse
+        ),
         max_output_tokens=1800,
     )
 
-    result = (
-        response.output_parsed
-    )
+    result = response.output_parsed
 
     if result is None:
         raise RuntimeError(
@@ -817,12 +1117,10 @@ ingredients는 전체 레시피 재료 목록이 아니다.
         )
     )
 
-    result = (
-        result.model_copy(
-            update={
-                "meal": validated_meal
-            }
-        )
+    return result.model_copy(
+        update={
+            "meal": (
+                validated_meal
+            )
+        }
     )
-
-    return result

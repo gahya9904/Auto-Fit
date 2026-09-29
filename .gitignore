@@ -10,3 +10,8 @@ app/models/**/*.pth
 data/chroma
 data/rag_sources/
 data/rag_temp/
+food_image_server/.venv/
+food_image_server/models/
+food_image_server/generated/
+*.safetensors
+*.ckpt
