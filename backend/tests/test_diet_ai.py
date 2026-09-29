@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import date
 
 import pytest
@@ -181,7 +182,7 @@ def test_generate_regenerated_meal_passes_deidentified_inventory() -> None:
     ]
 
 
-def test_generate_regenerated_meal_rejects_inventory_free_results() -> None:
+def test_generate_regenerated_meal_rejects_inventory_free_results(caplog) -> None:
     current = {
         "meal_type": "breakfast",
         "meal_order": 1,
@@ -218,9 +219,14 @@ def test_generate_regenerated_meal_rejects_inventory_free_results() -> None:
             ensure_ascii=False,
         )
 
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
     with pytest.raises(DietAIUnavailable):
         asyncio.run(generate_regenerated_meal(current, [], fake_model, ["두부"]))
     assert attempts == 3
+    assert caplog.text.count('"reason":"inventory_not_used"') == 3
+    assert '"reason":"attempts_exhausted"' in caplog.text
+    assert "두부" not in caplog.text
+    assert "닭가슴살" not in caplog.text
 
 
 def test_used_inventory_reports_quantity_coverage_for_comparable_units() -> None:

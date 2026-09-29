@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import secrets
 from copy import deepcopy
 from datetime import date
 from decimal import Decimal
+from time import perf_counter
 from typing import Any, Awaitable, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -18,6 +20,7 @@ MealType = Literal["breakfast", "lunch", "dinner", "snack"]
 ModelRequester = Callable[[str], Awaitable[str | None]]
 EXCLUDED_CATALOG_SOURCE_TYPES = {"dummy"}
 EXCLUDED_CATALOG_NAME_MARKERS = ("[dummy",)
+logger = logging.getLogger("uvicorn.error")
 
 
 class DietAIUnavailable(RuntimeError):
@@ -351,6 +354,27 @@ async def generate_ai_meals(
     available_ingredients: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Request only de-identified menu context and strictly validate the response."""
+    operation_id = secrets.token_hex(4)
+
+    def log_attempt(
+        outcome: str,
+        reason: str,
+        slot: dict[str, Any],
+        attempt: int,
+        started: float,
+    ) -> None:
+        payload = {
+            "operation_id": operation_id,
+            "outcome": outcome,
+            "reason": reason,
+            "meal_type": slot["meal_type"],
+            "meal_order": slot["meal_order"],
+            "attempt": attempt,
+            "elapsed_ms": round((perf_counter() - started) * 1000, 2),
+        }
+        log = logger.info if outcome == "accepted" else logger.warning
+        log("[diet-ai] %s", json.dumps(payload, separators=(",", ":")))
+
     safe_ingredients = [
         name
         for name in (available_ingredients or [])
@@ -379,9 +403,11 @@ async def generate_ai_meals(
     for slot in slot_contracts:
         accepted: dict[str, Any] | None = None
         for attempt in range(3):
+            attempt_number = attempt + 1
+            attempt_started = perf_counter()
             payload = {
                 "slot": slot,
-                "attempt": attempt + 1,
+                "attempt": attempt_number,
                 "variation_token": variation_token,
                 "avoid_food_names": sorted(used_representatives),
                 "avoid_meal_compositions": avoid_meal_food_names or [],
@@ -408,10 +434,20 @@ async def generate_ai_meals(
             )
             raw = await request_model(prompt)
             if not raw:
+                log_attempt(
+                    "rejected", "model_unavailable", slot, attempt_number, attempt_started
+                )
                 continue
             try:
                 generated = GeneratedMeals.model_validate(_extract_json_object(raw))
             except (json.JSONDecodeError, ValueError, ValidationError):
+                log_attempt(
+                    "rejected",
+                    "invalid_structured_data",
+                    slot,
+                    attempt_number,
+                    attempt_started,
+                )
                 continue
 
             meal = generated.meals[0]
@@ -419,15 +455,24 @@ async def generate_ai_meals(
                 slot["meal_type"],
                 slot["meal_order"],
             ):
+                log_attempt(
+                    "rejected", "slot_mismatch", slot, attempt_number, attempt_started
+                )
                 continue
             if any(
                 conflicts_allergy(food.food_name, allergy_names)
                 for food in meal.foods
             ):
+                log_attempt(
+                    "rejected", "excluded_allergen", slot, attempt_number, attempt_started
+                )
                 continue
             representative = normalize_food_name(meal.foods[0].food_name)
             signature = meal_food_signature([food.food_name for food in meal.foods])
             if representative in used_representatives or signature in used_signatures:
+                log_attempt(
+                    "rejected", "repeated_menu", slot, attempt_number, attempt_started
+                )
                 continue
             value = meal.model_dump()
             value["recommended_calories"] = sum(
@@ -435,17 +480,38 @@ async def generate_ai_meals(
             )
             target = int(slot["target_calories"])
             if not target * 0.85 <= value["recommended_calories"] <= target * 1.15:
+                log_attempt(
+                    "rejected", "calorie_target_miss", slot, attempt_number, attempt_started
+                )
                 continue
             if safe_ingredients and not find_used_inventory_names(
                 [value], safe_ingredients
             ):
+                log_attempt(
+                    "rejected", "inventory_not_used", slot, attempt_number, attempt_started
+                )
                 continue
             value["source_type"] = "ai_generated"
             accepted = value
             used_representatives.add(representative)
             used_signatures.add(signature)
+            log_attempt("accepted", "validated", slot, attempt_number, attempt_started)
             break
         if accepted is None:
+            logger.warning(
+                "[diet-ai] %s",
+                json.dumps(
+                    {
+                        "operation_id": operation_id,
+                        "outcome": "failure",
+                        "reason": "attempts_exhausted",
+                        "meal_type": slot["meal_type"],
+                        "meal_order": slot["meal_order"],
+                        "attempts": 3,
+                    },
+                    separators=(",", ":"),
+                ),
+            )
             raise DietAIUnavailable("AI diet generator returned no safe candidate for a slot")
         results.append(accepted)
     return results
