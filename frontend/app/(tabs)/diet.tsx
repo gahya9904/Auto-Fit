@@ -83,6 +83,7 @@ type Meal = {
   dietMealId?: string;
   imageUrl?: string;
   recommendationStatus?: MealStatus;
+  sourceType?: string;
   variantId: string;
   id: MealType;
   title: string;
@@ -97,6 +98,7 @@ type Meal = {
 };
 
 type NutritionGoal = {
+  targetKey: NutritionTargetKey;
   label: string;
   current: number;
   target: number;
@@ -105,6 +107,9 @@ type NutritionGoal = {
   accentColor: string;
   softColor: string;
 };
+
+type NutritionTargetKey = 'calories' | 'carbohydrates' | 'fat' | 'protein';
+type RecommendationNutritionTargets = Partial<Record<NutritionTargetKey, number>>;
 
 const defaultMealStatuses: MealStatuses = {
   breakfast: 'recommended',
@@ -392,6 +397,7 @@ const mealRecommendations: Record<MealType, Meal[]> = {
 // until its confirmed fields can be mapped without inferring nutrition targets or totals.
 const nutritionGoals: NutritionGoal[] = [
   {
+    targetKey: 'calories',
     label: '열량',
     current: 1650,
     target: 1700,
@@ -401,6 +407,7 @@ const nutritionGoals: NutritionGoal[] = [
     softColor: '#FFF1F1',
   },
   {
+    targetKey: 'carbohydrates',
     label: '탄수화물',
     current: 210,
     target: 230,
@@ -410,6 +417,7 @@ const nutritionGoals: NutritionGoal[] = [
     softColor: '#E8F8F4',
   },
   {
+    targetKey: 'protein',
     label: '단백질',
     current: 30,
     target: 90,
@@ -419,6 +427,7 @@ const nutritionGoals: NutritionGoal[] = [
     softColor: '#E8F8F4',
   },
   {
+    targetKey: 'fat',
     label: '지방',
     current: 45,
     target: 50,
@@ -548,9 +557,9 @@ function mapRecommendationMeals(result: unknown): Meal[] {
       readString(apiMeal, ['meal_type', 'meal_category', 'type', 'time_of_day']),
     );
     const dietMealId = readString(apiMeal, ['diet_meal_id', 'id']);
+    const foods = readArray(apiMeal.foods ?? apiMeal.items);
     if (!mealId || !dietMealId || mappedByType.has(mealId)) return;
 
-    const foods = readArray(apiMeal.foods ?? apiMeal.items);
     const foodNames = foods.map(foodName).filter(Boolean);
     const presentation = getMealPresentation(mealId);
     const foodCalories = foods.reduce((sum, food) => {
@@ -558,7 +567,13 @@ function mapRecommendationMeals(result: unknown): Meal[] {
       return sum + (readNumber(food, ['calories', 'kcal', 'energy_kcal']) ?? 0);
     }, 0);
     const kcal =
-      readNumber(apiMeal, ['calories', 'kcal', 'total_calories', 'energy_kcal']) ?? foodCalories;
+      readNumber(apiMeal, [
+        'recommended_calories',
+        'calories',
+        'kcal',
+        'total_calories',
+        'energy_kcal',
+      ]) ?? foodCalories;
 
     mappedByType.set(mealId, {
       color: presentation.color,
@@ -571,8 +586,9 @@ function mapRecommendationMeals(result: unknown): Meal[] {
         .map((food) => [foodName(food), foodAmount(food)] as [string, string])
         .filter(([name]) => Boolean(name)),
       kcal: Math.round(kcal),
-      note: readString(apiMeal, ['note', 'description', 'comment']) ?? '',
+      note: readString(apiMeal, ['recommendation_note', 'note', 'description', 'comment']) ?? '',
       recommendationStatus: recommendationStatusToMealStatus(readString(apiMeal, ['status'])),
+      sourceType: readString(apiMeal, ['source_type']),
       tags: readArray(apiMeal.tags).filter((tag): tag is string => typeof tag === 'string'),
       title: presentation.title,
       usedIngredients: readArray(apiMeal.used_ingredients ?? apiMeal.ingredients)
@@ -582,9 +598,23 @@ function mapRecommendationMeals(result: unknown): Meal[] {
     });
   });
 
-  return (['breakfast', 'lunch', 'dinner', 'snack'] as MealType[])
+  const mappedMeals = (['breakfast', 'lunch', 'dinner', 'snack'] as MealType[])
     .map((mealId) => mappedByType.get(mealId))
     .filter((meal): meal is Meal => Boolean(meal));
+
+  return mappedMeals;
+}
+
+function mapRecommendationNutritionTargets(result: unknown): RecommendationNutritionTargets {
+  if (!isApiRecord(result) || !isApiRecord(result.recommendation)) return {};
+
+  const recommendation = result.recommendation;
+  return {
+    calories: readNumber(recommendation, ['target_calories']),
+    carbohydrates: readNumber(recommendation, ['target_carbohydrates']),
+    fat: readNumber(recommendation, ['target_fat']),
+    protein: readNumber(recommendation, ['target_protein']),
+  };
 }
 
 function ingredientIcon(name: string): FridgeIngredient['icon'] {
@@ -880,6 +910,7 @@ const MealCard = memo(function MealCard({
     ? recordedMeal.usedIngredients
     : meal.usedIngredients;
   const displayedIntake = showsRecordedMeal ? recordedMeal.intake : meal.intake;
+
   useEffect(
     () => () => {
       if (statusTimer.current) clearTimeout(statusTimer.current);
@@ -1182,6 +1213,8 @@ export default function DietScreen() {
   const [activeSheet, setActiveSheet] = useState<DietSheet>(null);
   const [recordingMealId, setRecordingMealId] = useState<MealType | null>(null);
   const [recommendedMeals, setRecommendedMeals] = useState<Meal[]>([]);
+  const [recommendationNutritionTargets, setRecommendationNutritionTargets] =
+    useState<RecommendationNutritionTargets>({});
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [recommendationLoading, setRecommendationLoading] = useState(true);
   const [inventoryLoading, setInventoryLoading] = useState(true);
@@ -1205,6 +1238,7 @@ export default function DietScreen() {
   });
   const nutritionSummaryRequestRef = useRef(0);
   const regenerateRequestMealIdsRef = useRef(new Set<MealType>());
+  const regenerationDebugByMealIdRef = useRef<Partial<Record<MealType, Record<string, unknown>>>>({});
 
   const availableWidth = windowWidth - insets.left - insets.right;
   const widthScale = Math.min(1, availableWidth / referenceWidth);
@@ -1227,6 +1261,15 @@ export default function DietScreen() {
 
   const indicator = useCustomScrollIndicator({ showInitially: true });
   const visibleMeals = recommendedMeals;
+
+  const displayedNutritionGoals = useMemo(
+    () =>
+      nutritionGoals.map((goal) => ({
+        ...goal,
+        target: recommendationNutritionTargets[goal.targetKey] ?? goal.target,
+      })),
+    [recommendationNutritionTargets],
+  );
   const recommendationStatuses = useMemo(
     () =>
       visibleMeals.reduce<MealStatuses>(
@@ -1366,15 +1409,18 @@ export default function DietScreen() {
       setRecommendationError(null);
       setRecommendationLoading(true);
       setRecommendedMeals([]);
+      setRecommendationNutritionTargets({});
     }
 
     try {
       const response = await getDietRecommendationsByDate(dateKey);
       const mappedMeals = mapRecommendationMeals(response.result);
+      const mappedNutritionTargets = mapRecommendationNutritionTargets(response.result);
 
       if (!isMountedRef.current || requestId !== recommendationRequestRef.current) return false;
 
       setRecommendedMeals(mappedMeals);
+      setRecommendationNutritionTargets(mappedNutritionTargets);
       recommendationMealsByDateRef.current = { dateKey, meals: mappedMeals };
       const mealLogEntries = mealLogEntriesByDateRef.current.get(dateKey);
       if (mealLogEntries) applyMealLogs(dateKey, mappedMeals, mealLogEntries);
@@ -1533,24 +1579,71 @@ export default function DietScreen() {
       const dietMealId = currentMeal?.dietMealId;
       if (!dietMealId || regenerateRequestMealIdsRef.current.has(mealId)) return;
 
+      if (__DEV__) {
+        console.log('[Diet Regenerate] clicked:', {
+          dateKey: selectedDateKey,
+          dietMealId,
+          foods: currentMeal.foods,
+          mealId,
+          sourceType: currentMeal.sourceType,
+        });
+      }
+
       regenerateRequestMealIdsRef.current.add(mealId);
       setRegeneratingMealIds((current) => new Set(current).add(mealId));
       try {
         const response = await regenerateDietMeal(dietMealId);
         if (!isMountedRef.current) return;
 
-        const regeneratedMeal = mapRecommendationMeals(response.result).find(
+        const rawRegeneratedMeal = response.meal;
+
+        if (__DEV__) {
+          const rawMeal = isApiRecord(rawRegeneratedMeal) ? rawRegeneratedMeal : undefined;
+          const currentSnapshot = {
+            dietMealId: rawMeal ? readString(rawMeal, ['diet_meal_id', 'id']) : undefined,
+            foods: rawMeal?.foods,
+            imageSource: rawMeal ? readString(rawMeal, ['image_source']) : undefined,
+            imageUrl: rawMeal ? readString(rawMeal, ['image_url']) : undefined,
+            mealType: rawMeal
+              ? readString(rawMeal, ['meal_type', 'meal_category', 'type', 'time_of_day'])
+              : undefined,
+            menuImageKey: rawMeal ? readString(rawMeal, ['menu_image_key']) : undefined,
+            recommendationNote: rawMeal ? readString(rawMeal, ['recommendation_note']) : undefined,
+            recommendedCalories: rawMeal ? readNumber(rawMeal, ['recommended_calories']) : undefined,
+            sourceType: rawMeal ? readString(rawMeal, ['source_type']) : undefined,
+          };
+          console.log('[Diet Regenerate] mapper input:', rawRegeneratedMeal);
+          console.log('[Diet Regenerate] raw regenerated meal:', rawRegeneratedMeal);
+          console.log('[Diet Regenerate] result comparison:', {
+            current: currentSnapshot,
+            mealId,
+            previous: regenerationDebugByMealIdRef.current[mealId] ?? null,
+          });
+          regenerationDebugByMealIdRef.current[mealId] = currentSnapshot;
+        }
+
+        const regeneratedMeal = mapRecommendationMeals({ meals: [rawRegeneratedMeal] }).find(
           (meal) => meal.id === mealId,
         );
+        if (__DEV__) {
+          console.log('[Diet Regenerate] mapped meal:', regeneratedMeal ?? null);
+        }
         if (regeneratedMeal) {
-          setRecommendedMeals((current) =>
-            current.map((meal) => (meal.id === mealId ? regeneratedMeal : meal)),
-          );
+          setRecommendedMeals((current) => {
+            const next = current.map((meal) => (meal.id === mealId ? regeneratedMeal : meal));
+            if (__DEV__) {
+              console.log('[Diet Regenerate] final recommendedMeals:', next);
+            }
+            return next;
+          });
           return;
         }
 
         // The regenerate response schema is free-form. Re-read the selected date using the
         // established recommendation mapper rather than constructing a meal client-side.
+        if (__DEV__) {
+          console.log('[Diet Regenerate] selected meal was not mapped; refetching date:', selectedDateKey);
+        }
         await loadRecommendations(selectedDateKey);
       } catch (error) {
         if (isMountedRef.current) {
@@ -1572,6 +1665,16 @@ export default function DietScreen() {
 
   const requestAlternativeMeal = useCallback((mealId: MealType) => {
     if (recommendationLoading) return;
+    if (__DEV__) {
+      const meal = recommendedMeals.find((candidate) => candidate.id === mealId);
+      console.log('[Diet Regenerate] alternative requested:', {
+        dateKey: selectedDateKey,
+        dietMealId: meal?.dietMealId,
+        foods: meal?.foods,
+        mealId,
+        sourceType: meal?.sourceType,
+      });
+    }
     Alert.alert(
       '다른 식단을 추천받을까요?',
       '선택한 끼니만 새로운 식단으로 바꿔드려요.',
@@ -1580,7 +1683,7 @@ export default function DietScreen() {
         { onPress: () => void regenerateMeal(mealId), text: '새로 추천받기' },
       ],
     );
-  }, [regenerateMeal, recommendationLoading]);
+  }, [recommendedMeals, regenerateMeal, recommendationLoading, selectedDateKey]);
 
   const completeMealRecord = useCallback(
     async (draft: MealRecordDraft) => {
@@ -1846,9 +1949,9 @@ export default function DietScreen() {
               <View style={styles.nutritionCard}>
                 <Text style={styles.nutritionTitle}>오늘의 영양 목표</Text>
                 <View style={styles.nutritionInner}>
-                  <CalorieGoal {...nutritionGoals[0]} />
+                  <CalorieGoal {...displayedNutritionGoals[0]} />
                   <View style={styles.macroGoals}>
-                    {nutritionGoals.slice(1).map((goal) => (
+                    {displayedNutritionGoals.slice(1).map((goal) => (
                       <MacroGoal key={goal.label} {...goal} />
                     ))}
                   </View>

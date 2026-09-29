@@ -81,7 +81,7 @@ export default function HealthDataManagementScreen() {
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      setDocuments(uniqueDocuments(await getAllHealthDocuments()));
+      setDocuments(uniqueDocuments(await getAllHealthDocuments({ status: 'confirmed' })));
     } catch (error) {
       Alert.alert('건강 데이터를 불러오지 못했어요.', getHealthDocumentErrorMessage(error));
     } finally {

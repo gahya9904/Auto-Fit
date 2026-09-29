@@ -45,6 +45,12 @@ export type DietRecommendationResponse = {
   result?: ApiObject | null;
 };
 
+export type DietMealRegenerationResponse = {
+  generator?: unknown;
+  meal?: unknown;
+  ok?: unknown;
+};
+
 export type DietFeedbackResponse = {
   ok?: unknown;
   result?: ApiObject | null;
@@ -176,14 +182,29 @@ export function updateDietMealFeedback(dietMealId: string, input: DietFeedbackIn
   return requestDietMealFeedback(dietMealId, input, 'PATCH');
 }
 
-export function regenerateDietMeal(dietMealId: string) {
-  return apiRequest<DietRecommendationResponse>(
-    `/api/diet/meals/${encodeURIComponent(dietMealId)}/regenerate`,
-    {
-      body: JSON.stringify({}),
+export async function regenerateDietMeal(dietMealId: string) {
+  const endpoint = `/api/diet/meals/${encodeURIComponent(dietMealId)}/regenerate`;
+  const requestBody = {};
+  if (__DEV__) {
+    console.log('[Diet Regenerate] request:', {
+      dietMealId,
+      endpoint,
       method: 'POST',
-    },
-  );
+      query: null,
+      requestBody,
+    });
+  }
+
+  const response = await apiRequest<DietMealRegenerationResponse>(endpoint, {
+    body: JSON.stringify(requestBody),
+    method: 'POST',
+  });
+
+  if (__DEV__) {
+    console.log('[Diet Regenerate] raw response:', response);
+  }
+
+  return response;
 }
 
 export function getDietMealLogs(fromDate: string, toDate: string) {

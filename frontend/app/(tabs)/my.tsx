@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ClipboardIcon from '@/assets/icons/deco/ClipboardText.svg';
+import ChevronRightIcon from '@/assets/icons/common/chevrons/Right.svg';
 import PencilIcon from '@/assets/icons/feature/Pencil.svg';
 import ChartIcon from '@/assets/icons/graph/ChartLine.svg';
 import UserIcon from '@/assets/icons/input/User.svg';
@@ -34,15 +35,15 @@ function MenuIcon({ children }: { children: ReactNode }) {
   return <View style={styles.menuIcon}>{children}</View>;
 }
 
-function Arrow() {
-  return <Text style={styles.arrow}>›</Text>;
-}
-
 export default function MyScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height: windowHeight } = useWindowDimensions();
   const [name, setName] = useState('사용자');
+  const isCompactLayout = windowHeight < 840;
+  const bottomNavigationSpace =
+    getBottomNavigationVisualHeight(windowHeight) +
+    Math.max(insets.bottom, BOTTOM_NAVIGATION_MIN_BOTTOM_GAP);
 
   useFocusEffect(
     useCallback(() => {
@@ -71,12 +72,11 @@ export default function MyScreen() {
           styles.content,
           {
             paddingBottom:
-              getBottomNavigationVisualHeight(windowHeight) +
-              Math.max(insets.bottom, BOTTOM_NAVIGATION_MIN_BOTTOM_GAP) +
-              24,
+              isCompactLayout ? bottomNavigationSpace + 24 : 0,
             paddingTop: insets.top + 10,
           },
         ]}
+        scrollEnabled={isCompactLayout}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.screenTitle}>마이 페이지</Text>
@@ -95,26 +95,28 @@ export default function MyScreen() {
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>내 건강</Text>
-        <View style={styles.healthCards}>
-          <Pressable
-            onPress={() => router.push('/health-data-management')}
-            style={styles.healthCard}
-          >
-            <View style={styles.healthIcon}>
-              <ClipboardIcon color={colors.primary} height={32} width={32} />
+        <View style={styles.healthSection}>
+          <Text style={styles.sectionTitle}>내 건강</Text>
+          <View style={styles.healthCards}>
+            <Pressable
+              onPress={() => router.push('/health-data-management')}
+              style={styles.healthCard}
+            >
+              <View style={styles.healthIcon}>
+                <ClipboardIcon color={colors.primary} height={32} width={32} />
+              </View>
+              <Text style={styles.cardTitle}>건강 데이터 관리</Text>
+              <Text style={styles.cardDescription}>검사 결과 및 건강 데이터를{`\n`}확인하고 관리하세요.</Text>
+              <CardFooter label="최근 검사" value="업로드 데이터 확인" />
+            </Pressable>
+            <View style={styles.healthCard}>
+              <View style={[styles.healthIcon, styles.reportIcon]}>
+                <ChartIcon color="#8B77E4" height={32} width={32} />
+              </View>
+              <Text style={styles.cardTitle}>건강 리포트</Text>
+              <Text style={styles.cardDescription}>나의 건강 변화와{`\n`}분석 리포트를 확인해 보세요.</Text>
+              <CardFooter label="최근 리포트" report value="리포트 준비 중" />
             </View>
-            <Text style={styles.cardTitle}>건강 데이터 관리</Text>
-            <Text style={styles.cardDescription}>검사 결과 및 건강 데이터를{`\n`}확인하고 관리하세요.</Text>
-            <CardFooter label="최근 검사" value="업로드 데이터 확인" />
-          </Pressable>
-          <View style={styles.healthCard}>
-            <View style={[styles.healthIcon, styles.reportIcon]}>
-              <ChartIcon color="#8B77E4" height={32} width={32} />
-            </View>
-            <Text style={styles.cardTitle}>건강 리포트</Text>
-            <Text style={styles.cardDescription}>나의 건강 변화와{`\n`}분석 리포트를 확인해 보세요.</Text>
-            <CardFooter label="최근 리포트" report value="리포트 준비 중" />
           </View>
         </View>
 
@@ -154,7 +156,7 @@ function CardFooter({ label, report = false, value }: { label: string; report?: 
         <Text numberOfLines={1} style={styles.cardDate}>{value}</Text>
       </View>
       <View style={[styles.cardArrow, report && styles.reportArrow]}>
-        <Arrow />
+        <ChevronRightIcon color={colors.surface} height={12} width={12} />
       </View>
     </View>
   );
@@ -169,13 +171,12 @@ function MenuRow({ Icon, label }: { Icon: typeof UserIcon; label: string }) {
         </MenuIcon>
         <Text style={styles.menuLabel}>{label}</Text>
       </View>
-      <Arrow />
+      <ChevronRightIcon color={colors.textSecondary} height={20} width={20} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  arrow: { color: colors.textSecondary, fontFamily: fontFamilies.pretendardMedium, fontSize: 26, lineHeight: 26 },
   avatar: { alignItems: 'center', backgroundColor: colors.primaryLight, borderRadius: radius.round, height: 72, justifyContent: 'center', width: 72 },
   background: { ...StyleSheet.absoluteFill, height: '100%', width: '100%' },
   cardArrow: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.md, height: 20, justifyContent: 'center', width: 20 },
@@ -189,9 +190,10 @@ const styles = StyleSheet.create({
   greeting: { color: colors.textBody, fontFamily: fontFamilies.pretendardMedium, fontSize: 15 },
   healthCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, flex: 1, height: 200, padding: 10 },
   healthCards: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  healthSection: { marginTop: 58 },
   healthIcon: { alignItems: 'center', backgroundColor: colors.primaryLight, borderRadius: radius.round, height: 45, justifyContent: 'center', width: 45 },
   lastMenuRow: { borderBottomWidth: 0 },
-  logout: { alignItems: 'center', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, flexDirection: 'row', gap: 14, height: 65, marginTop: 35, paddingHorizontal: 10 },
+  logout: { alignItems: 'center', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, flexDirection: 'row', gap: 14, height: 65, marginTop: 21, paddingHorizontal: 10 },
   menuIcon: { alignItems: 'center', backgroundColor: colors.primaryLight, borderRadius: radius.sm + 2, height: 35, justifyContent: 'center', width: 35 },
   menuLabel: { color: colors.textBody, fontFamily: fontFamilies.pretendardSemiBold, fontSize: 16 },
   menuLeft: { alignItems: 'center', flexDirection: 'row', gap: 16 },
@@ -206,7 +208,7 @@ const styles = StyleSheet.create({
   root: { backgroundColor: colors.surface, flex: 1 },
   screenTitle: { color: colors.textBody, fontFamily: fontFamilies.pretendardBold, fontSize: 15, letterSpacing: 1.5, lineHeight: 20, textAlign: 'center' },
   sectionTitle: { color: colors.textBody, fontFamily: fontFamilies.pretendardSemiBold, fontSize: 20, lineHeight: 24 },
-  settingsCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, height: 200, marginTop: 12, paddingHorizontal: 10 },
-  settingsSection: { marginTop: 31 },
+  settingsCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, marginTop: 12, paddingHorizontal: 10, paddingVertical: 8 },
+  settingsSection: { marginTop: 10 },
   version: { color: colors.textSecondary, fontFamily: fontFamilies.pretendardMedium, fontSize: 14 },
 });

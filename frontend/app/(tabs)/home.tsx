@@ -58,6 +58,7 @@ async function getSessionUserName() {
     const {
       data: { session },
     } = await getSupabaseClient().auth.getSession();
+
     const metadata = session?.user?.user_metadata;
     if (!isApiRecord(metadata)) return undefined;
     return readString(metadata, ['full_name', 'name']);

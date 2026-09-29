@@ -215,14 +215,16 @@ export function getHealthDocuments({
   );
 }
 
-/** Lists every health document so management totals never use a partial page count. */
-export async function getAllHealthDocuments() {
+/** Lists every matching health document so management totals never use a partial page count. */
+export async function getAllHealthDocuments(
+  options: Pick<HealthDocumentListOptions, 'status'> = {},
+) {
   const limit = 100;
   let offset = 0;
   const items: HealthDocumentListItem[] = [];
 
   do {
-    const page = await getHealthDocuments({ limit, offset });
+    const page = await getHealthDocuments({ ...options, limit, offset });
     items.push(...page.items);
     if (!page.has_more) return items;
     offset += page.items.length;
