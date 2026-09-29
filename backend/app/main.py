@@ -2243,25 +2243,37 @@ async def build_daily_diet_recommendation_plan(
     allergy_names: list[str],
     food_catalog: list[dict[str, Any]],
     target_date: date | None = None,
+    all_ai: bool = False,
 ) -> dict[str, Any]:
     recommendation_date = target_date or datetime.now(KST).date()
     plan = build_diet_recommendation_plan(inventory, allergy_names)
     plan["recommendation"]["recommendation_date"] = recommendation_date.isoformat()
-    ai_slots = select_ai_slots(plan["meals"], user_id, recommendation_date)
+    ai_slots = (
+        plan["meals"]
+        if all_ai
+        else select_ai_slots(plan["meals"], user_id, recommendation_date)
+    )
     ai_meals = await generate_ai_meals(
         ai_slots,
         allergy_names,
         request_model,
     )
-    plan["meals"] = mix_meals(
-        plan["meals"], ai_meals, food_catalog, allergy_names
+    plan["meals"] = (
+        sorted(ai_meals, key=lambda meal: int(meal["meal_order"]))
+        if all_ai
+        else mix_meals(plan["meals"], ai_meals, food_catalog, allergy_names)
     )
     ai_count = sum(
         meal.get("source_type") == "ai_generated" for meal in plan["meals"]
     )
     plan["recommendation"]["ai_reason"] = (
-        f"DB 음식 영양정보와 AI 생성 식단 {ai_count}개를 혼합했습니다. "
-        "사용 가능한 냉장고 재료와 알레르기 제외 조건을 반영했습니다."
+        "DB 음식 카탈로그 조회 없이 4식을 모두 AI로 생성한 수동 검증 식단입니다. "
+        "알레르기 제외 조건은 서버에서 검증했습니다."
+        if all_ai
+        else (
+            f"DB 음식 영양정보와 AI 생성 식단 {ai_count}개를 혼합했습니다. "
+            "사용 가능한 냉장고 재료와 알레르기 제외 조건을 반영했습니다."
+        )
     )
     plan["recommendation"]["target_calories"] = sum(
         int(meal["recommended_calories"]) for meal in plan["meals"]
@@ -3063,6 +3075,7 @@ async def health() -> dict[str, str]:
 @app.post("/internal/diet-refresh", tags=["System"], include_in_schema=False)
 async def trigger_daily_diet_refresh(
     x_cron_token: Annotated[str | None, Header()] = None,
+    x_diet_refresh_mode: Annotated[str | None, Header()] = None,
 ) -> dict[str, int | bool]:
     expected_token = os.getenv("DIET_REFRESH_CRON_TOKEN", "")
     if not expected_token:
@@ -3075,11 +3088,18 @@ async def trigger_daily_diet_refresh(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid scheduler credentials",
         )
+    if x_diet_refresh_mode not in (None, "normal", "all-ai"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid diet refresh mode",
+        )
 
     # Import lazily because the CLI entry point reuses functions from this module.
     from backend.app.diet_refresh import refresh_daily_diets
 
-    succeeded, failed = await refresh_daily_diets()
+    succeeded, failed = await refresh_daily_diets(
+        all_ai=x_diet_refresh_mode == "all-ai"
+    )
     if failed:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import json
 from datetime import date
@@ -47,7 +48,8 @@ def test_daily_diet_refresh_runs_with_valid_token(monkeypatch) -> None:
 
     monkeypatch.setenv("DIET_REFRESH_CRON_TOKEN", "expected-token")
 
-    async def fake_refresh() -> tuple[int, int]:
+    async def fake_refresh(all_ai: bool = False) -> tuple[int, int]:
+        assert all_ai is False
         return 12, 0
 
     monkeypatch.setattr(diet_refresh, "refresh_daily_diets", fake_refresh)
@@ -60,6 +62,70 @@ def test_daily_diet_refresh_runs_with_valid_token(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"ok": True, "succeeded": 12, "failed": 0}
+
+
+def test_daily_diet_refresh_all_ai_mode_is_explicit(monkeypatch) -> None:
+    from backend.app import diet_refresh
+
+    monkeypatch.setenv("DIET_REFRESH_CRON_TOKEN", "expected-token")
+
+    async def fake_refresh(all_ai: bool = False) -> tuple[int, int]:
+        assert all_ai is True
+        return 12, 0
+
+    monkeypatch.setattr(diet_refresh, "refresh_daily_diets", fake_refresh)
+
+    response = TestClient(main.app).post(
+        "/internal/diet-refresh",
+        headers={
+            "X-Cron-Token": "expected-token",
+            "X-Diet-Refresh-Mode": "all-ai",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "succeeded": 12, "failed": 0}
+
+
+def test_all_ai_plan_uses_every_slot_without_catalog_mix(monkeypatch) -> None:
+    async def fake_generate(slots, allergy_names, request_model):
+        assert len(slots) == 4
+        return [
+            {
+                **slot,
+                "source_type": "ai_generated",
+                "recommendation_note": "AI 검증 추천",
+                "foods": [
+                    {
+                        "food_name": f"생성 검증 {slot['meal_order']}",
+                        "quantity": 100,
+                        "unit": "g",
+                        "calories": slot["recommended_calories"],
+                        "carbohydrates": 40,
+                        "protein": 20,
+                        "fat": 10,
+                    }
+                ],
+            }
+            for slot in slots
+        ]
+
+    monkeypatch.setattr(main, "generate_ai_meals", fake_generate)
+
+    plan = asyncio.run(
+        main.build_daily_diet_recommendation_plan(
+            "user-1",
+            [],
+            [],
+            [],
+            target_date=date(2026, 9, 29),
+            all_ai=True,
+        )
+    )
+
+    assert len(plan["meals"]) == 4
+    assert {meal["source_type"] for meal in plan["meals"]} == {"ai_generated"}
+    assert "DB 음식 카탈로그 조회 없이" in plan["recommendation"]["ai_reason"]
 
 
 def test_roundtrip_returns_message_and_profile(monkeypatch) -> None:

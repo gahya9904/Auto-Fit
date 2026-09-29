@@ -9,6 +9,8 @@ def test_github_action_runs_at_kst_midnight() -> None:
 
     assert "- cron: \"0 15 * * *\"" in workflow
     assert "secrets.DIET_REFRESH_CRON_TOKEN" in workflow
+    assert "inputs.all_ai" in workflow
+    assert "X-Diet-Refresh-Mode" in workflow
     assert "/internal/diet-refresh" in workflow
 
 
