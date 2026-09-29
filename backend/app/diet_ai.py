@@ -485,19 +485,7 @@ def build_catalog_meals(
     allergy_names: list[str] | None = None,
     inventory_names: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    usable = [
-        row
-        for row in food_catalog
-        if row.get("name")
-        and str(row.get("source_type") or "").strip().casefold()
-        not in EXCLUDED_CATALOG_SOURCE_TYPES
-        and not any(
-            marker in str(row["name"]).casefold()
-            for marker in EXCLUDED_CATALOG_NAME_MARKERS
-        )
-        and Decimal(str(row.get("calories") or 0)) > 0
-        and not conflicts_allergy(row["name"], allergy_names or [])
-    ]
+    usable = usable_catalog_foods(food_catalog, allergy_names)
     if not usable:
         raise ValueError("No usable DB food catalog entries are available")
     usable.sort(
@@ -530,6 +518,25 @@ def build_catalog_meals(
         result["source_type"] = "db_catalog"
         results.append(result)
     return results
+
+
+def usable_catalog_foods(
+    food_catalog: list[dict[str, Any]],
+    allergy_names: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in food_catalog
+        if row.get("name")
+        and str(row.get("source_type") or "").strip().casefold()
+        not in EXCLUDED_CATALOG_SOURCE_TYPES
+        and not any(
+            marker in str(row["name"]).casefold()
+            for marker in EXCLUDED_CATALOG_NAME_MARKERS
+        )
+        and Decimal(str(row.get("calories") or 0)) > 0
+        and not conflicts_allergy(row["name"], allergy_names or [])
+    ]
 
 
 def mix_meals(

@@ -117,6 +117,7 @@ def test_all_ai_plan_uses_every_slot_without_catalog_mix(monkeypatch) -> None:
         request_model,
         avoid_food_names=None,
         avoid_meal_food_names=None,
+        available_ingredients=None,
     ):
         assert len(slots) == 4
         return [
@@ -155,6 +156,61 @@ def test_all_ai_plan_uses_every_slot_without_catalog_mix(monkeypatch) -> None:
     assert len(plan["meals"]) == 4
     assert {meal["source_type"] for meal in plan["meals"]} == {"ai_generated"}
     assert "DB 음식 카탈로그 조회 없이" in plan["recommendation"]["ai_reason"]
+
+
+def test_daily_plan_falls_back_to_inventory_aware_ai_when_catalog_empty(
+    monkeypatch,
+) -> None:
+    async def fake_generate(
+        slots,
+        allergy_names,
+        request_model,
+        avoid_food_names=None,
+        avoid_meal_food_names=None,
+        available_ingredients=None,
+    ):
+        assert len(slots) == 4
+        assert available_ingredients == ["브로콜리"]
+        return [
+            {
+                **slot,
+                "source_type": "ai_generated",
+                "recommendation_note": "냉장고 브로콜리 활용",
+                "foods": [
+                    {
+                        "food_name": f"브로콜리 식단 {slot['meal_order']}",
+                        "quantity": 100,
+                        "unit": "g",
+                        "calories": slot["recommended_calories"],
+                        "carbohydrates": 40,
+                        "protein": 20,
+                        "fat": 10,
+                    }
+                ],
+            }
+            for slot in slots
+        ]
+
+    monkeypatch.setattr(main, "generate_ai_meals", fake_generate)
+
+    plan = asyncio.run(
+        main.build_daily_diet_recommendation_plan(
+            "user-fridge",
+            [{"custom_name": "브로콜리", "quantity": 1, "is_available": True}],
+            [],
+            [],
+            target_date=date(2026, 9, 29),
+        )
+    )
+
+    assert len(plan["meals"]) == 4
+    assert {meal["source_type"] for meal in plan["meals"]} == {"ai_generated"}
+    assert all(
+        main.find_used_inventory_names([meal], ["브로콜리"])
+        for meal in plan["meals"]
+    )
+    assert "DB 음식 카탈로그 조회 없이" in plan["recommendation"]["ai_reason"]
+    assert "실제 메뉴에 반영된 냉장고 재료: 브로콜리" in plan["recommendation"]["ai_reason"]
 
 
 def test_roundtrip_returns_message_and_profile(monkeypatch) -> None:
@@ -1734,7 +1790,14 @@ def test_diet_plan_marks_only_inventory_that_is_present_in_actual_meals() -> Non
 def test_daily_diet_plan_uses_catalog_linked_inventory_in_final_meals(
     monkeypatch,
 ) -> None:
-    async def fake_generate(slots, allergy_names, request_model, *args):
+    async def fake_generate(
+        slots,
+        allergy_names,
+        request_model,
+        *args,
+        available_ingredients=None,
+    ):
+        assert available_ingredients == ["브로콜리"]
         return [
             {
                 **slot,
@@ -1806,7 +1869,14 @@ def test_daily_diet_plan_uses_catalog_linked_inventory_in_final_meals(
 def test_all_ai_diet_plan_applies_catalog_linked_inventory_server_side(
     monkeypatch,
 ) -> None:
-    async def fake_generate(slots, allergy_names, request_model, *args):
+    async def fake_generate(
+        slots,
+        allergy_names,
+        request_model,
+        *args,
+        available_ingredients=None,
+    ):
+        assert available_ingredients == ["브로콜리"]
         return [
             {
                 **slot,
