@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Auto-Fit AI 식단 생성 테스트</title>
+  <title>Auto-Fit 냉장고 맞춤 식단 생성</title>
   <link rel="stylesheet" href="/test/diet-generation.css">
 </head>
 <body>
   <main>
-    <h1>4끼 전부 AI 생성 테스트</h1>
-    <p>담당자 계정으로 로그인한 뒤 버튼을 누르면 DB 음식 카탈로그를 조회하지 않고 4끼를 AI가 새로 생성합니다. 결과는 미리보기이며 운영 식단을 덮어쓰지 않습니다.</p>
+    <h1>냉장고 맞춤 식단 새로 만들기</h1>
+    <p>담당자 계정으로 로그인한 뒤 버튼을 누르면 현재 냉장고 재료를 반영한 새 식단을 만들고 운영 식단으로 저장됩니다.</p>
     <section id="login-section">
       <strong>테스트 계정 로그인</strong>
       <form id="login-form">
@@ -19,8 +19,8 @@
       </form>
     </section>
     <section id="test-section" hidden>
-      <strong>즉시 생성 검증</strong>
-      <button id="generate" type="button">4끼 전부 AI 즉시 생성</button>
+      <strong>저장 식단 생성</strong>
+      <button id="generate" type="button">냉장고 맞춤 식단 새로 만들기</button>
       <button id="logout" class="secondary" type="button">로그아웃</button>
       <div id="status" role="status" aria-live="polite">버튼을 눌러 테스트하세요.</div>
       <div id="summary"></div>

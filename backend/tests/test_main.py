@@ -27,7 +27,8 @@ def test_mobile_diet_generation_test_page() -> None:
     response = client.get("/test/diet-generation")
 
     assert response.status_code == 200
-    assert "4끼 전부 AI 생성 테스트" in response.text
+    assert "냉장고 맞춤 식단 새로 만들기" in response.text
+    assert "운영 식단으로 저장됩니다" in response.text
     assert 'src="/test/diet-generation.js"' in response.text
     assert response.headers["cache-control"] == "no-store"
     assert "script-src 'self'" in response.headers["content-security-policy"]
@@ -37,7 +38,9 @@ def test_mobile_diet_generation_test_page() -> None:
     assert client.get("/test/diet-generation.css").status_code == 200
     script = client.get("/test/diet-generation.js")
     assert script.status_code == 200
-    assert "/api/diet/recommendations/generate-preview" in script.text
+    assert "'/api/diet/recommendations/generate'" in script.text
+    assert "/api/diet/recommendations/generate-preview" not in script.text
+    assert "DB 저장: 완료" in script.text
     assert "formatFoodQuantity(food.quantity,food.unit)" in script.text
     assert "Math.round(numericQuantity)" in script.text
 

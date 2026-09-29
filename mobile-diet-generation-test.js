@@ -36,9 +36,9 @@ document.querySelector('#login-form').addEventListener('submit',async event=>{
 document.querySelector('#generate').addEventListener('click',async event=>{
   const button=event.currentTarget; button.disabled=true; summary.replaceChildren(); mealsElement.replaceChildren();
   const started=performance.now();
-  const timer=setInterval(()=>setStatus(`AI가 4끼를 생성 중입니다…\n${((performance.now()-started)/1000).toFixed(1)}초 경과`),100);
+  const timer=setInterval(()=>setStatus(`냉장고 맞춤 식단을 생성하고 저장 중입니다…\n${((performance.now()-started)/1000).toFixed(1)}초 경과`),100);
   try {
-    const response=await fetch('/api/diet/recommendations/generate-preview',{
+    const response=await fetch('/api/diet/recommendations/generate',{
       method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:'{}'
     });
     const payload=await response.json();
@@ -46,13 +46,15 @@ document.querySelector('#generate').addEventListener('click',async event=>{
     const elapsed=((performance.now()-started)/1000).toFixed(1);
     const meals=payload.result.meals||[];
     const aiMeals=meals.filter(meal=>meal.source_type==='ai_generated');
-    setStatus(`생성 완료 · ${elapsed}초\n${meals.length}끼 중 ${aiMeals.length}끼가 AI 생성 식단입니다.`);
-    [`생성기: ${payload.generator}`,`AI 식단: ${aiMeals.length}/${meals.length}`,`DB 저장: 안 함`,`소요: ${elapsed}초`].forEach(value=>{
+    const reused=payload.reused_concurrent_result===true;
+    setStatus(`${reused?'동시에 생성된 최신 식단 불러오기':'새 식단 생성·저장 완료'} · ${elapsed}초\n${meals.length}끼 중 ${aiMeals.length}끼가 AI 생성 식단입니다.`);
+    [`생성기: ${payload.generator}`,`AI 식단: ${aiMeals.length}/${meals.length}`,`DB 저장: 완료`,`소요: ${elapsed}초`].forEach(value=>{
       const pill=document.createElement('span'); pill.className='pill'; pill.textContent=value; summary.append(pill);
     });
     meals.forEach(meal=>{
       const card=document.createElement('article'); card.className='meal';
-      const title=document.createElement('h2'); title.textContent=`${mealLabels[meal.meal_type]||meal.meal_type} · AI 생성`;
+      const sourceLabel=meal.source_type==='ai_generated'?'AI 생성':'DB 영양정보 조합';
+      const title=document.createElement('h2'); title.textContent=`${mealLabels[meal.meal_type]||meal.meal_type} · ${sourceLabel}`;
       const list=document.createElement('ul');
       (meal.foods||[]).forEach(food=>{const item=document.createElement('li');item.textContent=`${food.food_name} ${formatFoodQuantity(food.quantity,food.unit)}${food.unit||''}`;list.append(item);});
       card.append(title,list); mealsElement.append(card);
