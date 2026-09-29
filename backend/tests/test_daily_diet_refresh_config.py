@@ -23,3 +23,12 @@ def test_diet_migration_enforces_ai_source_mix() -> None:
     assert "source_type in ('db_catalog', 'ai_generated')" in sql
     assert "v_ai_meal_count not between 2 and 3" in sql
     assert "nullif(v_food_input ->> 'food_item_id', '')::uuid" in sql
+
+
+def test_latest_diet_migration_allows_four_ai_meals_and_serializes_writes() -> None:
+    sql = (
+        ROOT
+        / "supabase/migrations/20260929013617_allow_four_ai_diet_meals.sql"
+    ).read_text()
+    assert "v_ai_meal_count not between 2 and 4" in sql
+    assert "pg_catalog.pg_advisory_xact_lock" in sql

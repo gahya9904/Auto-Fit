@@ -111,6 +111,7 @@ def test_all_ai_plan_uses_every_slot_without_catalog_mix(monkeypatch) -> None:
         allergy_names,
         request_model,
         avoid_food_names=None,
+        avoid_meal_food_names=None,
     ):
         assert len(slots) == 4
         return [
@@ -1870,6 +1871,27 @@ def test_fetch_latest_diet_recommendation_excludes_future_dummy_rows(
     assert result is None
 
 
+def test_fetch_latest_diet_recommendation_accepts_historical_cutoff(
+    monkeypatch,
+) -> None:
+    original = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["recommendation_date"] == "lte.2026-09-28"
+        assert request.url.params["status"] == "eq.active"
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(
+        main.httpx, "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    result = main.asyncio.run(main.fetch_diet_recommendation(
+        "authenticated-user", TEST_SETTINGS,
+        latest_date=main.date(2026, 9, 28),
+    ))
+    assert result is None
+
+
 def test_get_diet_recommendation_by_date_uses_authenticated_user(
     monkeypatch,
 ) -> None:
@@ -1933,6 +1955,7 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
         target_date=None,
         all_ai=False,
         avoid_food_names=None,
+        avoid_meal_food_names=None,
     ):
         assert user_id == "authenticated-user"
         assert inventory == [{"custom_name": "브로콜리"}]
@@ -1940,7 +1963,8 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
         assert food_catalog[0]["name"] == "현미밥"
         assert target_date == main.datetime.now(main.KST).date()
         assert all_ai is False
-        assert avoid_food_names == ["이전 식단"]
+        assert avoid_food_names == ["이전 식단", "어제 식단"]
+        assert avoid_meal_food_names == [["이전 식단"], ["어제 식단"]]
         plan = main.build_diet_recommendation_plan(inventory, allergy_names)
         for index, meal in enumerate(plan["meals"]):
             meal["source_type"] = "ai_generated" if index < 2 else "db_catalog"
@@ -1961,18 +1985,26 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
 
     fetch_calls = 0
 
-    async def fake_fetch(user_id, settings, recommendation_date, **kwargs):
+    async def fake_fetch(user_id, settings, recommendation_date=None, **kwargs):
         nonlocal fetch_calls
         assert user_id == "authenticated-user"
-        assert recommendation_date == main.datetime.now(main.KST).date()
         fetch_calls += 1
-        if fetch_calls == 1:
+        if fetch_calls in (1, 2):
+            assert recommendation_date == main.datetime.now(main.KST).date()
             return {
                 "recommendation": {"diet_recommendation_id": "previous"},
                 "meals": [
                     {"foods": [{"food_name": "이전 식단"}]},
                 ],
             }
+        if fetch_calls == 3:
+            assert recommendation_date is None
+            assert kwargs["latest_date"] == main.datetime.now(main.KST).date() - main.timedelta(days=1)
+            return {
+                "recommendation": {"diet_recommendation_id": "previous-day"},
+                "meals": [{"foods": [{"food_name": "어제 식단"}]}],
+            }
+        assert recommendation_date == main.datetime.now(main.KST).date()
         return {"recommendation": {"diet_recommendation_id": "recommendation-1"}}
 
     main.app.dependency_overrides[main.get_current_user] = fake_user
@@ -1991,7 +2023,44 @@ def test_generate_diet_recommendation_uses_user_data(monkeypatch) -> None:
         )
         assert response.status_code == 200
         assert response.json()["generator"] == "mixed_ai_v1"
-        assert fetch_calls == 2
+        assert fetch_calls == 4
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_generate_diet_recommendation_reuses_concurrent_result(monkeypatch) -> None:
+    async def fake_user() -> main.AuthenticatedUser:
+        return main.AuthenticatedUser(id="authenticated-user")
+
+    calls = 0
+
+    async def fake_fetch(user_id, settings, recommendation_date=None, **kwargs):
+        nonlocal calls
+        calls += 1
+        recommendation_id = "old" if calls == 1 else "new"
+        return {
+            "recommendation": {
+                "diet_recommendation_id": recommendation_id,
+                "recommendation_date": "2026-09-29",
+            },
+            "meals": [],
+        }
+
+    async def reject_generation(*args, **kwargs):
+        raise AssertionError("a concurrent result must skip paid AI generation")
+
+    main.app.dependency_overrides[main.get_current_user] = fake_user
+    main.app.dependency_overrides[main.get_settings] = lambda: TEST_SETTINGS
+    monkeypatch.setattr(main, "fetch_diet_recommendation", fake_fetch)
+    monkeypatch.setattr(main, "build_daily_diet_recommendation_plan", reject_generation)
+    try:
+        response = TestClient(main.app).post(
+            "/api/diet/recommendations/generate", json={}
+        )
+        assert response.status_code == 200
+        assert response.json()["reused_concurrent_result"] is True
+        assert response.json()["result"]["recommendation"]["diet_recommendation_id"] == "new"
+        assert calls == 2
     finally:
         main.app.dependency_overrides.clear()
 
@@ -2020,6 +2089,7 @@ def test_preview_all_ai_diet_skips_catalog_and_persistence(monkeypatch) -> None:
         target_date=None,
         all_ai=False,
         avoid_food_names=None,
+        avoid_meal_food_names=None,
     ):
         assert user_id == "authenticated-user"
         assert inventory == [{"custom_name": "브로콜리"}]
@@ -2027,6 +2097,7 @@ def test_preview_all_ai_diet_skips_catalog_and_persistence(monkeypatch) -> None:
         assert food_catalog == []
         assert all_ai is True
         assert avoid_food_names == []
+        assert avoid_meal_food_names == []
         return {
             "recommendation": {"recommendation_date": "2026-09-29"},
             "meals": [
@@ -2045,7 +2116,7 @@ def test_preview_all_ai_diet_skips_catalog_and_persistence(monkeypatch) -> None:
     async def reject_persistence(*args, **kwargs):
         raise AssertionError("preview must not persist a recommendation")
 
-    async def fake_fetch(user_id, settings, recommendation_date, **kwargs):
+    async def fake_fetch(user_id, settings, recommendation_date=None, **kwargs):
         return None
 
     main.app.dependency_overrides[main.get_current_user] = fake_user

@@ -7,6 +7,7 @@ import pytest
 from backend.app.diet_ai import (
     DietAIUnavailable,
     build_catalog_meals,
+    conflicts_allergy,
     daily_ai_meal_count,
     generate_ai_meals,
     mix_meals,
@@ -18,6 +19,21 @@ BASE_MEALS = [
     {"meal_type": meal_type, "meal_order": index, "recommended_calories": 400, "foods": []}
     for index, meal_type in enumerate(("breakfast", "lunch", "dinner", "snack"), 1)
 ]
+
+
+@pytest.mark.parametrize(
+    ("food_name", "allergy_name"),
+    [
+        ("계란말이", "달걀"),
+        ("새우볶음밥", "갑각류"),
+        ("식빵", "밀"),
+        ("크림 파스타", "wheat"),
+    ],
+)
+def test_allergy_aliases_block_common_menu_synonyms(
+    food_name: str, allergy_name: str
+) -> None:
+    assert conflicts_allergy(food_name, [allergy_name]) is True
 
 
 def test_daily_ai_slots_always_select_two_or_three_meals() -> None:
@@ -216,6 +232,36 @@ def test_generate_ai_meals_avoids_previous_representative_food() -> None:
     )
 
     assert meals[0]["foods"][0]["food_name"] == "새로운 포케"
+    assert attempts == 2
+
+
+def test_generate_ai_meals_retries_reordered_previous_composition() -> None:
+    attempts = 0
+
+    async def fake_model(prompt: str) -> str:
+        nonlocal attempts
+        attempts += 1
+        slot = json.loads(prompt.rsplit("\n", 1)[-1])["slot"]
+        names = ["브로콜리", "현미밥"] if attempts == 1 else ["고구마", "닭가슴살"]
+        return json.dumps(
+            {"meals": [{
+                "meal_type": slot["meal_type"],
+                "meal_order": slot["meal_order"],
+                "recommendation_note": "AI 추천",
+                "foods": [{
+                    "food_name": name, "quantity": 150, "unit": "g",
+                    "calories": 200, "carbohydrates": 25, "protein": 15, "fat": 5,
+                } for name in names],
+            }]},
+            ensure_ascii=False,
+        )
+
+    meals = asyncio.run(generate_ai_meals(
+        BASE_MEALS[:1], [], fake_model,
+        avoid_meal_food_names=[["현미밥", "브로콜리"]],
+    ))
+
+    assert [food["food_name"] for food in meals[0]["foods"]] == ["고구마", "닭가슴살"]
     assert attempts == 2
 
 
