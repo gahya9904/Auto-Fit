@@ -54,6 +54,7 @@ import {
   type DietActualItem,
   type DietFeedbackInput,
 } from '@/src/api/diet';
+import { API_BASE_URL, ApiError } from '@/src/api/client';
 import { getProfile, getProfileName } from '@/src/api/home';
 import {
   BOTTOM_NAVIGATION_MIN_BOTTOM_GAP,
@@ -538,7 +539,10 @@ function foodAmount(food: unknown) {
   const quantity = readNumber(food, ['quantity', 'amount', 'serving_size', 'serving']);
   const unit = readString(food, ['unit', 'quantity_unit', 'serving_unit']);
   if (quantity === undefined && !unit) return '';
-  return `${quantity ?? ''}${unit ?? ''}`.trim();
+  const displayQuantity = unit === 'g' && quantity !== undefined && quantity >= 10
+    ? Math.round(quantity / 10) * 10
+    : quantity;
+  return `${displayQuantity ?? ''}${unit ?? ''}`.trim();
 }
 
 function mapRecommendationMeals(result: unknown): Meal[] {
@@ -1238,7 +1242,6 @@ export default function DietScreen() {
   });
   const nutritionSummaryRequestRef = useRef(0);
   const regenerateRequestMealIdsRef = useRef(new Set<MealType>());
-  const regenerationDebugByMealIdRef = useRef<Partial<Record<MealType, Record<string, unknown>>>>({});
 
   const availableWidth = windowWidth - insets.left - insets.right;
   const widthScale = Math.min(1, availableWidth / referenceWidth);
@@ -1448,12 +1451,36 @@ export default function DietScreen() {
     }
   }, []);
 
-  const loadInventory = useCallback(async () => {
+  const loadInventory = useCallback(async (expectedAddedName?: string) => {
     if (isMountedRef.current) setInventoryLoading(true);
     try {
       const response = await getDietInventory();
       if (!isMountedRef.current) return;
-      setFridgeIngredients(mapInventory(response.inventory));
+      const mappedItems = mapInventory(response.inventory);
+
+      if (__DEV__) {
+        console.log('[Diet Inventory] raw response:', response);
+        console.log(
+          '[Diet Inventory] mapped items:',
+          mappedItems.map((item) => ({
+            expires_on: item.expiresOn,
+            id: item.id,
+            name: item.name,
+            purchased_on: item.purchasedOn,
+            quantity: item.quantity,
+            unit: item.unit,
+          })),
+        );
+
+        if (expectedAddedName) {
+          console.log('[Diet Inventory] refetch includes added item:', {
+            addedName: expectedAddedName,
+            included: mappedItems.some((item) => item.name === expectedAddedName),
+          });
+        }
+      }
+
+      setFridgeIngredients(mappedItems);
     } catch (error) {
       if (!isMountedRef.current) return;
       setFridgeIngredients([]);
@@ -1578,13 +1605,25 @@ export default function DietScreen() {
       const currentMeal = recommendedMeals.find((meal) => meal.id === mealId);
       const dietMealId = currentMeal?.dietMealId;
       if (!dietMealId || regenerateRequestMealIdsRef.current.has(mealId)) return;
+      const requestStartedAtDate = new Date();
+      const requestStartedAt = requestStartedAtDate.getTime();
+      const requestId = `diet-regenerate-${mealId}-${requestStartedAt}`;
+      const finalRequestUrl = `${API_BASE_URL}/api/diet/meals/${encodeURIComponent(dietMealId)}/regenerate`;
+      let httpStatus: number | undefined;
 
       if (__DEV__) {
-        console.log('[Diet Regenerate] clicked:', {
+        console.log('[Diet Regenerate] START', {
           dateKey: selectedDateKey,
           dietMealId,
           foods: currentMeal.foods,
           mealId,
+          finalRequestUrl,
+          requestId,
+          startedAtIso: requestStartedAtDate.toISOString(),
+          startedAtKst: requestStartedAtDate.toLocaleString('sv-SE', {
+            hour12: false,
+            timeZone: 'Asia/Seoul',
+          }),
           sourceType: currentMeal.sourceType,
         });
       }
@@ -1592,14 +1631,23 @@ export default function DietScreen() {
       regenerateRequestMealIdsRef.current.add(mealId);
       setRegeneratingMealIds((current) => new Set(current).add(mealId));
       try {
-        const response = await regenerateDietMeal(dietMealId);
-        if (!isMountedRef.current) return;
+        const response = await regenerateDietMeal(dietMealId, {
+          onResponse: ({ status }) => {
+            httpStatus = status;
+          },
+          requestId,
+        });
 
         const rawRegeneratedMeal = response.meal;
 
         if (__DEV__) {
           const rawMeal = isApiRecord(rawRegeneratedMeal) ? rawRegeneratedMeal : undefined;
-          const currentSnapshot = {
+          const before = {
+            dietMealId: currentMeal.dietMealId,
+            foods: currentMeal.foods,
+            sourceType: currentMeal.sourceType,
+          };
+          const after = {
             dietMealId: rawMeal ? readString(rawMeal, ['diet_meal_id', 'id']) : undefined,
             foods: rawMeal?.foods,
             imageSource: rawMeal ? readString(rawMeal, ['image_source']) : undefined,
@@ -1612,27 +1660,85 @@ export default function DietScreen() {
             recommendedCalories: rawMeal ? readNumber(rawMeal, ['recommended_calories']) : undefined,
             sourceType: rawMeal ? readString(rawMeal, ['source_type']) : undefined,
           };
-          console.log('[Diet Regenerate] mapper input:', rawRegeneratedMeal);
-          console.log('[Diet Regenerate] raw regenerated meal:', rawRegeneratedMeal);
-          console.log('[Diet Regenerate] result comparison:', {
-            current: currentSnapshot,
-            mealId,
-            previous: regenerationDebugByMealIdRef.current[mealId] ?? null,
+          const responseElapsedMs = Date.now() - requestStartedAt;
+          console.log('[Diet Regenerate] SUCCESS', {
+            durationMs: responseElapsedMs,
+            durationSeconds: responseElapsedMs / 1000,
+            generator: response.generator,
+            httpStatus: httpStatus ?? null,
+            image_generation_required: rawMeal?.image_generation_required,
+            image_generation_status: rawMeal?.image_generation_status,
+            meal: {
+              foods: rawMeal?.foods,
+              recommendation_note: rawMeal?.recommendation_note,
+              source_type: rawMeal?.source_type,
+              used_ingredients: response.used_ingredients ?? rawMeal?.used_ingredients,
+            },
+            requestId,
           });
-          regenerationDebugByMealIdRef.current[mealId] = currentSnapshot;
+          console.log('[Diet Regenerate] before/after:', {
+            after: { ...after, generator: response.generator, ok: response.ok },
+            before,
+            mealId,
+            requestId,
+          });
+          console.log('[Diet Regenerate] raw meal inventory fields:', {
+            inventory: rawMeal?.inventory,
+            inventory_ingredients: rawMeal?.inventory_ingredients,
+            refrigerator_ingredients: rawMeal?.refrigerator_ingredients,
+            response_used_ingredients: response.used_ingredients,
+            response_used_ingredients_count: readArray(response.used_ingredients).length,
+            used_ingredients: rawMeal?.used_ingredients,
+            used_inventory: rawMeal?.used_inventory,
+          });
+          console.log(
+            '[Diet Regenerate] raw meal foods:',
+            readArray(rawMeal?.foods).map((food) => {
+              const record = isApiRecord(food) ? food : undefined;
+              return {
+                food_item_id: record?.food_item_id,
+                food_name: record?.food_name,
+                quantity: record?.quantity,
+                source: record?.source,
+                source_type: record?.source_type,
+                unit: record?.unit,
+              };
+            }),
+          );
         }
 
-        const regeneratedMeal = mapRecommendationMeals({ meals: [rawRegeneratedMeal] }).find(
+        if (!isMountedRef.current) return;
+
+        const mealForMapping =
+          isApiRecord(rawRegeneratedMeal) && response.used_ingredients !== undefined
+            ? { ...rawRegeneratedMeal, used_ingredients: response.used_ingredients }
+            : rawRegeneratedMeal;
+        const mappingStartedAt = Date.now();
+        const regeneratedMeal = mapRecommendationMeals({ meals: [mealForMapping] }).find(
           (meal) => meal.id === mealId,
         );
-        if (__DEV__) {
-          console.log('[Diet Regenerate] mapped meal:', regeneratedMeal ?? null);
-        }
         if (regeneratedMeal) {
           setRecommendedMeals((current) => {
             const next = current.map((meal) => (meal.id === mealId ? regeneratedMeal : meal));
             if (__DEV__) {
-              console.log('[Diet Regenerate] final recommendedMeals:', next);
+              console.log('[Diet Regenerate] mapped meal:', {
+                dietMealId: regeneratedMeal.dietMealId,
+                foods: regeneratedMeal.foods,
+                mapperDurationMs: Date.now() - mappingStartedAt,
+                note: regeneratedMeal.note,
+                requestId,
+                sourceType: regeneratedMeal.sourceType,
+                usedIngredients: regeneratedMeal.usedIngredients,
+                usedIngredientsCount: regeneratedMeal.usedIngredients.length,
+              });
+              console.log('[Diet Regenerate] state update:', {
+                replacedMealId: mealId,
+                requestId,
+                stateMealIds: next.map((meal) => meal.id),
+                stateUpdateDurationMs: Date.now() - mappingStartedAt,
+                uiUsedIngredientsCount: regeneratedMeal.usedIngredients.length,
+                usedFallbackGet: false,
+              });
             }
             return next;
           });
@@ -1642,10 +1748,37 @@ export default function DietScreen() {
         // The regenerate response schema is free-form. Re-read the selected date using the
         // established recommendation mapper rather than constructing a meal client-side.
         if (__DEV__) {
-          console.log('[Diet Regenerate] selected meal was not mapped; refetching date:', selectedDateKey);
+          console.log('[Diet Regenerate] selected meal was not mapped; refetching date:', {
+            dateKey: selectedDateKey,
+            mapperDurationMs: Date.now() - mappingStartedAt,
+            requestId,
+            usedFallbackGet: true,
+          });
         }
         await loadRecommendations(selectedDateKey);
       } catch (error) {
+        if (__DEV__) {
+          const apiError = error instanceof ApiError ? error : undefined;
+          const elapsedMs = Date.now() - requestStartedAt;
+          console.error('[Diet Regenerate] FAILED', {
+            caughtErrorName: error instanceof Error ? error.name : typeof error,
+            caughtErrorMessage: error instanceof Error ? error.message : String(error),
+            detail: apiError?.detail ?? null,
+            durationMs: elapsedMs,
+            durationSeconds: elapsedMs / 1000,
+            error: apiError?.code ?? null,
+            finalRequestUrl,
+            httpStatus: apiError?.status ?? httpStatus ?? null,
+            message: apiError?.message ?? (error instanceof Error ? error.message : String(error)),
+            requestId,
+            requestedAtIso: requestStartedAtDate.toISOString(),
+            requestedAtKst: requestStartedAtDate.toLocaleString('sv-SE', {
+              hour12: false,
+              timeZone: 'Asia/Seoul',
+            }),
+            responseBody: apiError?.responseBody ?? null,
+          });
+        }
         if (isMountedRef.current) {
           Alert.alert('식단을 다시 추천하지 못했어요', getDietApiErrorMessage(error));
         }
@@ -1783,12 +1916,22 @@ export default function DietScreen() {
           unit: null,
         });
         const addedItem = mapInventory([response.item])[0];
+
+        if (__DEV__) {
+          console.log('[Diet Inventory] added mapped item:', addedItem ?? null);
+        }
+
         if (!isMountedRef.current) return false;
 
         if (addedItem) {
           setFridgeIngredients((current) => [...current, addedItem]);
         } else {
-          await loadInventory();
+          if (__DEV__) {
+            console.log('[Diet Inventory] add response has no mappable item; refetching inventory:', {
+              addedName: name,
+            });
+          }
+          await loadInventory(name);
         }
         return true;
       } catch (error) {

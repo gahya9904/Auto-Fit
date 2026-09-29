@@ -1,12 +1,14 @@
 import { getSupabaseClient } from '@/src/lib/supabase';
 
-const DEFAULT_API_BASE_URL = 'https://211-233-202-118.sslip.io';
+const DEFAULT_API_BASE_URL = 'https://auto-fit-api-dev.onrender.com';
 
 // Keep endpoint paths (for example, `/api/profile`) unchanged while allowing
-// each build environment to select its API server.
+// each build environment to select its Render API server.
 const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, '');
 
 export const API_BASE_URL = configuredApiBaseUrl || DEFAULT_API_BASE_URL;
+
+let hasLoggedApiClientDebug = false;
 
 type ApiErrorBody = {
   code?: unknown;
@@ -97,6 +99,25 @@ export async function apiRequest<T>(
   init: RequestInit = {},
   options: ApiRequestOptions = {},
 ): Promise<T> {
+  const method = init.method ?? 'GET';
+  const finalUrl = `${API_BASE_URL}${path}`;
+
+  if (__DEV__) {
+    if (!hasLoggedApiClientDebug) {
+      hasLoggedApiClientDebug = true;
+      console.log('[API Client Debug]', {
+        envApiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? null,
+        resolvedApiBaseUrl: API_BASE_URL,
+      });
+    }
+
+    console.log('[API Request Debug]', {
+      endpoint: path,
+      finalUrl,
+      method,
+    });
+  }
+
   let supabase;
   try {
     supabase = getSupabaseClient();
@@ -122,7 +143,7 @@ export async function apiRequest<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+    response = await fetch(finalUrl, { ...init, headers });
   } catch (error) {
     throw new ApiError(
       0,
