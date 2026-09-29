@@ -301,6 +301,18 @@ def test_catalog_meals_require_usable_db_food() -> None:
         build_catalog_meals(BASE_MEALS[-1:], [{"name": "열량없음", "calories": 0}])
 
 
+def test_catalog_meals_exclude_dummy_source_and_name_marker() -> None:
+    catalog = [
+        {"name": "출처 더미 음식", "source_type": "dummy", "calories": 100},
+        {"name": "[DUMMY 20260916] 현미밥", "source_type": "reference", "calories": 150},
+        {"name": "정상 현미밥", "source_type": "reference", "calories": 200},
+    ]
+
+    meals = build_catalog_meals(BASE_MEALS[-1:], catalog)
+
+    assert [food["food_name"] for food in meals[0]["foods"]] == ["정상 현미밥"]
+
+
 def test_catalog_meals_prioritize_available_inventory() -> None:
     catalog = [
         {"food_item_id": "food-1", "name": "가나다 현미밥", "calories": 200},

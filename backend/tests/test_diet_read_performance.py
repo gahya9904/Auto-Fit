@@ -30,7 +30,14 @@ def test_foods_and_images_overlap_and_preserve_response():
             await asyncio.wait_for(all_entered.wait(), timeout=1)
             if path == "diet_meal_foods":
                 assert request.url.params["diet_meal_id"] == "in.(meal)"
-                return httpx.Response(200, json=[{"diet_meal_id": "meal", "food_name": "rice"}])
+                return httpx.Response(
+                    200,
+                    json=[{
+                        "diet_meal_id": "meal",
+                        "food_name": "[DUMMY 20260916] 현미밥",
+                        "quantity": 56.26,
+                    }],
+                )
             if path == "diet_feedback":
                 assert request.url.params["user_id"] == "eq.owner"
                 assert request.url.params["diet_meal_id"] == "in.(meal)"
@@ -51,7 +58,9 @@ def test_foods_and_images_overlap_and_preserve_response():
             assert not client.is_closed
         assert entered == {"diet_meal_foods", "menu_images", "diet_feedback"}
         meal = result["meals"][0]
-        assert meal["foods"] == [{"diet_meal_id": "meal", "food_name": "rice"}]
+        assert meal["foods"] == [
+            {"diet_meal_id": "meal", "food_name": "현미밥", "quantity": 56}
+        ]
         assert meal["feedback"]["feedback_type"] == "skipped"
         assert meal["image_url"].endswith("/menu-images/menu.png")
         assert meal["image_generation_required"] is False

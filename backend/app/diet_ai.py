@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 MealType = Literal["breakfast", "lunch", "dinner", "snack"]
 ModelRequester = Callable[[str], Awaitable[str | None]]
+EXCLUDED_CATALOG_SOURCE_TYPES = {"dummy"}
+EXCLUDED_CATALOG_NAME_MARKERS = ("[dummy",)
 
 
 class DietAIUnavailable(RuntimeError):
@@ -257,6 +259,12 @@ def build_catalog_meals(
         row
         for row in food_catalog
         if row.get("name")
+        and str(row.get("source_type") or "").strip().casefold()
+        not in EXCLUDED_CATALOG_SOURCE_TYPES
+        and not any(
+            marker in str(row["name"]).casefold()
+            for marker in EXCLUDED_CATALOG_NAME_MARKERS
+        )
         and Decimal(str(row.get("calories") or 0)) > 0
         and not conflicts_allergy(row["name"], allergy_names or [])
     ]

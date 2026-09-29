@@ -2224,6 +2224,7 @@ def test_build_regenerated_meal_preserves_slot_and_changes_representative() -> N
     assert result["meal_type"] == "breakfast"
     assert result["meal_order"] == 1
     assert result["foods"][0]["food_name"] != "현미밥"
+    assert all(isinstance(food["quantity"], int) for food in result["foods"])
     assert abs(result["recommended_calories"] - 400) < 0.1
 
 
@@ -2261,7 +2262,7 @@ def test_regenerate_diet_meal_calls_owner_scoped_rpc(monkeypatch) -> None:
             json={
                 "diet_meal_id": "meal-1",
                 "image_storage_path": "menus/07.png",
-                "foods": replacement["foods"],
+                "foods": [{**replacement["foods"][0], "quantity": 197.92}],
             },
         )
 
@@ -2284,6 +2285,7 @@ def test_regenerate_diet_meal_calls_owner_scoped_rpc(monkeypatch) -> None:
     )
 
     assert result["diet_meal_id"] == "meal-1"
+    assert result["foods"][0]["quantity"] == 198
     assert result["image_url"] == (
         "https://example.supabase.co/storage/v1/object/public/"
         "menu-images/menus/07.png"

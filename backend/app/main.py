@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 import asyncio
 import hashlib
+import re
 import secrets
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from math import ceil
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -62,7 +63,29 @@ from backend.app.security import (
 
 
 KST = ZoneInfo("Asia/Seoul")
+DUMMY_FOOD_NAME_PREFIX = re.compile(r"^\[DUMMY[^\]]*\]\s*", re.IGNORECASE)
 DIET_GENERATION_LOCKS: dict[tuple[str, date], asyncio.Lock] = defaultdict(asyncio.Lock)
+
+
+def normalize_recommended_foods(
+    foods: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return recommended foods with clean names and whole-number quantities."""
+    normalized: list[dict[str, Any]] = []
+    for food in foods:
+        item = food.copy()
+        food_name = item.get("food_name")
+        if isinstance(food_name, str):
+            normalized_name = DUMMY_FOOD_NAME_PREFIX.sub("", food_name).strip()
+            if normalized_name:
+                item["food_name"] = normalized_name
+        quantity = item.get("quantity")
+        if quantity is not None:
+            item["quantity"] = int(
+                Decimal(str(quantity)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
+        normalized.append(item)
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -2230,6 +2253,7 @@ async def fetch_food_catalog(settings: Settings) -> list[dict[str, Any]]:
                     "carbohydrates,protein,fat,source_type"
                 ),
                 "order": "name.asc",
+                "source_type": "neq.dummy",
                 "limit": "500",
             },
         )
@@ -2443,7 +2467,9 @@ async def fetch_diet_recommendation(
                 detail="Supabase diet meal food query failed",
             )
         for food in food_response.json():
-            foods_by_meal[food["diet_meal_id"]].append(food)
+            foods_by_meal[food["diet_meal_id"]].extend(
+                normalize_recommended_foods([food])
+            )
     menu_image_keys = sorted(
         {meal["menu_image_key"] for meal in meals if meal.get("menu_image_key")}
     )
@@ -2605,6 +2631,9 @@ async def regenerate_diet_meal(
             detail="Supabase diet meal regeneration failed",
         )
     regenerated = response.json()
+    regenerated["foods"] = normalize_recommended_foods(
+        regenerated.get("foods") or []
+    )
     image_storage_path = regenerated.get("image_storage_path")
     regenerated["image_url"] = (
         f"{settings.supabase_url}/storage/v1/object/public/menu-images/"
@@ -2681,7 +2710,10 @@ async def fetch_diet_meal_context(
             detail="Supabase diet meal food query failed",
         )
     return {
-        "meal": {**meal, "foods": food_response.json()},
+        "meal": {
+            **meal,
+            "foods": normalize_recommended_foods(food_response.json()),
+        },
         "recommendation": recommendations[0],
     }
 
@@ -2730,7 +2762,11 @@ def build_regenerated_meal(
     scaled_foods: list[dict[str, Any]] = []
     for food in alternative["foods"]:
         scaled = food.copy()
-        scaled["quantity"] = round(float(food["quantity"]) * ratio, 2)
+        scaled["quantity"] = int(
+            (Decimal(str(food["quantity"])) * Decimal(str(ratio))).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP
+            )
+        )
         for nutrient in ("calories", "carbohydrates", "protein", "fat"):
             value = food.get(nutrient)
             scaled[nutrient] = (
