@@ -130,6 +130,9 @@ Content-Type: application/json
 - 기존 `diet_meal_id`를 유지하고 음식 항목만 한 트랜잭션으로 교체한다.
 - 새 식단은 기존 메뉴와 완전히 동일할 수 없으며 대표 음식이 달라야 한다.
 - 새 식단의 열량은 기존 `recommended_calories`의 ±15% 범위를 목표로 한다.
+- 서버는 인증 사용자의 사용 가능한 냉장고 재료를 조회하고 알레르기·기한 조건을 적용한다.
+- 외부 AI에는 사용자 ID, inventory ID, 수량, 단위, 유통기한을 보내지 않고 재료명만 보낸다.
+- AI 결과에 실제 냉장고 재료가 하나 이상 포함되지 않으면 성공 처리하지 않는다.
 - 일일 영양 목표 값은 한 끼 재추천으로 변경하지 않는다.
 
 성공 시 `200`과 갱신된 한 끼 전체를 반환한다.
@@ -137,20 +140,36 @@ Content-Type: application/json
 ```json
 {
   "ok": true,
-  "generator": "rules_v1",
+  "generator": "ai_v1",
   "meal": {
     "diet_meal_id": "00000000-0000-0000-0000-000000000000",
     "meal_type": "lunch",
     "meal_order": 2,
     "recommended_calories": 520,
     "recommendation_note": "냉장고 재료를 반영한 다른 점심 식단",
+    "source_type": "ai_generated",
     "status": "recommended",
     "foods": []
-  }
+  },
+  "used_ingredients": [
+    {
+      "user_food_inventory_id": "00000000-0000-0000-0000-000000000000",
+      "name": "두부",
+      "matched_food_name": "두부구이",
+      "quantity": 1,
+      "unit": "모",
+      "planned_quantity": 200,
+      "planned_unit": "g",
+      "inventory_covers_planned_quantity": null
+    }
+  ]
 }
 ```
 
-현재 조건에서 다른 메뉴를 만들 수 없으면 `409`로 응답한다. DB 교체는 전용
+`quantity`/`unit`은 서버에 저장된 보유량이고 `planned_quantity`/`planned_unit`은 AI 식단의
+계획 사용량이다. 단위를 비교할 수 있을 때만 `inventory_covers_planned_quantity`가 boolean이며,
+`모`와 `g`처럼 단위가 다르면 `null`이다. AI가 안전하고 유효한 대안을 만들지 못하면 `503`으로
+응답한다. DB 교체는 전용
 `replace_diet_meal` RPC에서 수행하며, 부분 삭제나 부분 삽입이 남지 않도록 원자적으로
 처리한다. 함수는 `security invoker`로 만들고 `PUBLIC`, `anon`, `authenticated`의 실행
 권한을 회수한 뒤 `service_role`에만 실행 권한을 부여한다. 함수 내부에서도 JWT에서

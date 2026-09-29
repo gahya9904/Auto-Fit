@@ -42,9 +42,12 @@ from backend.app.diet_timing import DietTimingMiddleware, timed_http_client
 from backend.app.diet_ai import (
     DietAIUnavailable,
     apply_inventory_to_ai_meals,
+    conflicts_allergy,
+    find_used_inventory_items,
     find_used_inventory_names,
     food_matches_inventory,
     generate_ai_meals,
+    generate_regenerated_meal,
     mix_meals,
     select_ai_slots,
 )
@@ -482,6 +485,24 @@ class GenerateDietRecommendationRequest(BaseModel):
 
 class RegenerateDietMealRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class UsedInventoryIngredientResponse(BaseModel):
+    user_food_inventory_id: str | None = None
+    name: str
+    matched_food_name: str
+    quantity: float | None = None
+    unit: str | None = None
+    planned_quantity: float | None = None
+    planned_unit: str | None = None
+    inventory_covers_planned_quantity: bool | None = None
+
+
+class RegenerateDietMealResponse(BaseModel):
+    ok: Literal[True]
+    generator: Literal["ai_v1"]
+    meal: dict[str, Any]
+    used_ingredients: list[UsedInventoryIngredientResponse]
 
 
 class MealLogItemRequest(BaseModel):
@@ -2267,6 +2288,27 @@ async def fetch_food_catalog(settings: Settings) -> list[dict[str, Any]]:
     return response.json()
 
 
+def resolve_safe_inventory_items(
+    inventory: list[dict[str, Any]],
+    food_catalog: list[dict[str, Any]],
+    allergy_names: list[str],
+    reference_date: date | None = None,
+) -> list[dict[str, Any]]:
+    catalog_names_by_id = {
+        str(row.get("food_item_id")): str(row["name"])
+        for row in food_catalog
+        if row.get("food_item_id") and row.get("name")
+    }
+    resolved: list[dict[str, Any]] = []
+    for row in usable_food_inventory(inventory, reference_date):
+        name = row.get("custom_name") or catalog_names_by_id.get(
+            str(row.get("food_item_id"))
+        )
+        if name and not conflicts_allergy(str(name), allergy_names):
+            resolved.append({**row, "custom_name": str(name)})
+    return resolved
+
+
 async def build_daily_diet_recommendation_plan(
     user_id: str,
     inventory: list[dict[str, Any]],
@@ -3938,13 +3980,17 @@ async def preview_all_ai_diet_recommendation(
     }
 
 
-@app.post("/api/diet/meals/{diet_meal_id}/regenerate", tags=["Diet"])
+@app.post(
+    "/api/diet/meals/{diet_meal_id}/regenerate",
+    tags=["Diet"],
+    response_model=RegenerateDietMealResponse,
+)
 async def regenerate_recommended_diet_meal(
     diet_meal_id: UUID,
     body: RegenerateDietMealRequest,
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
-) -> dict[str, Any]:
+) -> RegenerateDietMealResponse:
     context = await fetch_diet_meal_context(user.id, str(diet_meal_id), settings)
     if (
         context["recommendation"].get("status") != "active"
@@ -3955,9 +4001,12 @@ async def regenerate_recommended_diet_meal(
             detail="Diet meal cannot be regenerated in its current state",
         )
 
-    inventory = await fetch_food_inventory(user.id, settings)
-    catalog = await fetch_allergy_catalog(settings)
-    selected = await fetch_user_allergies(user.id, settings)
+    inventory, catalog, selected, food_catalog = await asyncio.gather(
+        fetch_food_inventory(user.id, settings),
+        fetch_allergy_catalog(settings),
+        fetch_user_allergies(user.id, settings),
+        fetch_food_catalog(settings),
+    )
     catalog_names = {
         row["allergy_type_id"]: row["name"] for row in catalog
     }
@@ -3965,16 +4014,31 @@ async def regenerate_recommended_diet_meal(
         row.get("custom_name") or catalog_names.get(row.get("allergy_type_id"))
         for row in selected
     ]
+    allergy_names = [name for name in allergy_names if name]
+    resolved_inventory = resolve_safe_inventory_items(
+        inventory, food_catalog, allergy_names
+    )
+    inventory_names = list(
+        dict.fromkeys(row["custom_name"] for row in resolved_inventory)
+    )
     try:
-        replacement = build_regenerated_meal(
+        replacement = await generate_regenerated_meal(
             context["meal"],
-            inventory,
-            [name for name in allergy_names if name],
+            allergy_names,
+            request_model,
+            inventory_names,
         )
-    except ValueError as exc:
+        used_ingredients = find_used_inventory_items(
+            [replacement], resolved_inventory
+        )
+        if resolved_inventory and not used_ingredients:
+            raise DietAIUnavailable(
+                "AI diet generator did not use available inventory"
+            )
+    except DietAIUnavailable as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No alternative diet meal is available",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI diet generator is temporarily unavailable",
         ) from exc
 
     await assign_menu_images([replacement], settings)
@@ -3989,7 +4053,12 @@ async def regenerate_recommended_diet_meal(
     meal["image_generation_required"] = replacement.get(
         "image_generation_required", False
     )
-    return {"ok": True, "generator": "rules_v1", "meal": meal}
+    return RegenerateDietMealResponse(
+        ok=True,
+        generator="ai_v1",
+        meal=meal,
+        used_ingredients=used_ingredients,
+    )
 
 
 @app.post("/api/diet/meals/{diet_meal_id}/feedback", tags=["Diet"])

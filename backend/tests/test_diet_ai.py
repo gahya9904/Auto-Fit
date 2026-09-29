@@ -9,9 +9,11 @@ from backend.app.diet_ai import (
     build_catalog_meals,
     conflicts_allergy,
     daily_ai_meal_count,
+    find_used_inventory_items,
     find_used_inventory_names,
     food_matches_inventory,
     generate_ai_meals,
+    generate_regenerated_meal,
     mix_meals,
     select_ai_slots,
 )
@@ -108,6 +110,139 @@ def test_generate_ai_meals_rejects_changed_slots() -> None:
 
     with pytest.raises(DietAIUnavailable):
         asyncio.run(generate_ai_meals(BASE_MEALS[:2], [], fake_model))
+
+
+def test_generate_regenerated_meal_passes_deidentified_inventory() -> None:
+    current = {
+        "meal_type": "breakfast",
+        "meal_order": 1,
+        "recommended_calories": 400,
+        "foods": [{"food_name": "기존 아침"}],
+    }
+
+    async def fake_model(prompt: str) -> str:
+        payload = json.loads(prompt.rsplit("\n", 1)[-1])
+        assert payload["available_ingredients"] == ["두부"]
+        assert payload["avoid_food_names"] == ["기존아침"]
+        assert "inventory-1" not in prompt
+        assert '"quantity": 1' not in prompt
+        slot = payload["slot"]
+        return json.dumps(
+            {
+                "meals": [
+                    {
+                        "meal_type": slot["meal_type"],
+                        "meal_order": slot["meal_order"],
+                        "recommendation_note": "냉장고 두부 활용",
+                        "foods": [
+                            {
+                                "food_name": "두부구이",
+                                "quantity": 200,
+                                "unit": "g",
+                                "calories": 400,
+                                "carbohydrates": 20,
+                                "protein": 30,
+                                "fat": 20,
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    meal = asyncio.run(
+        generate_regenerated_meal(current, [], fake_model, ["두부"])
+    )
+    used = find_used_inventory_items(
+        [meal],
+        [
+            {
+                "user_food_inventory_id": "inventory-1",
+                "custom_name": "두부",
+                "quantity": 1,
+                "unit": "모",
+            }
+        ],
+    )
+
+    assert meal["source_type"] == "ai_generated"
+    assert used == [
+        {
+            "user_food_inventory_id": "inventory-1",
+            "name": "두부",
+            "matched_food_name": "두부구이",
+            "quantity": 1,
+            "unit": "모",
+            "planned_quantity": 200,
+            "planned_unit": "g",
+            "inventory_covers_planned_quantity": None,
+        }
+    ]
+
+
+def test_generate_regenerated_meal_rejects_inventory_free_results() -> None:
+    current = {
+        "meal_type": "breakfast",
+        "meal_order": 1,
+        "recommended_calories": 400,
+        "foods": [{"food_name": "현미밥"}],
+    }
+    attempts = 0
+
+    async def fake_model(prompt: str) -> str:
+        nonlocal attempts
+        attempts += 1
+        slot = json.loads(prompt.rsplit("\n", 1)[-1])["slot"]
+        return json.dumps(
+            {
+                "meals": [
+                    {
+                        "meal_type": slot["meal_type"],
+                        "meal_order": slot["meal_order"],
+                        "recommendation_note": "냉장고 미사용",
+                        "foods": [
+                            {
+                                "food_name": "닭가슴살 샐러드",
+                                "quantity": 300,
+                                "unit": "g",
+                                "calories": 400,
+                                "carbohydrates": 20,
+                                "protein": 40,
+                                "fat": 15,
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    with pytest.raises(DietAIUnavailable):
+        asyncio.run(generate_regenerated_meal(current, [], fake_model, ["두부"]))
+    assert attempts == 3
+
+
+def test_used_inventory_reports_quantity_coverage_for_comparable_units() -> None:
+    used = find_used_inventory_items(
+        [
+            {
+                "foods": [
+                    {"food_name": "현미밥", "quantity": 150, "unit": "g"}
+                ]
+            }
+        ],
+        [
+            {
+                "user_food_inventory_id": "inventory-2",
+                "custom_name": "현미밥",
+                "quantity": 100,
+                "unit": "그램",
+            }
+        ],
+    )
+
+    assert used[0]["inventory_covers_planned_quantity"] is False
 
 
 def test_generate_ai_meals_selects_safe_candidate_per_slot() -> None:

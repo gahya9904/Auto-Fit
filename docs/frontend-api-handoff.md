@@ -222,7 +222,7 @@ summary는 완료 상태 세션을 기준으로 최근 7일(오늘 포함 7일)�
 | GET | `/api/diet/recommendations/latest` | 없음 | `result` 또는 null | 200 |
 | GET | `/api/diet/nutrition-summary?date=YYYY-MM-DD` | `date` 필수 | `summary` | 200 |
 | POST | `/api/diet/recommendations/generate` | `{}` | `ok, generator, result` | 200 |
-| POST | `/api/diet/meals/{diet_meal_id}/regenerate` | `{}` | `ok, generator, meal` | 200 |
+| POST | `/api/diet/meals/{diet_meal_id}/regenerate` | `{}` | `ok, generator, meal, used_ingredients[]` | 200 |
 | POST | `/api/diet/meals/{diet_meal_id}/feedback` | DietMealFeedbackRequest | `ok, result.feedback, result.meal_log` | 200 |
 | PATCH | `/api/diet/meals/{diet_meal_id}/feedback` | DietMealFeedbackUpdateRequest | `ok, result.feedback, result.meal_log` | 200 |
 | GET | `/api/diet/meal-logs` | query: `from_date, to_date` 필수 | `period, count, logs[]` | 200 |
@@ -250,10 +250,15 @@ meal_log_id, feedback_type, actual_food_name, feedback_note, recorded_at을 포�
 백엔드가 `foods[].food_name`을 정규화해 기존 사진과 자동 매칭하므로 프론트는 음식 이름과
 사진을 개별 매핑하지 않는다. `image_url`만 사용하고 값이 없으면 기본 이미지를 표시한다.
 foods[]: food_name, quantity, unit, calories, carbohydrates, protein, fat 등.
-식단 생성도 현재 rules_v1이며 팀원 모델과 연결된 것으로 가정하면 안 된다.
+일일 식단 생성은 DB catalog와 AI 생성 결과를 혼합한다. 한 끼 재추천은 `generator=ai_v1`,
+`meal.source_type=ai_generated`를 반환하며 외부 AI에는 알레르기 필터를 통과한 냉장고 재료명만
+전달한다. 사용자 ID, inventory ID, 보유 수량·단위, 유통기한은 서버 밖으로 보내지 않는다.
 날짜별 조회는 KST 기준 해당 날짜에 마지막으로 생성된 추천을 반환한다. 한 끼 재추천은
 기존 `diet_meal_id`, `meal_type`, `meal_order`를 유지한 채 음식 목록을 교체하며, 완료·변경·건너뜀
-상태의 식사는 409다. 현재 생성기는 `rules_v1`이고 DB 반영에는 `replace_diet_meal` RPC가 필요하다.
+상태의 식사는 409다. AI 결과를 만들 수 없거나 냉장고 재료가 반영되지 않으면 503이다.
+`used_ingredients[]`에는 inventory ID와 보유량(`quantity`, `unit`), AI 계획량
+(`planned_quantity`, `planned_unit`) 및 단위 비교가 가능한 경우의 보유량 충족 여부가 포함된다.
+DB 반영에는 `replace_diet_meal` RPC가 필요하다.
 
 영양 요약의 `summary`에는 날짜, 추천 존재 여부, 알 수 없는 영양 항목 여부와 칼로리·탄수화물·
 단백질·지방의 `consumed`, `target`, `unit`이 포함된다. 목표는 해당 날짜 최신 추천에서,

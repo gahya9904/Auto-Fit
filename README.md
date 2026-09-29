@@ -141,6 +141,6 @@ backend/.venv/bin/python -m backend.tests.diet_live_integration \
 
 운동 목표 저장 RPC는 다른 종류의 기존 활성 목표를 `cancelled`로 전환해 이력을 보존하고, 동일 종류의 활성 목표는 갱신합니다. 외래키 없이 사용자 ID와 상태 인덱스, 백엔드의 JWT 사용자 검증으로 소유권을 관리합니다. 현재 운동 로그에는 신체 부위 기준값이 없으므로 진행 현황은 임의의 부위 값을 만들지 않고 `exercise_types.category` 기준 운동 카테고리 분포를 반환합니다.
 
-식단 추천은 냉장고 재료와 등록된 알레르기를 조회한 뒤 `create_diet_recommendation` RPC에서 추천·끼니·음식 항목을 한 트랜잭션으로 저장합니다. 한 끼 재추천은 `replace_diet_meal` RPC가 기존 식사 ID와 순서를 유지하며 음식 항목을 원자적으로 교체합니다. 추천 식사 기록도 `record_recommended_meal` RPC에서 식사 로그·음식 항목·피드백·추천 상태를 함께 처리합니다. 외래키는 사용하지 않으며 사용자 소유권 검증과 고유 인덱스로 중복 기록을 막습니다. 현재 추천의 `rules_v1`은 데이터 왕복 검증용으로, 의료적 식단 진단이나 처방을 제공하지 않습니다.
+식단 추천은 냉장고 재료와 등록된 알레르기를 조회한 뒤 `create_diet_recommendation` RPC에서 추천·끼니·음식 항목을 한 트랜잭션으로 저장합니다. 한 끼 재추천은 AI로 새 메뉴를 생성하고 `replace_diet_meal` RPC가 기존 식사 ID와 순서를 유지하며 음식 항목을 원자적으로 교체합니다. 외부 AI에는 사용자 식별자나 보유량 대신 안전한 재료명만 전달하고, 백엔드가 결과를 원본 inventory ID·수량과 다시 매핑해 `used_ingredients`로 반환합니다. 추천 식사 기록도 `record_recommended_meal` RPC에서 식사 로그·음식 항목·피드백·추천 상태를 함께 처리합니다. 외래키는 사용하지 않으며 사용자 소유권 검증과 고유 인덱스로 중복 기록을 막습니다. 식단 기능은 의료적 진단이나 처방을 제공하지 않습니다.
 
-한 끼 재추천을 배포할 때는 `supabase/migrations/20260916042556_replace_diet_meal.sql`이 대상 Supabase에 적용되어 있어야 합니다. 연결된 개발 Supabase에는 적용 완료했습니다.
+한 끼 AI 재추천을 배포할 때는 `supabase/migrations/20260929044540_update_regenerated_meal_source_type.sql`까지 대상 Supabase에 적용되어 있어야 합니다.

@@ -306,6 +306,12 @@
           row.textContent = `${food.food_name} ${formatFoodQuantity(food.quantity, food.unit)}${food.unit ?? ''}`;
           foods.append(row);
         });
+        if (meal.used_ingredients?.length) {
+          const inventoryUse = document.createElement('li');
+          inventoryUse.className = 'muted';
+          inventoryUse.textContent = `냉장고 활용: ${meal.used_ingredients.map((item) => item.name).join(', ')}`;
+          foods.append(inventoryUse);
+        }
         const actions = document.createElement('div');
         actions.className = 'actions';
         if (meal.status === 'recommended') {
@@ -316,6 +322,7 @@
             const payload = await api(`/api/diet/meals/${meal.diet_meal_id}/regenerate`, {
               method: 'POST', body: JSON.stringify({})
             });
+            payload.meal.used_ingredients = payload.used_ingredients;
             currentRecommendation.meals = currentRecommendation.meals.map((current) =>
               current.diet_meal_id === meal.diet_meal_id ? payload.meal : current
             );

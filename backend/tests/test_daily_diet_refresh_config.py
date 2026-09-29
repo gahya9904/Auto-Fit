@@ -32,3 +32,24 @@ def test_latest_diet_migration_allows_four_ai_meals_and_serializes_writes() -> N
     ).read_text()
     assert "v_ai_meal_count not between 2 and 4" in sql
     assert "pg_catalog.pg_advisory_xact_lock" in sql
+
+
+def test_regeneration_migration_updates_source_type_with_safe_rollout() -> None:
+    sql = (
+        ROOT
+        / "supabase/migrations/20260929044540_update_regenerated_meal_source_type.sql"
+    ).read_text()
+
+    assert "security invoker" in sql
+    assert "v_source_type := coalesce(v_source_type, v_meal.source_type)" in sql
+    assert "source_type = v_source_type" in sql
+    assert "from public, anon, authenticated" in sql
+    assert "to service_role" in sql
+
+
+def test_render_blueprint_declares_ai_regeneration_settings() -> None:
+    blueprint = (ROOT / "render.yaml").read_text()
+
+    assert "key: CHAT_AI_ENABLED" in blueprint
+    assert "key: CHAT_AI_URL" in blueprint
+    assert "key: CHAT_AI_API_KEY" in blueprint

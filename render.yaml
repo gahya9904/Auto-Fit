@@ -37,3 +37,9 @@ services:
         value: "false"
       - key: DIET_REFRESH_CRON_TOKEN
         sync: false
+      - key: CHAT_AI_ENABLED
+        sync: false
+      - key: CHAT_AI_URL
+        sync: false
+      - key: CHAT_AI_API_KEY
+        sync: false

@@ -3347,9 +3347,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Regenerate Recommended Diet Meal Api Diet Meals  Diet Meal Id  Regenerate Post"
+                  "$ref": "#/components/schemas/RegenerateDietMealResponse"
                 }
               }
             }
@@ -7821,6 +7819,40 @@
         "type": "object",
         "title": "RegenerateDietMealRequest"
       },
+      "RegenerateDietMealResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "generator": {
+            "type": "string",
+            "const": "ai_v1",
+            "title": "Generator"
+          },
+          "meal": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Meal"
+          },
+          "used_ingredients": {
+            "items": {
+              "$ref": "#/components/schemas/UsedInventoryIngredientResponse"
+            },
+            "type": "array",
+            "title": "Used Ingredients"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "generator",
+          "meal",
+          "used_ingredients"
+        ],
+        "title": "RegenerateDietMealResponse"
+      },
       "RoundtripRequest": {
         "properties": {
           "message": {
@@ -7991,6 +8023,60 @@
           "document_type"
         ],
         "title": "UploadMetadata"
+      },
+      "UsedInventoryIngredientResponse": {
+        "properties": {
+          "user_food_inventory_id": {
+            "anyOf": [
+              { "type": "string" },
+              { "type": "null" }
+            ],
+            "title": "User Food Inventory Id"
+          },
+          "name": { "type": "string", "title": "Name" },
+          "matched_food_name": { "type": "string", "title": "Matched Food Name" },
+          "quantity": {
+            "anyOf": [
+              { "type": "number" },
+              { "type": "null" }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              { "type": "string" },
+              { "type": "null" }
+            ],
+            "title": "Unit"
+          },
+          "planned_quantity": {
+            "anyOf": [
+              { "type": "number" },
+              { "type": "null" }
+            ],
+            "title": "Planned Quantity"
+          },
+          "planned_unit": {
+            "anyOf": [
+              { "type": "string" },
+              { "type": "null" }
+            ],
+            "title": "Planned Unit"
+          },
+          "inventory_covers_planned_quantity": {
+            "anyOf": [
+              { "type": "boolean" },
+              { "type": "null" }
+            ],
+            "title": "Inventory Covers Planned Quantity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "matched_food_name"
+        ],
+        "title": "UsedInventoryIngredientResponse"
       },
       "ValidationError": {
         "properties": {

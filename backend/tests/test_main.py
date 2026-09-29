@@ -2307,6 +2307,7 @@ def test_regenerate_diet_meal_calls_owner_scoped_rpc(monkeypatch) -> None:
         "meal_order": 2,
         "recommended_calories": 480,
         "recommendation_note": "다른 점심",
+        "source_type": "ai_generated",
         "foods": [
             {
                 "food_name": "고구마",
@@ -2333,6 +2334,7 @@ def test_regenerate_diet_meal_calls_owner_scoped_rpc(monkeypatch) -> None:
             200,
             json={
                 "diet_meal_id": "meal-1",
+                "source_type": "ai_generated",
                 "image_storage_path": "menus/07.png",
                 "foods": [{**replacement["foods"][0], "quantity": 197.92}],
             },
@@ -2357,6 +2359,7 @@ def test_regenerate_diet_meal_calls_owner_scoped_rpc(monkeypatch) -> None:
     )
 
     assert result["diet_meal_id"] == "meal-1"
+    assert result["source_type"] == "ai_generated"
     assert result["foods"][0]["quantity"] == 198
     assert result["image_url"] == (
         "https://example.supabase.co/storage/v1/object/public/"
@@ -2389,7 +2392,16 @@ def test_regenerate_recommended_diet_meal_uses_authenticated_user(
 
     async def fake_inventory(user_id, settings):
         assert user_id == "authenticated-user"
-        return []
+        return [
+            {
+                "user_food_inventory_id": "inventory-1",
+                "custom_name": "두부",
+                "quantity": 1,
+                "unit": "모",
+                "is_available": True,
+                "expires_on": None,
+            }
+        ]
 
     async def fake_catalog(settings):
         return []
@@ -2398,11 +2410,39 @@ def test_regenerate_recommended_diet_meal_uses_authenticated_user(
         assert user_id == "authenticated-user"
         return []
 
+    async def fake_food_catalog(settings):
+        assert settings == TEST_SETTINGS
+        return []
+
+    async def fake_generate(current, allergies, request_model, inventory_names):
+        assert current["meal_type"] == "lunch"
+        assert allergies == []
+        assert inventory_names == ["두부"]
+        return {
+            "meal_type": "lunch",
+            "meal_order": 2,
+            "recommended_calories": 480,
+            "recommendation_note": "냉장고 두부를 활용한 새 점심",
+            "source_type": "ai_generated",
+            "foods": [
+                {
+                    "food_name": "두부 스테이크",
+                    "quantity": 200,
+                    "unit": "g",
+                    "calories": 480,
+                    "carbohydrates": 30,
+                    "protein": 35,
+                    "fat": 20,
+                }
+            ],
+        }
+
     async def fake_regenerate(user_id, received_id, replacement, settings):
         assert user_id == "authenticated-user"
         assert received_id == meal_id
         assert replacement["meal_type"] == "lunch"
-        assert replacement["foods"][0]["food_name"] != "현미밥"
+        assert replacement["source_type"] == "ai_generated"
+        assert replacement["foods"][0]["food_name"] == "두부 스테이크"
         return {"diet_meal_id": received_id, **replacement}
 
     async def fake_assign(meals, settings):
@@ -2419,6 +2459,8 @@ def test_regenerate_recommended_diet_meal_uses_authenticated_user(
     monkeypatch.setattr(main, "fetch_food_inventory", fake_inventory)
     monkeypatch.setattr(main, "fetch_allergy_catalog", fake_catalog)
     monkeypatch.setattr(main, "fetch_user_allergies", fake_allergies)
+    monkeypatch.setattr(main, "fetch_food_catalog", fake_food_catalog)
+    monkeypatch.setattr(main, "generate_regenerated_meal", fake_generate)
     monkeypatch.setattr(main, "assign_menu_images", fake_assign)
     monkeypatch.setattr(main, "regenerate_diet_meal", fake_regenerate)
     try:
@@ -2427,10 +2469,49 @@ def test_regenerate_recommended_diet_meal_uses_authenticated_user(
             json={},
         )
         assert response.status_code == 200
-        assert response.json()["generator"] == "rules_v1"
-        assert response.json()["meal"]["diet_meal_id"] == meal_id
+        payload = response.json()
+        assert payload["generator"] == "ai_v1"
+        assert payload["meal"]["diet_meal_id"] == meal_id
+        assert payload["meal"]["source_type"] == "ai_generated"
+        assert payload["used_ingredients"] == [
+            {
+                "user_food_inventory_id": "inventory-1",
+                "name": "두부",
+                "matched_food_name": "두부 스테이크",
+                "quantity": 1.0,
+                "unit": "모",
+                "planned_quantity": 200.0,
+                "planned_unit": "g",
+                "inventory_covers_planned_quantity": None,
+            }
+        ]
     finally:
         main.app.dependency_overrides.clear()
+
+
+def test_regenerate_openapi_exposes_inventory_usage_contract() -> None:
+    schema = main.app.openapi()
+    operation = schema["paths"][
+        "/api/diet/meals/{diet_meal_id}/regenerate"
+    ]["post"]
+
+    response_schema = operation["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert response_schema["$ref"].endswith("/RegenerateDietMealResponse")
+    used_schema = schema["components"]["schemas"][
+        "UsedInventoryIngredientResponse"
+    ]
+    assert {
+        "user_food_inventory_id",
+        "name",
+        "matched_food_name",
+        "quantity",
+        "unit",
+        "planned_quantity",
+        "planned_unit",
+        "inventory_covers_planned_quantity",
+    } <= set(used_schema["properties"])
 
 
 def test_regenerate_recommended_diet_meal_rejects_finished_meal(
