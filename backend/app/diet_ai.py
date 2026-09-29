@@ -64,9 +64,8 @@ class GeneratedMeals(BaseModel):
 
 
 def daily_ai_meal_count(user_id: str, recommendation_date: date) -> int:
-    """Return a stable daily mix of two or three AI-created meal slots."""
-    signature = f"{user_id}:{recommendation_date.isoformat()}".encode()
-    return 2 + (hashlib.sha256(signature).digest()[0] % 2)
+    """Return the fixed number of AI-created slots in a daily mixed plan."""
+    return 2
 
 
 def select_ai_slots(
@@ -620,11 +619,23 @@ def mix_meals(
         for meal in base_meals
         if (meal["meal_type"], int(meal["meal_order"])) not in ai_by_slot
     ]
-    db_by_slot = {
-        (meal["meal_type"], int(meal["meal_order"])): meal
-        for meal in build_catalog_meals(
+    if usable_catalog_foods(food_catalog, allergy_names):
+        fallback_meals = build_catalog_meals(
             db_slots, food_catalog, allergy_names, inventory_names
         )
+    else:
+        fallback_meals = []
+        for slot in db_slots:
+            meal = deepcopy(slot)
+            meal["source_type"] = "rules_based"
+            meal["recommendation_note"] = (
+                str(meal.get("recommendation_note") or "")
+                + " · 음식 카탈로그 미등록으로 규칙 기반 구성"
+            )
+            fallback_meals.append(meal)
+    db_by_slot = {
+        (meal["meal_type"], int(meal["meal_order"])): meal
+        for meal in fallback_meals
     }
     mixed = [
         ai_by_slot.get((meal["meal_type"], int(meal["meal_order"])))
@@ -632,6 +643,6 @@ def mix_meals(
         for meal in base_meals
     ]
     ai_count = sum(meal["source_type"] == "ai_generated" for meal in mixed)
-    if ai_count not in (2, 3):
-        raise ValueError("Daily recommendations must include two or three AI meals")
+    if ai_count != 2:
+        raise ValueError("Daily recommendations must include exactly two AI meals")
     return mixed

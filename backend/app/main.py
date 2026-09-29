@@ -50,7 +50,6 @@ from backend.app.diet_ai import (
     generate_regenerated_meal,
     mix_meals,
     select_ai_slots,
-    usable_catalog_foods,
 )
 from backend.app.home import HomeResponse, build_home_response
 from backend.app.health_documents import create_health_documents_router
@@ -2331,12 +2330,9 @@ async def build_daily_diet_recommendation_plan(
         resolved_inventory, allergy_names, recommendation_date
     )
     plan["recommendation"]["recommendation_date"] = recommendation_date.isoformat()
-    effective_all_ai = all_ai or not usable_catalog_foods(
-        food_catalog, allergy_names
-    )
     ai_slots = (
         plan["meals"]
-        if effective_all_ai
+        if all_ai
         else select_ai_slots(plan["meals"], user_id, recommendation_date)
     )
     ai_meals = await generate_ai_meals(
@@ -2349,7 +2345,7 @@ async def build_daily_diet_recommendation_plan(
     )
     plan["meals"] = (
         sorted(ai_meals, key=lambda meal: int(meal["meal_order"]))
-        if effective_all_ai
+        if all_ai
         else mix_meals(
             plan["meals"],
             ai_meals,
@@ -2393,9 +2389,13 @@ async def build_daily_diet_recommendation_plan(
             )
         )
         + "알레르기 제외 조건은 서버에서 검증했습니다."
-        if effective_all_ai
+        if all_ai
         else (
-            f"DB 음식 영양정보와 AI 생성 식단 {ai_count}개를 혼합했습니다. "
+            (
+                f"DB 음식 영양정보와 AI 생성 식단 {ai_count}개를 혼합했습니다. "
+                if any(meal.get("source_type") == "db_catalog" for meal in plan["meals"])
+                else f"규칙 기반 식단과 AI 생성 식단 {ai_count}개를 혼합했습니다. "
+            )
             + (
                 f"실제 메뉴에 반영된 냉장고 재료: {', '.join(used_inventory_names)}. "
                 if used_inventory_names

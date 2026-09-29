@@ -158,7 +158,7 @@ def test_all_ai_plan_uses_every_slot_without_catalog_mix(monkeypatch) -> None:
     assert "DB 음식 카탈로그 조회 없이" in plan["recommendation"]["ai_reason"]
 
 
-def test_daily_plan_falls_back_to_inventory_aware_ai_when_catalog_empty(
+def test_daily_plan_uses_two_inventory_aware_ai_meals_when_catalog_empty(
     monkeypatch,
 ) -> None:
     async def fake_generate(
@@ -169,7 +169,7 @@ def test_daily_plan_falls_back_to_inventory_aware_ai_when_catalog_empty(
         avoid_meal_food_names=None,
         available_ingredients=None,
     ):
-        assert len(slots) == 4
+        assert len(slots) == 2
         assert available_ingredients == ["브로콜리"]
         return [
             {
@@ -204,12 +204,14 @@ def test_daily_plan_falls_back_to_inventory_aware_ai_when_catalog_empty(
     )
 
     assert len(plan["meals"]) == 4
-    assert {meal["source_type"] for meal in plan["meals"]} == {"ai_generated"}
+    assert [meal["source_type"] for meal in plan["meals"]].count("ai_generated") == 2
+    assert [meal["source_type"] for meal in plan["meals"]].count("rules_based") == 2
     assert all(
         main.find_used_inventory_names([meal], ["브로콜리"])
         for meal in plan["meals"]
+        if meal["source_type"] == "ai_generated"
     )
-    assert "DB 음식 카탈로그 조회 없이" in plan["recommendation"]["ai_reason"]
+    assert "규칙 기반 식단과 AI 생성 식단 2개" in plan["recommendation"]["ai_reason"]
     assert "실제 메뉴에 반영된 냉장고 재료: 브로콜리" in plan["recommendation"]["ai_reason"]
 
 

@@ -55,13 +55,13 @@ def test_inventory_matching_supports_common_food_synonyms(
     assert food_matches_inventory(food_name, [inventory_name]) is True
 
 
-def test_daily_ai_slots_always_select_two_or_three_meals() -> None:
+def test_daily_ai_slots_always_select_two_meals() -> None:
     target_date = date(2026, 9, 28)
     for user_number in range(20):
         user_id = f"user-{user_number}"
         count = daily_ai_meal_count(user_id, target_date)
         slots = select_ai_slots(BASE_MEALS, user_id, target_date)
-        assert count in (2, 3)
+        assert count == 2
         assert len(slots) == count
         assert len({slot["meal_order"] for slot in slots}) == count
 
@@ -430,7 +430,7 @@ def test_mix_meals_keeps_db_catalog_remainder() -> None:
             "recommendation_note": "AI 추천",
             "foods": [{"food_name": "AI 메뉴", "calories": 400}],
         }
-        for index in range(3)
+        for index in range(2)
     ]
     catalog = [
         {
@@ -447,8 +447,8 @@ def test_mix_meals_keeps_db_catalog_remainder() -> None:
 
     mixed = mix_meals(BASE_MEALS, ai_meals, catalog)
 
-    assert [meal["source_type"] for meal in mixed].count("ai_generated") == 3
-    assert [meal["source_type"] for meal in mixed].count("db_catalog") == 1
+    assert [meal["source_type"] for meal in mixed].count("ai_generated") == 2
+    assert [meal["source_type"] for meal in mixed].count("db_catalog") == 2
     assert mixed[-1]["foods"][0]["food_item_id"] == catalog[0]["food_item_id"]
 
 
