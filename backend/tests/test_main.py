@@ -30,6 +30,10 @@ def test_mobile_diet_generation_test_page() -> None:
     assert "4끼 전부 AI 생성 테스트" in response.text
     assert 'src="/test/diet-generation.js"' in response.text
     assert response.headers["cache-control"] == "no-store"
+    assert "script-src 'self'" in response.headers["content-security-policy"]
+    assert "https://eeeqibyssajykrhvecbv.supabase.co" in response.headers[
+        "content-security-policy"
+    ]
     assert client.get("/test/diet-generation.css").status_code == 200
     script = client.get("/test/diet-generation.js")
     assert script.status_code == 200

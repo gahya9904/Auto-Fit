@@ -3010,7 +3010,14 @@ async def mobile_diet_generation_test() -> FileResponse:
     return FileResponse(
         Path(__file__).resolve().parents[2] / "mobile-diet-generation-test.html",
         media_type="text/html; charset=utf-8",
-        headers={"Cache-Control": "no-store"},
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": (
+                "default-src 'none'; style-src 'self'; script-src 'self'; "
+                "connect-src 'self' https://eeeqibyssajykrhvecbv.supabase.co; "
+                "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+            ),
+        },
     )
 
 
