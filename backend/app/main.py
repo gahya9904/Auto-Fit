@@ -3014,6 +3014,24 @@ async def mobile_diet_generation_test() -> FileResponse:
     )
 
 
+@app.get("/test/diet-generation.css", response_class=FileResponse, include_in_schema=False)
+async def mobile_diet_generation_test_css() -> FileResponse:
+    return FileResponse(
+        Path(__file__).resolve().parents[2] / "mobile-diet-generation-test.css",
+        media_type="text/css; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/test/diet-generation.js", response_class=FileResponse, include_in_schema=False)
+async def mobile_diet_generation_test_js() -> FileResponse:
+    return FileResponse(
+        Path(__file__).resolve().parents[2] / "mobile-diet-generation-test.js",
+        media_type="application/javascript; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.exception_handler(HTTPException)
 async def chat_http_error(request, exc):
     if request.url.path.startswith("/api/chats") and not isinstance(exc.detail, dict):

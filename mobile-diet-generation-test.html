@@ -4,29 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Auto-Fit AI 식단 생성 테스트</title>
-  <style>
-    :root { color-scheme:light; font-family:-apple-system,BlinkMacSystemFont,"Pretendard",sans-serif; --green:#087d68; --ink:#172522; --muted:#60706c; --line:#d5e0dd; --bg:#f3f7f6; }
-    * { box-sizing:border-box; }
-    body { margin:0; color:var(--ink); background:var(--bg); }
-    main { width:min(100% - 24px,640px); margin:auto; padding:calc(20px + env(safe-area-inset-top)) 0 calc(36px + env(safe-area-inset-bottom)); }
-    h1 { margin:0 0 8px; font-size:1.65rem; }
-    p { color:var(--muted); line-height:1.55; }
-    section { margin-top:16px; padding:18px; border:1px solid var(--line); border-radius:16px; background:white; box-shadow:0 5px 24px #173a3310; }
-    label { display:grid; gap:6px; margin-top:12px; color:var(--muted); font-size:.9rem; }
-    input,button { width:100%; min-height:48px; border-radius:12px; font:inherit; }
-    input { padding:10px 12px; border:1px solid var(--line); }
-    button { margin-top:14px; border:0; color:white; font-weight:700; background:var(--green); }
-    button.secondary { color:var(--green); background:#e4f2ef; }
-    button:disabled { opacity:.55; }
-    #status { margin-top:16px; padding:14px; border-radius:12px; color:var(--muted); background:#eaf3f1; white-space:pre-line; }
-    #status[data-kind="error"] { color:#8b2030; background:#fff0f2; }
-    #summary { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
-    .pill { padding:7px 10px; border-radius:999px; color:#075e50; font-size:.85rem; font-weight:700; background:#dff3ee; }
-    .meal { margin-top:12px; padding:14px; border:1px solid var(--line); border-radius:12px; }
-    .meal h2 { margin:0 0 8px; font-size:1.05rem; }
-    .meal ul { margin:0; padding-left:20px; color:var(--muted); }
-    [hidden] { display:none !important; }
-  </style>
+  <link rel="stylesheet" href="/test/diet-generation.css">
 </head>
 <body>
   <main>
@@ -49,66 +27,6 @@
       <div id="meals"></div>
     </section>
   </main>
-  <script>
-    const SUPABASE_URL='https://eeeqibyssajykrhvecbv.supabase.co';
-    const SUPABASE_KEY='sb_publishable_Z02d5opC1lPtOlUJMWsxcg_ZD_8O31x';
-    const mealLabels={breakfast:'아침',lunch:'점심',dinner:'저녁',snack:'간식'};
-    const loginSection=document.querySelector('#login-section');
-    const testSection=document.querySelector('#test-section');
-    const statusBox=document.querySelector('#status');
-    const summary=document.querySelector('#summary');
-    const mealsElement=document.querySelector('#meals');
-    let accessToken=null;
-
-    function setStatus(message,kind='info') { statusBox.textContent=message; statusBox.dataset.kind=kind; }
-
-    document.querySelector('#login-form').addEventListener('submit',async event=>{
-      event.preventDefault();
-      const button=event.submitter; button.disabled=true;
-      try {
-        const response=await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`,{
-          method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},
-          body:JSON.stringify({email:document.querySelector('#email').value,password:document.querySelector('#password').value})
-        });
-        const payload=await response.json();
-        if(!response.ok) throw new Error(payload.msg||payload.error_description||'로그인 실패');
-        accessToken=payload.access_token; loginSection.hidden=true; testSection.hidden=false;
-        setStatus('로그인 완료. 생성 버튼을 눌러주세요.');
-      } catch(error) { alert(error.message); }
-      finally { button.disabled=false; }
-    });
-
-    document.querySelector('#generate').addEventListener('click',async event=>{
-      const button=event.currentTarget; button.disabled=true; summary.replaceChildren(); mealsElement.replaceChildren();
-      const started=performance.now();
-      const timer=setInterval(()=>setStatus(`AI가 4끼를 생성 중입니다…\n${((performance.now()-started)/1000).toFixed(1)}초 경과`),100);
-      try {
-        const response=await fetch('/api/diet/recommendations/generate-preview',{
-          method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:'{}'
-        });
-        const payload=await response.json();
-        if(!response.ok) throw new Error(typeof payload.detail==='string'?payload.detail:JSON.stringify(payload.detail||payload));
-        const elapsed=((performance.now()-started)/1000).toFixed(1);
-        const meals=payload.result.meals||[];
-        const aiMeals=meals.filter(meal=>meal.source_type==='ai_generated');
-        setStatus(`생성 완료 · ${elapsed}초\n${meals.length}끼 중 ${aiMeals.length}끼가 AI 생성 식단입니다.`);
-        [`생성기: ${payload.generator}`,`AI 식단: ${aiMeals.length}/${meals.length}`,`DB 저장: 안 함`,`소요: ${elapsed}초`].forEach(value=>{
-          const pill=document.createElement('span'); pill.className='pill'; pill.textContent=value; summary.append(pill);
-        });
-        meals.forEach(meal=>{
-          const card=document.createElement('article'); card.className='meal';
-          const title=document.createElement('h2'); title.textContent=`${mealLabels[meal.meal_type]||meal.meal_type} · AI 생성`;
-          const list=document.createElement('ul');
-          (meal.foods||[]).forEach(food=>{const item=document.createElement('li');item.textContent=`${food.food_name} ${food.quantity||''}${food.unit||''}`;list.append(item);});
-          card.append(title,list); mealsElement.append(card);
-        });
-      } catch(error) { setStatus(`생성 실패: ${error.message}`,'error'); }
-      finally { clearInterval(timer); button.disabled=false; }
-    });
-
-    document.querySelector('#logout').addEventListener('click',()=>{
-      accessToken=null; testSection.hidden=true; loginSection.hidden=false; document.querySelector('#login-form').reset();
-    });
-  </script>
+  <script src="/test/diet-generation.js" defer></script>
 </body>
 </html>
