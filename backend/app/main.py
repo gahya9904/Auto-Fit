@@ -41,7 +41,9 @@ from backend.app.http_client import client_scope
 from backend.app.diet_timing import DietTimingMiddleware, timed_http_client
 from backend.app.diet_ai import (
     DietAIUnavailable,
+    apply_inventory_to_ai_meals,
     find_used_inventory_names,
+    food_matches_inventory,
     generate_ai_meals,
     mix_meals,
     select_ai_slots,
@@ -2318,6 +2320,12 @@ async def build_daily_diet_recommendation_plan(
             inventory_names,
         )
     )
+    plan["meals"] = apply_inventory_to_ai_meals(
+        plan["meals"],
+        resolved_inventory,
+        food_catalog,
+        allergy_names,
+    )
     used_inventory_names = find_used_inventory_names(
         plan["meals"], inventory_names
     )
@@ -2331,8 +2339,22 @@ async def build_daily_diet_recommendation_plan(
         meal.get("source_type") == "ai_generated" for meal in plan["meals"]
     )
     plan["recommendation"]["ai_reason"] = (
-        "DB 음식 카탈로그 조회 없이 4식을 모두 AI로 생성한 수동 검증 식단입니다. "
-        "알레르기 제외 조건은 서버에서 검증했습니다."
+        (
+            "4식을 모두 AI로 생성한 뒤 서버의 음식 카탈로그로 냉장고 재료를 반영했습니다. "
+            if food_catalog
+            else "DB 음식 카탈로그 조회 없이 4식을 모두 AI로 생성했습니다. "
+        )
+        + (
+            f"실제 메뉴에 반영된 냉장고 재료: {', '.join(used_inventory_names)}. "
+            if used_inventory_names
+            else (
+                "냉장고 재료 중 음식 카탈로그와 일치하는 항목이 없어 "
+                "일반 식재료로 구성했습니다. "
+                if inventory_names
+                else "사용 가능한 냉장고 재료가 없어 일반 식재료로 구성했습니다. "
+            )
+        )
+        + "알레르기 제외 조건은 서버에서 검증했습니다."
         if all_ai
         else (
             f"DB 음식 영양정보와 AI 생성 식단 {ai_count}개를 혼합했습니다. "
@@ -3871,10 +3893,11 @@ async def preview_all_ai_diet_recommendation(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     target_date = datetime.now(KST).date()
-    inventory, catalog, selected, previous, previous_before = await asyncio.gather(
+    inventory, catalog, selected, food_catalog, previous, previous_before = await asyncio.gather(
         fetch_food_inventory(user.id, settings),
         fetch_allergy_catalog(settings),
         fetch_user_allergies(user.id, settings),
+        fetch_food_catalog(settings),
         fetch_diet_recommendation(user.id, settings, target_date),
         fetch_diet_recommendation(
             user.id, settings, None,
@@ -3893,7 +3916,7 @@ async def preview_all_ai_diet_recommendation(
             user.id,
             inventory,
             [name for name in allergy_names if name],
-            [],
+            food_catalog,
             target_date=target_date,
             all_ai=True,
             avoid_food_names=(

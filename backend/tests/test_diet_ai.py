@@ -10,6 +10,7 @@ from backend.app.diet_ai import (
     conflicts_allergy,
     daily_ai_meal_count,
     find_used_inventory_names,
+    food_matches_inventory,
     generate_ai_meals,
     mix_meals,
     select_ai_slots,
@@ -35,6 +36,20 @@ def test_allergy_aliases_block_common_menu_synonyms(
     food_name: str, allergy_name: str
 ) -> None:
     assert conflicts_allergy(food_name, [allergy_name]) is True
+
+
+@pytest.mark.parametrize(
+    ("food_name", "inventory_name"),
+    [
+        ("계란말이", "달걀"),
+        ("삶은 달걀", "계란"),
+        ("그릭요거트", "요구르트"),
+    ],
+)
+def test_inventory_matching_supports_common_food_synonyms(
+    food_name: str, inventory_name: str
+) -> None:
+    assert food_matches_inventory(food_name, [inventory_name]) is True
 
 
 def test_daily_ai_slots_always_select_two_or_three_meals() -> None:

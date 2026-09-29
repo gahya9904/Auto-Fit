@@ -1793,6 +1793,73 @@ def test_daily_diet_plan_uses_catalog_linked_inventory_in_final_meals(
         "냉장고 사용: 브로콜리" in meal["recommendation_note"]
         for meal in result["meals"]
     )
+    assert any(
+        meal["source_type"] == "ai_generated"
+        and main.find_used_inventory_names([meal], ["브로콜리"])
+        for meal in result["meals"]
+    )
+
+
+def test_all_ai_diet_plan_applies_catalog_linked_inventory_server_side(
+    monkeypatch,
+) -> None:
+    async def fake_generate(slots, allergy_names, request_model, *args):
+        return [
+            {
+                **slot,
+                "source_type": "ai_generated",
+                "recommendation_note": "AI 추천",
+                "foods": [{
+                    "food_name": f"AI 메뉴 {slot['meal_order']}",
+                    "quantity": 100,
+                    "unit": "g",
+                    "calories": slot["recommended_calories"],
+                    "carbohydrates": 40,
+                    "protein": 20,
+                    "fat": 10,
+                }],
+            }
+            for slot in slots
+        ]
+
+    monkeypatch.setattr(main, "generate_ai_meals", fake_generate)
+    result = asyncio.run(
+        main.build_daily_diet_recommendation_plan(
+            "user-fridge",
+            [{
+                "food_item_id": "food-broccoli",
+                "custom_name": None,
+                "quantity": "80",
+                "unit": "g",
+                "is_available": True,
+            }],
+            [],
+            [{
+                "food_item_id": "food-broccoli",
+                "name": "브로콜리",
+                "serving_size": 100,
+                "serving_unit": "g",
+                "calories": 35,
+                "carbohydrates": 7,
+                "protein": 3,
+                "fat": 0,
+            }],
+            target_date=date(2026, 9, 29),
+            all_ai=True,
+        )
+    )
+
+    used_meals = [
+        meal for meal in result["meals"]
+        if main.find_used_inventory_names([meal], ["브로콜리"])
+    ]
+    assert used_meals
+    used_food = next(
+        food for food in used_meals[0]["foods"]
+        if main.food_matches_inventory(food["food_name"], ["브로콜리"])
+    )
+    assert used_food["quantity"] == 80
+    assert "실제 메뉴에 반영된 냉장고 재료: 브로콜리" in result["recommendation"]["ai_reason"]
 
 
 def test_extract_menu_tags_normalizes_food_names() -> None:
@@ -2134,7 +2201,7 @@ def test_generate_diet_recommendation_reuses_concurrent_result(monkeypatch) -> N
         main.app.dependency_overrides.clear()
 
 
-def test_preview_all_ai_diet_skips_catalog_and_persistence(monkeypatch) -> None:
+def test_preview_all_ai_diet_uses_catalog_without_persistence(monkeypatch) -> None:
     async def fake_user() -> main.AuthenticatedUser:
         return main.AuthenticatedUser(id="authenticated-user")
 
@@ -2147,8 +2214,8 @@ def test_preview_all_ai_diet_skips_catalog_and_persistence(monkeypatch) -> None:
     async def fake_allergies(user_id, settings):
         return [{"allergy_type_id": "allergy-1", "custom_name": None}]
 
-    async def reject_food_catalog(settings):
-        raise AssertionError("all-AI preview must not query the food catalog")
+    async def fake_food_catalog(settings):
+        return [{"food_item_id": "food-1", "name": "브로콜리", "calories": 35}]
 
     async def fake_daily_plan(
         user_id,
@@ -2163,7 +2230,9 @@ def test_preview_all_ai_diet_skips_catalog_and_persistence(monkeypatch) -> None:
         assert user_id == "authenticated-user"
         assert inventory == [{"custom_name": "브로콜리"}]
         assert allergy_names == ["우유"]
-        assert food_catalog == []
+        assert food_catalog == [
+            {"food_item_id": "food-1", "name": "브로콜리", "calories": 35}
+        ]
         assert all_ai is True
         assert avoid_food_names == []
         assert avoid_meal_food_names == []
@@ -2193,7 +2262,7 @@ def test_preview_all_ai_diet_skips_catalog_and_persistence(monkeypatch) -> None:
     monkeypatch.setattr(main, "fetch_food_inventory", fake_inventory)
     monkeypatch.setattr(main, "fetch_allergy_catalog", fake_catalog)
     monkeypatch.setattr(main, "fetch_user_allergies", fake_allergies)
-    monkeypatch.setattr(main, "fetch_food_catalog", reject_food_catalog)
+    monkeypatch.setattr(main, "fetch_food_catalog", fake_food_catalog)
     monkeypatch.setattr(main, "fetch_diet_recommendation", fake_fetch)
     monkeypatch.setattr(main, "build_daily_diet_recommendation_plan", fake_daily_plan)
     monkeypatch.setattr(main, "create_diet_recommendation", reject_persistence)

@@ -97,6 +97,11 @@ ALLERGY_ALIASES: dict[str, set[str]] = {
     "wheat": {"밀", "밀가루", "빵", "면", "국수", "라면", "우동", "파스타", "bread", "noodle"},
 }
 
+FOOD_SYNONYM_GROUPS: tuple[set[str], ...] = (
+    {"달걀", "계란", "egg"},
+    {"요거트", "요구르트", "yogurt"},
+)
+
 
 def conflicts_allergy(food_name: str, allergy_names: list[str]) -> bool:
     food = food_name.casefold()
@@ -113,13 +118,28 @@ def normalize_food_name(food_name: str) -> str:
     return re.sub(r"[^0-9a-z가-힣]+", "", food_name.casefold())
 
 
+def food_name_variants(food_name: str) -> set[str]:
+    normalized = normalize_food_name(food_name)
+    variants = {normalized} if normalized else set()
+    for group in FOOD_SYNONYM_GROUPS:
+        normalized_group = {normalize_food_name(alias) for alias in group}
+        if any(alias and alias in normalized for alias in normalized_group):
+            variants.update(normalized_group)
+    return variants
+
+
 def food_matches_inventory(food_name: str, inventory_names: list[str]) -> bool:
-    food = normalize_food_name(food_name)
+    food_variants = food_name_variants(food_name)
     return any(
-        inventory
-        and (inventory == food or inventory in food or food in inventory)
+        inventory_variant
+        and any(
+            inventory_variant == food_variant
+            or inventory_variant in food_variant
+            or food_variant in inventory_variant
+            for food_variant in food_variants
+        )
         for name in inventory_names
-        if (inventory := normalize_food_name(name))
+        for inventory_variant in food_name_variants(name)
     )
 
 
@@ -137,6 +157,132 @@ def find_used_inventory_names(
             )
         )
     )
+
+
+def _same_unit(first: Any, second: Any) -> bool:
+    aliases = {
+        "g": "g",
+        "gram": "g",
+        "grams": "g",
+        "그램": "g",
+        "kg": "kg",
+        "킬로그램": "kg",
+        "ml": "ml",
+        "밀리리터": "ml",
+        "l": "l",
+        "리터": "l",
+        "개": "개",
+    }
+    left = aliases.get(str(first or "").strip().casefold())
+    right = aliases.get(str(second or "").strip().casefold())
+    return bool(left and left == right)
+
+
+def _inventory_catalog_food(
+    inventory_row: dict[str, Any],
+    catalog_row: dict[str, Any],
+) -> dict[str, Any]:
+    serving_size = Decimal(str(catalog_row.get("serving_size") or 100))
+    if serving_size <= 0:
+        serving_size = Decimal(100)
+    quantity = serving_size
+    inventory_quantity = inventory_row.get("quantity")
+    if (
+        inventory_quantity is not None
+        and _same_unit(inventory_row.get("unit"), catalog_row.get("serving_unit"))
+    ):
+        available = Decimal(str(inventory_quantity))
+        if available > 0:
+            quantity = min(quantity, available)
+    quantity = max(Decimal(1), quantity)
+    scale = quantity / serving_size
+
+    def scaled(field: str) -> int:
+        return max(0, int((Decimal(str(catalog_row.get(field) or 0)) * scale).quantize(Decimal("1"))))
+
+    return {
+        "food_item_id": catalog_row.get("food_item_id"),
+        "food_name": catalog_row["name"],
+        "quantity": int(quantity.quantize(Decimal("1"))),
+        "unit": catalog_row.get("serving_unit") or inventory_row.get("unit") or "g",
+        "calories": scaled("calories"),
+        "carbohydrates": scaled("carbohydrates"),
+        "protein": scaled("protein"),
+        "fat": scaled("fat"),
+    }
+
+
+def apply_inventory_to_ai_meals(
+    meals: list[dict[str, Any]],
+    inventory: list[dict[str, Any]],
+    food_catalog: list[dict[str, Any]],
+    allergy_names: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Add catalog-backed refrigerator foods without exposing inventory to the model."""
+    ai_meals = [meal for meal in meals if meal.get("source_type") == "ai_generated"]
+    if not ai_meals:
+        return meals
+
+    catalog_by_id = {
+        str(row.get("food_item_id")): row
+        for row in food_catalog
+        if row.get("food_item_id") and row.get("name")
+    }
+    usable_catalog = [
+        row
+        for row in food_catalog
+        if row.get("name")
+        and str(row.get("source_type") or "").strip().casefold()
+        not in EXCLUDED_CATALOG_SOURCE_TYPES
+        and not any(
+            marker in str(row["name"]).casefold()
+            for marker in EXCLUDED_CATALOG_NAME_MARKERS
+        )
+        and Decimal(str(row.get("calories") or 0)) > 0
+        and not conflicts_allergy(str(row["name"]), allergy_names or [])
+    ]
+
+    candidates: list[tuple[str, dict[str, Any]]] = []
+    seen_names: set[str] = set()
+    for inventory_row in inventory:
+        inventory_name = str(inventory_row.get("custom_name") or "").strip()
+        catalog_row = catalog_by_id.get(str(inventory_row.get("food_item_id")))
+        if catalog_row is None and inventory_name:
+            catalog_row = next(
+                (
+                    row
+                    for row in usable_catalog
+                    if food_matches_inventory(str(row["name"]), [inventory_name])
+                ),
+                None,
+            )
+        if catalog_row is None or catalog_row not in usable_catalog:
+            continue
+        resolved_name = inventory_name or str(catalog_row["name"])
+        normalized_name = normalize_food_name(resolved_name)
+        if normalized_name in seen_names:
+            continue
+        seen_names.add(normalized_name)
+        candidates.append(
+            (resolved_name, _inventory_catalog_food(inventory_row, catalog_row))
+        )
+
+    for candidate_index, (inventory_name, food) in enumerate(candidates):
+        if any(
+            find_used_inventory_names([meal], [inventory_name])
+            for meal in ai_meals
+        ):
+            continue
+        target = ai_meals[candidate_index % len(ai_meals)]
+        target_foods = target.setdefault("foods", [])
+        if len(target_foods) < 6:
+            target_foods.append(food)
+        else:
+            target_foods[-1] = food
+        target["recommended_calories"] = sum(
+            int(item.get("calories") or 0) for item in target_foods
+        )
+    return meals
 
 
 def meal_food_signature(food_names: list[str]) -> tuple[str, ...]:
