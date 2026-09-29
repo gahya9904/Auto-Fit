@@ -40,6 +40,7 @@ from backend.app.http_client import client_scope
 from backend.app.diet_timing import DietTimingMiddleware, timed_http_client
 from backend.app.diet_ai import (
     DietAIUnavailable,
+    find_used_inventory_names,
     generate_ai_meals,
     mix_meals,
     select_ai_slots,
@@ -1877,8 +1878,9 @@ async def delete_food_inventory_item(
 def build_diet_recommendation_plan(
     inventory: list[dict[str, Any]],
     allergy_names: list[str] | None = None,
+    reference_date: date | None = None,
 ) -> dict[str, Any]:
-    inventory = usable_food_inventory(inventory)
+    inventory = usable_food_inventory(inventory, reference_date)
     inventory_names = [
         row["custom_name"] for row in inventory if row.get("custom_name")
     ]
@@ -2250,7 +2252,24 @@ async def build_daily_diet_recommendation_plan(
     avoid_meal_food_names: list[list[str]] | None = None,
 ) -> dict[str, Any]:
     recommendation_date = target_date or datetime.now(KST).date()
-    plan = build_diet_recommendation_plan(inventory, allergy_names)
+    catalog_names_by_id = {
+        str(row.get("food_item_id")): str(row["name"])
+        for row in food_catalog
+        if row.get("food_item_id") and row.get("name")
+    }
+    resolved_inventory = []
+    for row in usable_food_inventory(inventory, recommendation_date):
+        name = row.get("custom_name") or catalog_names_by_id.get(
+            str(row.get("food_item_id"))
+        )
+        if name:
+            resolved_inventory.append({**row, "custom_name": str(name)})
+    inventory_names = list(
+        dict.fromkeys(row["custom_name"] for row in resolved_inventory)
+    )
+    plan = build_diet_recommendation_plan(
+        resolved_inventory, allergy_names, recommendation_date
+    )
     plan["recommendation"]["recommendation_date"] = recommendation_date.isoformat()
     ai_slots = (
         plan["meals"]
@@ -2267,8 +2286,23 @@ async def build_daily_diet_recommendation_plan(
     plan["meals"] = (
         sorted(ai_meals, key=lambda meal: int(meal["meal_order"]))
         if all_ai
-        else mix_meals(plan["meals"], ai_meals, food_catalog, allergy_names)
+        else mix_meals(
+            plan["meals"],
+            ai_meals,
+            food_catalog,
+            allergy_names,
+            inventory_names,
+        )
     )
+    used_inventory_names = find_used_inventory_names(
+        plan["meals"], inventory_names
+    )
+    for meal in plan["meals"]:
+        used_by_meal = find_used_inventory_names([meal], inventory_names)
+        if used_by_meal:
+            meal["recommendation_note"] += (
+                f" · 냉장고 사용: {', '.join(used_by_meal)}"
+            )
     ai_count = sum(
         meal.get("source_type") == "ai_generated" for meal in plan["meals"]
     )
@@ -2278,7 +2312,17 @@ async def build_daily_diet_recommendation_plan(
         if all_ai
         else (
             f"DB 음식 영양정보와 AI 생성 식단 {ai_count}개를 혼합했습니다. "
-            "사용 가능한 냉장고 재료와 알레르기 제외 조건을 반영했습니다."
+            + (
+                f"실제 메뉴에 반영된 냉장고 재료: {', '.join(used_inventory_names)}. "
+                if used_inventory_names
+                else (
+                    "냉장고 재료 중 음식 카탈로그와 일치하는 항목이 없어 "
+                    "일반 식재료로 구성했습니다. "
+                    if inventory_names
+                    else "사용 가능한 냉장고 재료가 없어 일반 식재료로 구성했습니다. "
+                )
+            )
+            + "알레르기 제외 조건을 반영했습니다."
         )
     )
     plan["recommendation"]["target_calories"] = sum(

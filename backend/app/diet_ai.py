@@ -111,6 +111,32 @@ def normalize_food_name(food_name: str) -> str:
     return re.sub(r"[^0-9a-z가-힣]+", "", food_name.casefold())
 
 
+def food_matches_inventory(food_name: str, inventory_names: list[str]) -> bool:
+    food = normalize_food_name(food_name)
+    return any(
+        inventory
+        and (inventory == food or inventory in food or food in inventory)
+        for name in inventory_names
+        if (inventory := normalize_food_name(name))
+    )
+
+
+def find_used_inventory_names(
+    meals: list[dict[str, Any]], inventory_names: list[str]
+) -> list[str]:
+    return list(
+        dict.fromkeys(
+            name
+            for name in inventory_names
+            if any(
+                food_matches_inventory(str(food.get("food_name") or ""), [name])
+                for meal in meals
+                for food in meal.get("foods") or []
+            )
+        )
+    )
+
+
 def meal_food_signature(food_names: list[str]) -> tuple[str, ...]:
     return tuple(sorted(normalize_food_name(name) for name in food_names if name.strip()))
 
@@ -225,6 +251,7 @@ def build_catalog_meals(
     slots: list[dict[str, Any]],
     food_catalog: list[dict[str, Any]],
     allergy_names: list[str] | None = None,
+    inventory_names: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     usable = [
         row
@@ -235,6 +262,11 @@ def build_catalog_meals(
     ]
     if not usable:
         raise ValueError("No usable DB food catalog entries are available")
+    usable.sort(
+        key=lambda row: not food_matches_inventory(
+            str(row["name"]), inventory_names or []
+        )
+    )
 
     results: list[dict[str, Any]] = []
     for slot_index, slot in enumerate(slots):
@@ -267,6 +299,7 @@ def mix_meals(
     ai_meals: list[dict[str, Any]],
     food_catalog: list[dict[str, Any]],
     allergy_names: list[str] | None = None,
+    inventory_names: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     ai_by_slot = {
         (meal["meal_type"], int(meal["meal_order"])): meal for meal in ai_meals
@@ -278,7 +311,9 @@ def mix_meals(
     ]
     db_by_slot = {
         (meal["meal_type"], int(meal["meal_order"])): meal
-        for meal in build_catalog_meals(db_slots, food_catalog, allergy_names)
+        for meal in build_catalog_meals(
+            db_slots, food_catalog, allergy_names, inventory_names
+        )
     }
     mixed = [
         ai_by_slot.get((meal["meal_type"], int(meal["meal_order"])))

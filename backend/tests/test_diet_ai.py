@@ -9,6 +9,7 @@ from backend.app.diet_ai import (
     build_catalog_meals,
     conflicts_allergy,
     daily_ai_meal_count,
+    find_used_inventory_names,
     generate_ai_meals,
     mix_meals,
     select_ai_slots,
@@ -298,3 +299,17 @@ def test_mix_meals_keeps_db_catalog_remainder() -> None:
 def test_catalog_meals_require_usable_db_food() -> None:
     with pytest.raises(ValueError):
         build_catalog_meals(BASE_MEALS[-1:], [{"name": "열량없음", "calories": 0}])
+
+
+def test_catalog_meals_prioritize_available_inventory() -> None:
+    catalog = [
+        {"food_item_id": "food-1", "name": "가나다 현미밥", "calories": 200},
+        {"food_item_id": "food-2", "name": "브로콜리", "calories": 50},
+    ]
+
+    meals = build_catalog_meals(
+        BASE_MEALS[-1:], catalog, inventory_names=["브로콜리"]
+    )
+
+    assert meals[0]["foods"][0]["food_name"] == "브로콜리"
+    assert find_used_inventory_names(meals, ["브로콜리"]) == ["브로콜리"]

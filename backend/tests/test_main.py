@@ -1728,6 +1728,73 @@ def test_diet_plan_marks_only_inventory_that_is_present_in_actual_meals() -> Non
     assert "실제 메뉴에 반영된 냉장고 재료: 브로콜리" in result["recommendation"]["ai_reason"]
 
 
+def test_daily_diet_plan_uses_catalog_linked_inventory_in_final_meals(
+    monkeypatch,
+) -> None:
+    async def fake_generate(slots, allergy_names, request_model, *args):
+        return [
+            {
+                **slot,
+                "source_type": "ai_generated",
+                "recommendation_note": "AI 추천",
+                "foods": [{
+                    "food_name": f"AI 메뉴 {slot['meal_order']}",
+                    "quantity": 100,
+                    "unit": "g",
+                    "calories": slot["recommended_calories"],
+                    "carbohydrates": 40,
+                    "protein": 20,
+                    "fat": 10,
+                }],
+            }
+            for slot in slots
+        ]
+
+    monkeypatch.setattr(main, "generate_ai_meals", fake_generate)
+    result = asyncio.run(
+        main.build_daily_diet_recommendation_plan(
+            "user-fridge",
+            [{
+                "food_item_id": "food-broccoli",
+                "custom_name": None,
+                "quantity": "1",
+                "is_available": True,
+            }],
+            [],
+            [
+                {
+                    "food_item_id": "food-rice",
+                    "name": "가나다 현미밥",
+                    "serving_size": 100,
+                    "serving_unit": "g",
+                    "calories": 200,
+                    "carbohydrates": 40,
+                    "protein": 4,
+                    "fat": 1,
+                },
+                {
+                    "food_item_id": "food-broccoli",
+                    "name": "브로콜리",
+                    "serving_size": 100,
+                    "serving_unit": "g",
+                    "calories": 35,
+                    "carbohydrates": 7,
+                    "protein": 3,
+                    "fat": 0,
+                },
+            ],
+            target_date=date(2026, 9, 29),
+        )
+    )
+
+    assert main.find_used_inventory_names(result["meals"], ["브로콜리"]) == ["브로콜리"]
+    assert "실제 메뉴에 반영된 냉장고 재료: 브로콜리" in result["recommendation"]["ai_reason"]
+    assert any(
+        "냉장고 사용: 브로콜리" in meal["recommendation_note"]
+        for meal in result["meals"]
+    )
+
+
 def test_extract_menu_tags_normalizes_food_names() -> None:
     tags = set(main.extract_menu_tags(["현미 밥", "구운 닭가슴살", "브로콜리"]))
 
