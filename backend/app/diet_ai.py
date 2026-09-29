@@ -361,6 +361,7 @@ async def generate_ai_meals(
         slot: dict[str, Any],
         attempt: int,
         started: float,
+        **details: Any,
     ) -> None:
         payload = {
             "operation_id": operation_id,
@@ -370,6 +371,7 @@ async def generate_ai_meals(
             "meal_order": slot["meal_order"],
             "attempt": attempt,
             "elapsed_ms": round((perf_counter() - started) * 1000, 2),
+            **details,
         }
         log = logger.info if outcome == "accepted" else logger.warning
         log("[diet-ai] %s", json.dumps(payload, separators=(",", ":")))
@@ -383,7 +385,9 @@ async def generate_ai_meals(
         {
             "meal_type": meal["meal_type"],
             "meal_order": meal["meal_order"],
-            "target_calories": meal["recommended_calories"],
+            "target_calories": int(meal["recommended_calories"]),
+            "minimum_calories": (int(meal["recommended_calories"]) * 85 + 99) // 100,
+            "maximum_calories": int(meal["recommended_calories"]) * 115 // 100,
         }
         for meal in slots
     ]
@@ -401,6 +405,7 @@ async def generate_ai_meals(
     }
     for slot in slot_contracts:
         accepted: dict[str, Any] | None = None
+        retry_feedback: dict[str, Any] | None = None
         for attempt in range(3):
             attempt_number = attempt + 1
             attempt_started = perf_counter()
@@ -411,6 +416,7 @@ async def generate_ai_meals(
                 "avoid_food_names": sorted(used_representatives),
                 "avoid_meal_compositions": avoid_meal_food_names or [],
                 "available_ingredients": safe_ingredients,
+                "retry_feedback": retry_feedback,
             }
             inventory_instruction = (
                 "available_ingredients 중 하나 이상을 food_name에 명시적으로 포함하세요. "
@@ -424,7 +430,9 @@ async def generate_ai_meals(
                 + "우유·대두·견과류·생선·갑각류·달걀·밀 등 주요 알레르기 식품은 "
                 "포함하지 마세요. avoid_food_names에 있는 대표 메뉴와 다른 조합을 만들고 "
                 "variation_token이 다르면 새로운 구성을 선택하세요. 음식 2~4개를 제안하고 "
-                "목표 열량의 ±15%를 맞추세요. 응답은 "
+                "각 foods[].calories의 합계는 반드시 slot.minimum_calories 이상, "
+                "slot.maximum_calories 이하여야 합니다. retry_feedback이 있으면 직전 응답의 "
+                "실제 열량 합계와 허용 범위를 참고해 이번 응답의 열량을 조정하세요. 응답은 "
                 "설명이나 마크다운 없이 정확히 {\"meals\":[...]} JSON만 반환하세요. meals에는 "
                 "정확히 한 항목만 넣고 meal_type과 meal_order는 입력값을 그대로 유지하세요. 각 "
                 "meal에는 recommendation_note와 foods가 필요하며, 각 food에는 food_name, quantity "
@@ -477,11 +485,29 @@ async def generate_ai_meals(
             value["recommended_calories"] = sum(
                 food["calories"] for food in value["foods"]
             )
-            target = int(slot["target_calories"])
-            if not target * 0.85 <= value["recommended_calories"] <= target * 1.15:
+            actual_calories = value["recommended_calories"]
+            if not (
+                slot["minimum_calories"]
+                <= actual_calories
+                <= slot["maximum_calories"]
+            ):
                 log_attempt(
-                    "rejected", "calorie_target_miss", slot, attempt_number, attempt_started
+                    "rejected",
+                    "calorie_target_miss",
+                    slot,
+                    attempt_number,
+                    attempt_started,
+                    target_calories=slot["target_calories"],
+                    actual_calories=actual_calories,
+                    minimum_calories=slot["minimum_calories"],
+                    maximum_calories=slot["maximum_calories"],
                 )
+                retry_feedback = {
+                    "reason": "calorie_target_miss",
+                    "actual_total_calories": actual_calories,
+                    "allowed_minimum_calories": slot["minimum_calories"],
+                    "allowed_maximum_calories": slot["maximum_calories"],
+                }
                 continue
             if safe_ingredients and not find_used_inventory_names(
                 [value], safe_ingredients

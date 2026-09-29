@@ -105,6 +105,57 @@ def test_generate_ai_meals_accepts_only_requested_slots() -> None:
     assert all(meal["recommended_calories"] == 400 for meal in meals)
 
 
+def test_generate_ai_meals_retries_with_calorie_feedback() -> None:
+    attempts = 0
+
+    async def fake_model(prompt: str) -> str:
+        nonlocal attempts
+        attempts += 1
+        payload = json.loads(prompt.rsplit("\n", 1)[-1])
+        slot = payload["slot"]
+        assert slot["minimum_calories"] == 340
+        assert slot["maximum_calories"] == 460
+        if attempts == 1:
+            assert payload["retry_feedback"] is None
+            calories = 500
+        else:
+            assert payload["retry_feedback"] == {
+                "reason": "calorie_target_miss",
+                "actual_total_calories": 500,
+                "allowed_minimum_calories": 340,
+                "allowed_maximum_calories": 460,
+            }
+            calories = 400
+        return json.dumps(
+            {
+                "meals": [
+                    {
+                        "meal_type": slot["meal_type"],
+                        "meal_order": slot["meal_order"],
+                        "recommendation_note": "열량 조정 식단",
+                        "foods": [
+                            {
+                                "food_name": "채소 덮밥",
+                                "quantity": 300,
+                                "unit": "g",
+                                "calories": calories,
+                                "carbohydrates": 60,
+                                "protein": 20,
+                                "fat": 10,
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    meals = asyncio.run(generate_ai_meals(BASE_MEALS[:1], [], fake_model))
+
+    assert attempts == 2
+    assert meals[0]["recommended_calories"] == 400
+
+
 def test_generate_ai_meals_rejects_changed_slots() -> None:
     async def fake_model(prompt: str) -> str:
         return '{"meals": []}'
