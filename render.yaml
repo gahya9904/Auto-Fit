@@ -43,3 +43,15 @@ services:
         sync: false
       - key: CHAT_AI_API_KEY
         sync: false
+      - key: FOOD_IMAGE_ENABLED
+        value: "false"
+      - key: FOOD_IMAGE_URL
+        value: https://lee-com.tailb6e4ed.ts.net/generate-food-image
+      - key: FOOD_IMAGE_API_KEY
+        sync: false
+      - key: FOOD_IMAGE_FORMAT
+        value: webp
+      - key: FOOD_IMAGE_TIMEOUT_SECONDS
+        value: "300"
+      - key: FOOD_IMAGE_MAX_ATTEMPTS
+        value: "2"

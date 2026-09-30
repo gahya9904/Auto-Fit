@@ -51,6 +51,10 @@ from backend.app.diet_ai import (
     mix_meals,
     select_ai_slots,
 )
+from backend.app.food_image_generation import (
+    generate_missing_menu_images,
+    get_food_image_settings,
+)
 from backend.app.home import HomeResponse, build_home_response
 from backend.app.health_documents import create_health_documents_router
 from backend.app.account_deletion import create_account_deletion_router
@@ -2176,13 +2180,24 @@ def build_menu_image_key(food_tags: list[str]) -> str:
 def select_cached_menu_image(
     food_tags: list[str],
     images: list[dict[str, Any]],
+    *,
+    meal_type: str | None = None,
+    food_names: list[str] | None = None,
 ) -> dict[str, Any] | None:
     requested = set(food_tags)
     requested_proteins = requested & MENU_PROTEIN_TAGS
     requested_carbs = requested & MENU_CARB_TAGS
+    requested_foods = {
+        "".join(character for character in name.casefold() if character.isalnum())
+        for name in (food_names or [])
+        if name.strip()
+    }
     ranked: list[tuple[int, str, dict[str, Any]]] = []
     for image in images:
         if image.get("generation_status") != "completed" or not image.get("storage_path"):
+            continue
+        metadata = image.get("metadata") if isinstance(image.get("metadata"), dict) else {}
+        if metadata.get("quality_status") not in (None, "approved"):
             continue
         candidate = set(image.get("food_tags") or [])
         candidate_proteins = candidate & MENU_PROTEIN_TAGS
@@ -2196,6 +2211,19 @@ def select_cached_menu_image(
             40 if tag in MENU_PROTEIN_TAGS else 30 if tag in MENU_CARB_TAGS else 10
             for tag in overlap
         )
+        candidate_meal_type = image.get("meal_type") or metadata.get("meal_type")
+        if meal_type and candidate_meal_type == meal_type:
+            score += 10
+        candidate_foods = {
+            "".join(
+                character
+                for character in str(food.get("food_name") or "").casefold()
+                if character.isalnum()
+            )
+            for food in metadata.get("foods", [])
+            if isinstance(food, dict) and food.get("food_name")
+        }
+        score += 10 * len(requested_foods & candidate_foods)
         if score >= 50:
             ranked.append((score, str(image.get("image_key") or ""), image))
     return max(ranked, default=(0, "", None), key=lambda item: (item[0], item[1]))[2]
@@ -2205,24 +2233,32 @@ async def assign_menu_images(
     meals: list[dict[str, Any]],
     settings: Settings,
 ) -> None:
-    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
-        response = await client.get(
-            f"{settings.supabase_url}/rest/v1/menu_images",
-            headers=service_headers(settings),
-            params={
-                "select": (
-                    "image_key,menu_name,food_tags,storage_path,source_type,"
-                    "generation_status"
-                ),
-                "limit": "500",
-            },
-        )
-    if not response.is_success:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Supabase menu image catalog query failed",
-        )
-    catalog = response.json()
+    catalog: list[dict[str, Any]] = []
+    page_size = 1000
+    async with client_scope() as client:
+        while True:
+            response = await client.get(
+                f"{settings.supabase_url}/rest/v1/menu_images",
+                headers=service_headers(settings),
+                params={
+                    "select": (
+                        "image_key,menu_name,food_tags,storage_path,source_type,"
+                        "generation_status,meal_type,metadata"
+                    ),
+                    "order": "image_key.asc",
+                    "limit": str(page_size),
+                    "offset": str(len(catalog)),
+                },
+            )
+            if not response.is_success:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Supabase menu image catalog query failed",
+                )
+            page = response.json()
+            catalog.extend(page)
+            if len(page) < page_size:
+                break
     by_key = {image["image_key"]: image for image in catalog}
 
     for meal in meals:
@@ -2230,10 +2266,16 @@ async def assign_menu_images(
             str(food.get("food_name") or "") for food in meal.get("foods") or []
         ]
         food_tags = extract_menu_tags(food_names)
+        meal["food_tags"] = food_tags
         image_key = build_menu_image_key(food_tags)
-        image = by_key.get(image_key) or select_cached_menu_image(food_tags, catalog)
+        image = by_key.get(image_key) or select_cached_menu_image(
+            food_tags,
+            catalog,
+            meal_type=meal.get("meal_type"),
+            food_names=food_names,
+        )
         if image is None:
-            async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+            async with client_scope() as client:
                 claim_response = await client.post(
                     f"{settings.supabase_url}/rest/v1/rpc/claim_menu_image",
                     headers=service_headers(settings),
@@ -2241,6 +2283,7 @@ async def assign_menu_images(
                         "p_image_key": image_key,
                         "p_menu_name": ", ".join(food_names),
                         "p_food_tags": food_tags,
+                        "p_meal_type": meal.get("meal_type"),
                     },
                 )
             if not claim_response.is_success:
@@ -3243,6 +3286,7 @@ def build_exercise_session_analysis(result: dict[str, Any]) -> dict[str, Any]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_model_config()  # Fail early on invalid opt-in configuration; no network call.
+    get_food_image_settings()
     async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         app.state.supabase_http_client = client
         try:
@@ -4011,6 +4055,7 @@ async def generate_diet_recommendation(
                 detail="Food catalog cannot build a mixed diet recommendation",
             ) from exc
         await assign_menu_images(plan["meals"], settings)
+        await generate_missing_menu_images(plan["meals"], settings)
         await create_diet_recommendation(user.id, plan, settings)
         result = await fetch_diet_recommendation(user.id, settings, target_date)
         return {
@@ -4135,6 +4180,7 @@ async def regenerate_recommended_diet_meal(
         ) from exc
 
     await assign_menu_images([replacement], settings)
+    await generate_missing_menu_images([replacement], settings)
     meal = await regenerate_diet_meal(
         user.id,
         str(diet_meal_id),

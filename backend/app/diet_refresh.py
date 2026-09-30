@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from backend.app.food_image_generation import generate_missing_menu_images
 from backend.app.main import (
     assign_menu_images,
     build_daily_diet_recommendation_plan,
@@ -85,6 +86,7 @@ async def refresh_daily_diets(all_ai: bool = False) -> tuple[int, int]:
                     all_ai=all_ai,
                 )
                 await assign_menu_images(plan["meals"], settings)
+                await generate_missing_menu_images(plan["meals"], settings)
                 await create_diet_recommendation(user_id, plan, settings)
                 return True
             except Exception:  # Keep refreshing other users after one isolated failure.
