@@ -260,8 +260,10 @@ original_unit, calories, carbohydrates, protein, fat 등. 기존 클라이언트
 상태의 식사는 409다. AI 결과를 만들 수 없거나 냉장고 재료가 반영되지 않으면 503이다.
 `used_ingredients[]`에는 inventory ID와 보유량(`quantity`, `unit`), AI 계획량
 (`planned_quantity`, `planned_unit`) 및 단위 비교가 가능한 경우의 보유량 충족 여부가 포함된다.
-날짜별·최근 추천 조회의 각 `meals[]`에도 현재 사용 가능한 냉장고 재료와 추천 음식을 다시
-매칭한 `used_ingredients[]`가 포함되므로, `먹었어요` 처리 후 화면을 다시 열어도 활용 재료를 복원한다.
+날짜별·최근 추천 조회의 각 `meals[]`에는 식단 생성 또는 재추천 시점에 저장한
+`used_ingredients[]` 스냅샷이 포함된다. 이후 재료를 소진·수정·삭제하거나 `먹었어요` 처리 후
+화면을 다시 열어도 당시 활용 재료가 유지된다. 스냅샷 도입 전 레코드는 현재 사용 가능한
+재료와 추천 음식을 다시 매칭하는 호환 로직을 사용한다.
 DB 반영에는 `replace_diet_meal` RPC가 필요하다.
 
 영양 요약의 `summary`에는 날짜, 추천 존재 여부, 알 수 없는 영양 항목 여부와 칼로리·탄수화물·

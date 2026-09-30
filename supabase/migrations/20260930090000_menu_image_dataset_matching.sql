@@ -138,6 +138,7 @@ declare
   v_meal_input jsonb;
   v_food_input jsonb;
   v_ai_meal_count integer;
+  v_used_ingredients jsonb;
 begin
   if p_user_id is null then
     raise exception 'user_id is required';
@@ -194,10 +195,18 @@ begin
        or jsonb_array_length(v_meal_input -> 'foods') = 0 then
       raise exception 'each meal must contain foods';
     end if;
+    v_used_ingredients := coalesce(
+      v_meal_input -> 'used_ingredients',
+      '[]'::jsonb
+    );
+    if jsonb_typeof(v_used_ingredients) <> 'array' then
+      raise exception 'used_ingredients must be an array';
+    end if;
 
     insert into public.diet_meals (
       diet_recommendation_id, meal_type, meal_order, recommended_calories,
-      recommendation_note, image_storage_path, menu_image_key, source_type, status
+      recommendation_note, image_storage_path, menu_image_key, source_type,
+      used_ingredients, status
     ) values (
       v_recommendation.diet_recommendation_id,
       v_meal_input ->> 'meal_type',
@@ -207,6 +216,7 @@ begin
       nullif(btrim(v_meal_input ->> 'image_storage_path'), ''),
       nullif(btrim(v_meal_input ->> 'menu_image_key'), ''),
       v_meal_input ->> 'source_type',
+      v_used_ingredients,
       'recommended'
     ) returning * into v_meal;
 
@@ -240,4 +250,3 @@ revoke all on function public.create_diet_recommendation(uuid, jsonb, jsonb)
   from public, anon, authenticated;
 grant execute on function public.create_diet_recommendation(uuid, jsonb, jsonb)
   to service_role;
-

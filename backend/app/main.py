@@ -2426,10 +2426,13 @@ async def build_daily_diet_recommendation_plan(
         plan["meals"], inventory_names
     )
     for meal in plan["meals"]:
-        used_by_meal = find_used_inventory_names([meal], inventory_names)
-        if used_by_meal:
+        meal["used_ingredients"] = find_used_inventory_items(
+            [meal], resolved_inventory
+        )
+        if meal["used_ingredients"]:
             meal["recommendation_note"] += (
-                f" · 냉장고 사용: {', '.join(used_by_meal)}"
+                " · 냉장고 사용: "
+                + ", ".join(item["name"] for item in meal["used_ingredients"])
             )
     ai_count = sum(
         meal.get("source_type") == "ai_generated" for meal in plan["meals"]
@@ -2548,7 +2551,7 @@ async def fetch_diet_recommendation(
         "select": (
             "diet_meal_id,diet_recommendation_id,meal_type,meal_order,"
             "recommended_calories,recommendation_note,image_storage_path,"
-            "menu_image_key,source_type,status,created_at"
+            "menu_image_key,source_type,status,used_ingredients,created_at"
         ),
         "diet_recommendation_id": f"eq.{recommendation['diet_recommendation_id']}",
         "order": "meal_order.asc",
@@ -2647,6 +2650,8 @@ async def fetch_diet_recommendation(
         })
 
     async def load_inventory_usage():
+        if all(meal.get("used_ingredients") is not None for meal in meals):
+            return
         async with timed_http_client("inventory_usage", shared_client) as client:
             inventory_response = await client.get(
                 f"{settings.supabase_url}/rest/v1/user_food_inventory",
@@ -2755,9 +2760,13 @@ async def fetch_diet_recommendation(
                 **meal,
                 "foods": foods_by_meal[meal["diet_meal_id"]],
                 "feedback": feedback_by_meal.get(meal["diet_meal_id"]),
-                "used_ingredients": find_used_inventory_items(
-                    [{"foods": foods_by_meal[meal["diet_meal_id"]]}],
-                    inventory_for_usage,
+                "used_ingredients": (
+                    meal["used_ingredients"]
+                    if meal.get("used_ingredients") is not None
+                    else find_used_inventory_items(
+                        [{"foods": foods_by_meal[meal["diet_meal_id"]]}],
+                        inventory_for_usage,
+                    )
                 ),
             }
             for meal in meals
@@ -4173,6 +4182,7 @@ async def regenerate_recommended_diet_meal(
             raise DietAIUnavailable(
                 "AI diet generator did not use available inventory"
             )
+        replacement["used_ingredients"] = used_ingredients
     except DietAIUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

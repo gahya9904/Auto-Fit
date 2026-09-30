@@ -152,6 +152,51 @@ def test_completed_recommendation_restores_used_inventory_after_reload():
     asyncio.run(run())
 
 
+def test_recommendation_preserves_historical_inventory_snapshot():
+    async def run():
+        snapshot = [{
+            "user_food_inventory_id": "inventory-1",
+            "name": "블루베리",
+            "matched_food_name": "블루베리",
+            "quantity": 10,
+            "unit": "개",
+        }]
+
+        async def handler(request):
+            path = request.url.path.rsplit("/", 1)[-1]
+            if path == "diet_recommendations":
+                return httpx.Response(200, json=[{
+                    "diet_recommendation_id": "rec",
+                    "recommendation_date": "2026-09-15",
+                }])
+            if path == "diet_meals":
+                return httpx.Response(200, json=[{
+                    "diet_meal_id": "meal",
+                    "menu_image_key": None,
+                    "status": "completed",
+                    "used_ingredients": snapshot,
+                }])
+            if path == "diet_meal_foods":
+                return httpx.Response(200, json=[{
+                    "diet_meal_id": "meal",
+                    "food_name": "블루베리",
+                    "quantity": 10,
+                    "unit": "개",
+                }])
+            if path == "diet_feedback":
+                return httpx.Response(200, json=[])
+            raise AssertionError(f"unexpected request: {path}")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await main.fetch_diet_recommendation(
+                "owner", TEST_SETTINGS, date(2026, 9, 15), client=client
+            )
+
+        assert result["meals"][0]["used_ingredients"] == snapshot
+
+    asyncio.run(run())
+
+
 def test_summary_fetches_only_targets_and_nutrients_concurrently():
     async def run():
         entered = set()

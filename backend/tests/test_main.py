@@ -1881,6 +1881,11 @@ def test_daily_diet_plan_uses_catalog_linked_inventory_in_final_meals(
         and main.find_used_inventory_names([meal], ["브로콜리"])
         for meal in result["meals"]
     )
+    assert any(
+        ingredient["name"] == "브로콜리"
+        for meal in result["meals"]
+        for ingredient in meal["used_ingredients"]
+    )
 
 
 def test_all_ai_diet_plan_applies_catalog_linked_inventory_server_side(
@@ -2530,6 +2535,8 @@ def test_regenerate_recommended_diet_meal_uses_authenticated_user(
         assert replacement["meal_type"] == "lunch"
         assert replacement["source_type"] == "ai_generated"
         assert replacement["foods"][0]["food_name"] == "두부 스테이크"
+        assert replacement["used_ingredients"][0]["name"] == "두부"
+        assert replacement["used_ingredients"][0]["matched_food_name"] == "두부 스테이크"
         return {"diet_meal_id": received_id, **replacement}
 
     async def fake_assign(meals, settings):
