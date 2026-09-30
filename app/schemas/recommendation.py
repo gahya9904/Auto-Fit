@@ -67,6 +67,7 @@ class ExerciseItem(BaseModel):
 
 class ExerciseSession(BaseModel):
     name: str
+
     focus: str | None = None
 
     estimated_duration_minutes: int | None = Field(
@@ -244,6 +245,17 @@ class DietMeal(BaseModel):
         max_length=150,
     )
 
+    # -----------------------------------------------------
+    # Stable Diffusion용 영문 이미지 프롬프트
+    #
+    # DB에 기존 이미지가 있는 메뉴라면 None 가능.
+    # 신규 이미지 생성이 필요한 메뉴에서만 사용할 수 있다.
+    # -----------------------------------------------------
+    image_prompt: str | None = Field(
+        default=None,
+        max_length=700,
+    )
+
     estimated_calories_kcal: int = Field(
         ge=0,
         le=3000,
@@ -251,8 +263,8 @@ class DietMeal(BaseModel):
 
     nutrition: MealNutrition
 
-    # 냉장고가 없으면 None
-    # 냉장고가 있으면 실제 사용된 냉장고 재료만 포함
+    # 냉장고 재료가 없는 경우 None
+    # 냉장고 재료가 있는 경우 실제 사용한 냉장고 재료만 포함
     ingredients: (
         list[DietIngredient]
         | None
@@ -333,11 +345,15 @@ class DietRecommendationResponse(BaseModel):
         default_factory=list
     )
 
-    @model_validator(mode="after")
-    def validate_week(self):
+    @model_validator(
+        mode="after"
+    )
+    def validate_week(
+        self,
+    ):
         """
         monday ~ sunday가
-        정확히 한 번씩 존재하는지 검증.
+        정확히 한 번씩 존재하는지 검증한다.
         """
 
         expected_days = {
@@ -378,6 +394,7 @@ class ReplaceMealRequest(BaseModel):
     )
 
     target_day: DietDay
+
     target_meal: DietMealType
 
     current_menu_name: str
@@ -406,6 +423,7 @@ class ReplaceMealRequest(BaseModel):
 
 class ReplaceMealResponse(BaseModel):
     day: DietDay
+
     meal_type: DietMealType
 
     meal: DietMeal
@@ -427,17 +445,23 @@ class ReplaceMealResponse(BaseModel):
 
 class ExerciseGenerateResponse(BaseModel):
     ok: bool = True
+
     generator: str
+
     result: ExerciseRecommendationResponse
 
 
 class DietGenerateResponse(BaseModel):
     ok: bool = True
+
     generator: str
+
     result: DietRecommendationResponse
 
 
 class DietMealRegenerateResponse(BaseModel):
     ok: bool = True
+
     generator: str
+
     meal: ReplaceMealResponse

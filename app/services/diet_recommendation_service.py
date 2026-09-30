@@ -612,43 +612,38 @@ async def _request_weekly_diet_from_llm(
 - 정확히 7일을 생성한다.
 - monday부터 sunday까지 정확히 한 번씩 생성한다.
 - 매일 breakfast, lunch, dinner, snack을 정확히 하나씩 생성한다.
+- 총 28개의 식사 슬롯을 생성한다.
 
 
 메뉴 다양성 규칙:
 
 - 7일 전체에서 동일한 메뉴명을 반복하지 않는다.
-- 총 28개 식사 슬롯을 가능한 한 서로 다른 메뉴로 구성한다.
-- 동일한 메뉴의 이름만 조금 바꾸어 다른 메뉴처럼 생성하지 않는다.
 - 같은 주재료가 연속적으로 지나치게 반복되지 않도록 한다.
-- 같은 조리 방식이 연속적으로 반복되지 않도록 한다.
+- 같은 조리법도 연속적으로 지나치게 반복하지 않는다.
 - 볶음, 구이, 찜, 국, 찌개, 샐러드, 덮밥,
   비빔밥, 샌드위치, 죽, 수프, 오믈렛 등
-  다양한 메뉴 형태와 조리법을 활용한다.
-- 한식 중심으로 구성하되 필요하면
-  현실적인 일반 메뉴도 적절히 섞을 수 있다.
-- breakfast, lunch, dinner, snack의 특성에
-  맞는 메뉴를 각각 구성한다.
-- 간식은 일반 식사 메뉴처럼 지나치게 무겁게 구성하지 않는다.
+  다양한 메뉴 형태를 활용한다.
+- 동일한 음식의 이름만 바꾼 유사 메뉴는 피한다.
+- breakfast, lunch, dinner, snack의 특성에 맞게 메뉴를 구성한다.
 
 
-냉장고 재료 다양성 규칙:
+냉장고 재료 규칙:
 
-- 냉장고 재료가 있더라도 모든 끼니에서
-  동일한 냉장고 재료를 강제로 사용하지 않는다.
-- 냉장고 재료를 우선 활용하되
-  전체 7일 식단의 다양성도 확보한다.
-- 동일한 냉장고 재료 조합을 반복하지 않는다.
-- 필요하면 냉장고에 없는 일반 식재료를 활용할 수 있다.
-- 단, ingredients에는 실제 냉장고에 존재하며
-  해당 메뉴에 사용된 재료만 기록한다.
+- 냉장고 재료가 있으면 우선 활용한다.
+- 단, 모든 끼니에 동일한 냉장고 재료를 강제로 사용하지 않는다.
+- 냉장고 재료 때문에 메뉴 다양성이 지나치게 제한되지 않도록 한다.
+- 필요하면 일반적인 추가 식재료를 사용할 수 있다.
+- ingredients에는 실제 냉장고 재료 중 해당 메뉴에 사용된 재료만 기록한다.
+- 냉장고 재료가 없는 경우 ingredients는 반드시 null이다.
 
 
 메뉴 출력 규칙:
 
-각 메뉴에는 반드시:
+각 메뉴에는 반드시 다음 값을 생성한다.
 
 - menu_name
 - menu_description
+- image_prompt
 - estimated_calories_kcal
 - nutrition.carbohydrate_g
 - nutrition.protein_g
@@ -656,7 +651,36 @@ async def _request_weekly_diet_from_llm(
 - ingredients
 - guidance
 
-를 생성한다.
+
+image_prompt 규칙:
+
+- image_prompt는 Stable Diffusion 음식 이미지 생성을 위한 영문 프롬프트다.
+- 반드시 영어로 작성한다.
+- 한국어 menu_name을 단순 직역하는 것에 그치지 않는다.
+- 음식의 실제 외형을 구체적으로 묘사한다.
+- 주요 식재료의 색상과 형태가 이미지에서 식별되도록 작성한다.
+- 조리 방식을 명확하게 표현한다.
+- 실제 메뉴에 포함되지 않은 육류나 주요 식재료가 나타나지 않도록 작성한다.
+
+예:
+두부가 사용된다면:
+"clearly visible white tofu cubes"
+
+브로콜리가 사용된다면:
+"fresh green broccoli florets"
+
+계란볶음이라면:
+"soft yellow scrambled egg"
+
+고기가 없는 메뉴라면:
+"no pork, no beef, no chicken, no meat"
+
+- 1인분 음식이 접시 또는 그릇에 담긴 모습으로 설명한다.
+- realistic professional food photography 스타일을 사용한다.
+- natural lighting, realistic food texture 등의 표현을 사용할 수 있다.
+- 사람, 손, 얼굴, 글자, 워터마크, 로고는 포함하지 않는다.
+- 건강 수치, 개인정보, 칼로리 숫자 등은 image_prompt에 포함하지 않는다.
+- image_prompt는 너무 길지 않은 영어 1~3문장으로 작성한다.
 
 
 숫자 규칙:
@@ -665,22 +689,16 @@ async def _request_weekly_diet_from_llm(
 - carbohydrate_g는 정수
 - protein_g는 정수
 - fat_g는 정수
-- ingredients 내부 모든 영양정보도 정수
+- ingredients 내부 영양정보도 정수
 - ingredients.recommended_amount도 정수
 
 
 영양정보 규칙:
 
 - 메뉴 전체 영양정보는 1인분 기준 예상값이다.
-- 재료별 영양정보는 해당 recommended_amount 기준 예상값이다.
-- ingredients 영양정보의 합이 메뉴 전체 영양정보와
-  반드시 일치할 필요는 없다.
-- ingredients에는 냉장고 재료만 기록되기 때문이다.
-
-
-냉장고 재료가 없는 경우:
-
-- ingredients는 반드시 null이다.
+- ingredients 영양정보는 해당 recommended_amount 기준 예상값이다.
+- ingredients는 냉장고 활용 재료만 포함하기 때문에
+  ingredients 영양정보의 합과 메뉴 전체 영양정보는 다를 수 있다.
 
 
 출력은 Structured Output Schema를 따른다.
@@ -992,7 +1010,7 @@ async def generate_replacement_meal(
 2. 건강 상태 및 안전성
 3. 사용자 목표
 4. 냉장고 재료 활용
-5. 기존 메뉴와의 차별성
+5. 기존 메뉴와 다른 메뉴
 6. 영양 균형
 7. 메뉴 다양성
 
@@ -1001,28 +1019,16 @@ async def generate_replacement_meal(
 
 - 현재 메뉴와 다른 메뉴를 생성한다.
 - 메뉴 이름만 변경한 유사 메뉴를 생성하지 않는다.
-- 가능하면 주재료 또는 조리 방식을 변경한다.
-- 알레르기 재료는 사용하지 않는다.
-- 의료 진단이나 치료 지시를 하지 않는다.
+- 가능하면 주재료 또는 조리 방식도 변경한다.
+- 알레르기 재료는 절대 사용하지 않는다.
+- 의료 진단이나 치료 지시는 하지 않는다.
 
 
-냉장고 재료가 있는 경우:
-
-- 사용할 수 있는 냉장고 재료를 우선 고려한다.
-- 하지만 냉장고 재료 때문에 메뉴 다양성이 제한되면
-  일반 식재료를 추가해서 새로운 메뉴를 만들 수 있다.
-- 실제 사용한 냉장고 재료만 ingredients에 반환한다.
-
-
-냉장고 재료가 없는 경우:
-
-- ingredients는 반드시 null이다.
-
-
-새 메뉴에는:
+새 메뉴에는 반드시 다음 값을 포함한다.
 
 - menu_name
 - menu_description
+- image_prompt
 - estimated_calories_kcal
 - nutrition.carbohydrate_g
 - nutrition.protein_g
@@ -1030,11 +1036,33 @@ async def generate_replacement_meal(
 - ingredients
 - guidance
 
-를 포함한다.
+
+image_prompt 규칙:
+
+- Stable Diffusion 음식 이미지 생성용 영어 프롬프트로 작성한다.
+- 메뉴명을 단순 번역하는 것이 아니라 음식 외형을 구체적으로 설명한다.
+- 주요 식재료의 색상, 형태, 조리 방식을 표현한다.
+- 메뉴에 포함되지 않은 주요 육류나 재료는 나타나지 않도록 한다.
+- 고기가 없는 음식이면 no pork, no beef, no chicken, no meat 등을 사용할 수 있다.
+- realistic professional food photography 스타일로 작성한다.
+- 사람, 손, 얼굴, 글자, 워터마크, 로고는 포함하지 않는다.
+- 건강정보와 칼로리 숫자는 image_prompt에 넣지 않는다.
+- 영어 1~3문장으로 작성한다.
+
+
+냉장고 재료가 있는 경우:
+
+- 냉장고 재료를 활용할 수 있는 메뉴를 우선 고려한다.
+- 실제 사용한 냉장고 재료만 ingredients에 기록한다.
+
+
+냉장고 재료가 없는 경우:
+
+- ingredients는 반드시 null이다.
 
 
 모든 kcal, 탄수화물, 단백질, 지방,
-recommended_amount 값은 정수로 작성한다.
+recommended_amount 값은 정수다.
 
 출력은 Structured Output Schema를 따른다.
 """.strip()
