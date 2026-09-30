@@ -2537,7 +2537,7 @@ async def fetch_diet_recommendation(
                         "quantity,unit,calories,carbohydrates,protein,fat"
                     ),
                     "diet_meal_id": f"in.({','.join(meal_ids)})",
-                    "order": "created_at.asc",
+                    "order": "food_order.asc,diet_meal_food_id.asc",
                 },
             )
         if not food_response.is_success:
@@ -2780,9 +2780,17 @@ async def regenerate_diet_meal(
             detail="Supabase diet meal regeneration failed",
         )
     regenerated = response.json()
-    regenerated["foods"] = normalize_recommended_foods(
-        regenerated.get("foods") or []
+    persisted_foods = regenerated.get("foods") or []
+    persisted_foods.sort(
+        key=lambda food: (
+            food.get("food_order") is None,
+            food.get("food_order") or 0,
+            str(food.get("diet_meal_food_id") or ""),
+        )
     )
+    for food in persisted_foods:
+        food.pop("food_order", None)
+    regenerated["foods"] = normalize_recommended_foods(persisted_foods)
     image_storage_path = regenerated.get("image_storage_path")
     regenerated["image_url"] = (
         f"{settings.supabase_url}/storage/v1/object/public/menu-images/"
@@ -2850,7 +2858,7 @@ async def fetch_diet_meal_context(
                     "quantity,unit,calories,carbohydrates,protein,fat"
                 ),
                 "diet_meal_id": f"eq.{diet_meal_id}",
-                "order": "created_at.asc,diet_meal_food_id.asc",
+                "order": "food_order.asc,diet_meal_food_id.asc",
             },
         )
     if not food_response.is_success:
