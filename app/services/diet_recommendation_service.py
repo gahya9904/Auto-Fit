@@ -1,4 +1,5 @@
 import logging
+from time import perf_counter
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -25,6 +26,23 @@ logger = logging.getLogger(
 
 
 # =========================================================
+# Optimization Settings
+# =========================================================
+
+# Diet LLM에 전달할 최대 RAG chunk 수
+MAX_DIET_RAG_CHUNKS = 6
+
+# 각 RAG chunk에서 전달할 최대 글자 수
+MAX_RAG_CONTENT_CHARS = 1200
+
+# 주간 식단 생성 최대 output token
+WEEKLY_DIET_MAX_OUTPUT_TOKENS = 10000
+
+# 한 끼 재추천 최대 output token
+REPLACE_MEAL_MAX_OUTPUT_TOKENS = 1800
+
+
+# =========================================================
 # Text Utility
 # =========================================================
 
@@ -48,11 +66,18 @@ def _normalize_text(
 def _normalize_refrigerator_ingredients(
     ingredients: list[str] | None,
 ) -> list[str]:
+    """
+    냉장고 재료 목록 정규화.
+
+    - 빈 값 제거
+    - 앞뒤 공백 제거
+    - 공백/대소문자를 무시하여 중복 제거
+    """
+
     if not ingredients:
         return []
 
     result: list[str] = []
-
     seen: set[str] = set()
 
     for ingredient in ingredients:
@@ -85,6 +110,10 @@ def _normalize_refrigerator_ingredients(
 def _build_refrigerator_map(
     ingredients: list[str],
 ) -> dict[str, str]:
+    """
+    정규화된 이름 → 원래 냉장고 재료 이름.
+    """
+
     result: dict[str, str] = {}
 
     for item in ingredients:
@@ -111,8 +140,10 @@ def _filter_used_refrigerator_ingredients(
     refrigerator_ingredients: list[str],
 ) -> list[DietIngredient] | None:
     """
-    LLM 결과 중 실제 냉장고에 존재하는
-    재료만 ingredients에 남긴다.
+    LLM 결과 ingredients 중
+    실제 냉장고에 존재하는 재료만 남긴다.
+
+    냉장고가 비어 있으면 ingredients는 null.
     """
 
     if not refrigerator_ingredients:
@@ -212,7 +243,9 @@ def _find_duplicate_menu_names(
     """
     동일한 메뉴명이 반복됐는지 확인한다.
 
-    공백/대소문자는 무시한다.
+    성능 최적화를 위해 중복이 있어도
+    전체 28끼를 다시 생성하지 않고
+    로그만 남긴다.
     """
 
     menu_names = (
@@ -258,16 +291,6 @@ def _find_duplicate_menu_names(
     return duplicates
 
 
-def _has_duplicate_menu_names(
-    response: DietRecommendationResponse,
-) -> bool:
-    return bool(
-        _find_duplicate_menu_names(
-            response
-        )
-    )
-
-
 # =========================================================
 # RAG
 # =========================================================
@@ -276,19 +299,43 @@ def _has_duplicate_menu_names(
 async def _get_diet_rag_context(
     metric_statuses: dict[str, str],
 ) -> list[dict[str, Any]]:
+    """
+    Rule Engine status 기반 RAG 검색.
+    """
+
     if not metric_statuses:
         return []
 
-    result = await rag_node(
-        {
-            "merged_analysis": {
-                "metric_statuses": (
-                    metric_statuses
-                )
-            },
-            "warnings": [],
-        }
-    )
+    start = perf_counter()
+
+    try:
+        result = await rag_node(
+            {
+                "merged_analysis": {
+                    "metric_statuses": (
+                        metric_statuses
+                    )
+                },
+                "warnings": [],
+            }
+        )
+
+    except Exception:
+        logger.exception(
+            "Diet RAG search failed"
+        )
+        return []
+
+    finally:
+        elapsed = (
+            perf_counter()
+            - start
+        )
+
+        logger.info(
+            "Diet RAG elapsed_seconds=%.2f",
+            elapsed,
+        )
 
     rag_context = result.get(
         "rag_context",
@@ -307,11 +354,22 @@ async def _get_diet_rag_context(
 def _build_safe_rag_context(
     rag_context: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """
+    OpenAI에 전달하는 RAG context를 최소화한다.
+
+    성능 최적화:
+    - 최대 6개 chunk
+    - chunk content 최대 1200자
+    - 필요한 metadata만 전달
+    """
+
     safe_context: list[
         dict[str, Any]
     ] = []
 
-    for item in rag_context[:8]:
+    for item in rag_context[
+        :MAX_DIET_RAG_CHUNKS
+    ]:
         if not isinstance(
             item,
             dict,
@@ -319,7 +377,9 @@ def _build_safe_rag_context(
             continue
 
         content = (
-            item.get("content")
+            item.get(
+                "content"
+            )
             or item.get(
                 "content_preview"
             )
@@ -328,10 +388,16 @@ def _build_safe_rag_context(
         if not content:
             continue
 
+        content_text = str(
+            content
+        )
+
         safe_context.append(
             {
                 "content": (
-                    content
+                    content_text[
+                        :MAX_RAG_CONTENT_CHARS
+                    ]
                 ),
                 "source_org": (
                     item.get(
@@ -362,6 +428,10 @@ def _build_safe_rag_context(
 def _build_refrigerator_instruction(
     refrigerator_ingredients: list[str],
 ) -> str:
+    """
+    냉장고 재료 관련 LLM instruction.
+    """
+
     if refrigerator_ingredients:
         return f"""
 [냉장고 재료]
@@ -369,21 +439,22 @@ def _build_refrigerator_instruction(
 
 냉장고 활용 규칙:
 
-- 위 냉장고 재료를 활용할 수 있는 메뉴를 우선적으로 고려한다.
-- 하지만 모든 끼니에 냉장고 재료를 반드시 넣을 필요는 없다.
-- 냉장고 재료 때문에 7일 식단의 메뉴 다양성이 지나치게 제한되어서는 안 된다.
-- 동일한 냉장고 재료가 연속된 여러 끼니에서 주재료로 반복되지 않도록 한다.
-- 같은 냉장고 재료라도 조리법과 메뉴 형태를 다양하게 구성한다.
-- 필요하다면 일반적인 식재료를 추가하여 새로운 메뉴를 구성할 수 있다.
-- 알레르기와 건강 안전 조건이 냉장고 활용보다 항상 우선한다.
+- 위 재료를 활용할 수 있는 메뉴를 우선적으로 고려한다.
+- 모든 끼니에 냉장고 재료를 반드시 사용할 필요는 없다.
+- 동일 재료를 연속된 여러 끼니의 주재료로 반복하지 않는다.
+- 냉장고 재료만으로 메뉴 다양성을 제한하지 않는다.
+- 필요하면 일반적인 추가 식재료를 사용할 수 있다.
+- 알레르기와 건강 안전 조건을 냉장고 활용보다 우선한다.
 
 ingredients 규칙:
 
 - ingredients는 전체 레시피 재료 목록이 아니다.
-- 실제 해당 메뉴에 사용된 냉장고 재료만 기록한다.
-- 냉장고에 없는 일반 재료나 조미료는 ingredients에 넣지 않는다.
+- 실제 해당 메뉴에 사용한 냉장고 재료만 기록한다.
+- 냉장고에 없는 일반 재료와 조미료는 기록하지 않는다.
+- 필요 이상으로 많은 냉장고 재료를 한 메뉴에 넣지 않는다.
+- 한 메뉴당 실제 사용한 핵심 냉장고 재료만 기록한다.
 
-각 ingredients 항목에는 반드시:
+각 ingredients 항목:
 
 - name
 - recommended_amount
@@ -393,13 +464,7 @@ ingredients 규칙:
 - fat_g
 - estimated_calories_kcal
 
-를 포함한다.
-
-recommended_amount와 모든 영양값은 정수로 반환한다.
-
-재료별 영양정보는
-recommended_amount만큼 섭취했을 때의
-예상 영양정보이다.
+recommended_amount와 모든 영양값은 정수다.
 """.strip()
 
     return """
@@ -408,11 +473,9 @@ recommended_amount만큼 섭취했을 때의
 
 규칙:
 
-- 냉장고 재료가 없더라도 메뉴 다양성을 적극적으로 확보한다.
-- 일반적인 식재료를 이용하여 현실적으로 먹을 수 있는 식단을 구성한다.
-- 7일 동안 가능한 한 서로 다른 메뉴를 추천한다.
+- 일반적인 식재료로 현실적인 식단을 구성한다.
+- 7일간 메뉴 다양성을 확보한다.
 - 모든 메뉴의 ingredients는 반드시 null이다.
-- 메뉴 총 kcal와 탄수화물/단백질/지방은 정상적으로 생성한다.
 """.strip()
 
 
@@ -426,6 +489,11 @@ def _validate_weekly_plan_ingredients(
     response: DietRecommendationResponse,
     refrigerator_ingredients: list[str],
 ) -> DietRecommendationResponse:
+    """
+    28끼 ingredients를 최종 검증하여
+    실제 냉장고 재료만 남긴다.
+    """
+
     updated_days = []
 
     for day_plan in response.weekly_plan:
@@ -567,29 +635,16 @@ async def _request_weekly_diet_from_llm(
     safe_rag_context: list[
         dict[str, Any]
     ],
-    retry_duplicates: (
-        list[str]
-        | None
-    ) = None,
 ) -> DietRecommendationResponse:
     """
-    실제 OpenAI Structured Output 호출.
+    주간 식단 Structured Output 생성.
+
+    최적화 핵심:
+    - OpenAI 호출 1회
+    - image_prompt 생성 제거
+    - description/guidance 길이 제한
+    - RAG context 축소
     """
-
-    diversity_retry_instruction = ""
-
-    if retry_duplicates:
-        diversity_retry_instruction = f"""
-[이전 생성 결과에서 중복된 메뉴]
-{retry_duplicates}
-
-이전 결과에 동일한 메뉴가 반복되었다.
-
-이번에는 위 메뉴를 포함한 중복이 다시 발생하지 않도록
-28개 식사 슬롯의 메뉴명을 모두 다르게 구성하라.
-
-이름만 살짝 바꾼 사실상 동일한 메뉴도 피하라.
-""".strip()
 
     instructions = """
 너는 Auto-Fit의 개인 맞춤 식단 추천 AI다.
@@ -598,7 +653,7 @@ async def _request_weekly_diet_from_llm(
 
 1. 알레르기 및 명시적 섭취 제한
 2. 건강 상태 및 안전성
-3. 사용자의 목표
+3. 사용자 목표
 4. 냉장고 재료 활용
 5. 영양 균형
 6. 메뉴 다양성
@@ -610,40 +665,56 @@ async def _request_weekly_diet_from_llm(
 - 의료 진단이나 치료 처방을 하지 않는다.
 - 알레르기 재료는 절대 사용하지 않는다.
 - 제공되지 않은 건강 수치를 추측하지 않는다.
-- metric_statuses를 기준으로 건강 상태를 고려한다.
+- metric_statuses만을 건강 상태 판단에 사용한다.
+- 제공된 공식 RAG 근거를 참고한다.
 
 
 주간 식단 규칙:
 
-- 정확히 7일을 생성한다.
+- 정확히 7일 생성한다.
 - monday부터 sunday까지 정확히 한 번씩 생성한다.
-- 매일 breakfast, lunch, dinner, snack을 정확히 하나씩 생성한다.
-- 총 28개의 식사 슬롯을 생성한다.
+- 매일 breakfast, lunch, dinner, snack을 하나씩 생성한다.
+- 총 28개 식사 슬롯이다.
 
 
 메뉴 다양성 규칙:
 
-- 7일 전체에서 동일한 메뉴명을 반복하지 않는다.
-- 같은 주재료가 연속적으로 지나치게 반복되지 않도록 한다.
-- 같은 조리법도 연속적으로 지나치게 반복하지 않는다.
-- 볶음, 구이, 찜, 국, 찌개, 샐러드, 덮밥,
-  비빔밥, 샌드위치, 죽, 수프, 오믈렛 등
-  다양한 메뉴 형태를 활용한다.
-- 동일한 음식의 이름만 바꾼 유사 메뉴는 피한다.
-- breakfast, lunch, dinner, snack의 특성에 맞게 메뉴를 구성한다.
+- 동일한 menu_name을 반복하지 않는다.
+- 같은 주재료를 연속적으로 지나치게 반복하지 않는다.
+- 같은 조리법을 연속적으로 반복하지 않는다.
+- 구이, 찜, 국, 볶음, 샐러드, 덮밥, 비빔밥,
+  오믈렛, 죽, 수프 등 다양한 형태를 사용한다.
+- 이름만 바꾼 사실상 동일한 메뉴를 피한다.
+
+
+출력 최적화 규칙:
+
+- menu_description은 간결한 한국어 한 문장으로 작성한다.
+- menu_description은 가능하면 60자 이내로 작성한다.
+- guidance는 가장 중요한 조언 하나만 한국어 한 문장으로 작성한다.
+- guidance는 가능하면 40자 이내로 작성한다.
+- 불필요한 설명을 반복하지 않는다.
+
+
+image_prompt 규칙:
+
+- 주간 식단에서는 image_prompt를 생성하지 않는다.
+- 모든 메뉴의 image_prompt는 반드시 null로 반환한다.
+- 음식 이미지 프롬프트는 별도 이미지 서버에서 생성한다.
 
 
 냉장고 재료 규칙:
 
 - 냉장고 재료가 있으면 우선 활용한다.
-- 단, 모든 끼니에 동일한 냉장고 재료를 강제로 사용하지 않는다.
-- 냉장고 재료 때문에 메뉴 다양성이 지나치게 제한되지 않도록 한다.
+- 모든 메뉴에 냉장고 재료를 강제로 넣지 않는다.
+- 동일한 냉장고 재료가 지나치게 반복되지 않도록 한다.
 - 필요하면 일반적인 추가 식재료를 사용할 수 있다.
-- ingredients에는 실제 냉장고 재료 중 해당 메뉴에 사용된 재료만 기록한다.
-- 냉장고 재료가 없는 경우 ingredients는 반드시 null이다.
+- ingredients에는 실제 사용한 냉장고 재료만 기록한다.
+- 전체 레시피 재료 목록을 기록하지 않는다.
+- 냉장고 재료가 없으면 ingredients는 반드시 null이다.
 
 
-메뉴 출력 규칙:
+메뉴 출력 필드:
 
 각 메뉴에는 반드시 다음 값을 생성한다.
 
@@ -658,56 +729,35 @@ async def _request_weekly_diet_from_llm(
 - guidance
 
 
-image_prompt 규칙:
-
-- image_prompt는 Stable Diffusion 음식 이미지 생성을 위한 영문 프롬프트다.
-- 반드시 영어로 작성한다.
-- 한국어 menu_name을 단순 직역하는 것에 그치지 않는다.
-- 음식의 실제 외형을 구체적으로 묘사한다.
-- 주요 식재료의 색상과 형태가 이미지에서 식별되도록 작성한다.
-- 조리 방식을 명확하게 표현한다.
-- 실제 메뉴에 포함되지 않은 육류나 주요 식재료가 나타나지 않도록 작성한다.
-
-예:
-두부가 사용된다면:
-"clearly visible white tofu cubes"
-
-브로콜리가 사용된다면:
-"fresh green broccoli florets"
-
-계란볶음이라면:
-"soft yellow scrambled egg"
-
-고기가 없는 메뉴라면:
-"no pork, no beef, no chicken, no meat"
-
-- 1인분 음식이 접시 또는 그릇에 담긴 모습으로 설명한다.
-- realistic professional food photography 스타일을 사용한다.
-- natural lighting, realistic food texture 등의 표현을 사용할 수 있다.
-- 사람, 손, 얼굴, 글자, 워터마크, 로고는 포함하지 않는다.
-- 건강 수치, 개인정보, 칼로리 숫자 등은 image_prompt에 포함하지 않는다.
-- image_prompt는 너무 길지 않은 영어 1~3문장으로 작성한다.
-
-
 숫자 규칙:
 
 - estimated_calories_kcal은 정수
 - carbohydrate_g는 정수
 - protein_g는 정수
 - fat_g는 정수
-- ingredients 내부 영양정보도 정수
-- ingredients.recommended_amount도 정수
+- ingredients 내부 영양정보는 정수
+- ingredients.recommended_amount는 정수
 
 
-영양정보 규칙:
+ingredients 규칙:
 
-- 메뉴 전체 영양정보는 1인분 기준 예상값이다.
-- ingredients 영양정보는 해당 recommended_amount 기준 예상값이다.
-- ingredients는 냉장고 활용 재료만 포함하기 때문에
-  ingredients 영양정보의 합과 메뉴 전체 영양정보는 다를 수 있다.
+냉장고 재료를 사용한 경우 각 항목에는:
+
+- name
+- recommended_amount
+- unit
+- carbohydrate_g
+- protein_g
+- fat_g
+- estimated_calories_kcal
+
+를 포함한다.
+
+ingredients는 메뉴 전체 영양정보와 별개로
+해당 냉장고 재료의 예상 영양정보만 표시한다.
 
 
-출력은 Structured Output Schema를 따른다.
+출력은 Structured Output Schema를 정확히 따른다.
 """.strip()
 
     prompt = f"""
@@ -731,13 +781,12 @@ image_prompt 규칙:
 [검증된 건강 가이드라인 RAG]
 {safe_rag_context}
 
-{diversity_retry_instruction}
-
 위 정보를 바탕으로
-건강 조건을 만족하면서도
-7일 동안 메뉴가 다양하게 구성된
-실천 가능한 식단을 생성하라.
+건강 조건을 고려한 현실적인
+7일 개인 맞춤 식단을 생성하라.
 """
+
+    start = perf_counter()
 
     try:
         response = await client.responses.parse(
@@ -750,7 +799,9 @@ image_prompt 규칙:
             text_format=(
                 DietRecommendationResponse
             ),
-            max_output_tokens=10000,
+            max_output_tokens=(
+                WEEKLY_DIET_MAX_OUTPUT_TOKENS
+            ),
         )
 
     except Exception:
@@ -758,6 +809,17 @@ image_prompt 규칙:
             "Weekly diet OpenAI generation failed"
         )
         raise
+
+    finally:
+        elapsed = (
+            perf_counter()
+            - start
+        )
+
+        logger.info(
+            "Weekly diet OpenAI elapsed_seconds=%.2f",
+            elapsed,
+        )
 
     result = response.output_parsed
 
@@ -777,6 +839,17 @@ image_prompt 규칙:
 async def generate_diet_recommendation(
     request: DietRecommendationRequest,
 ) -> DietRecommendationResponse:
+    """
+    7일 식단 생성.
+
+    최적화:
+    - RAG 검색 1회
+    - OpenAI 생성 1회
+    - 전체 재생성 retry 제거
+    """
+
+    total_start = perf_counter()
+
     settings = get_settings()
 
     if not settings.openai_api_key:
@@ -840,7 +913,7 @@ async def generate_diet_recommendation(
     )
 
     # -----------------------------------------------------
-    # 1차 생성
+    # OpenAI 1회 생성
     # -----------------------------------------------------
 
     result = (
@@ -874,7 +947,8 @@ async def generate_diet_recommendation(
     )
 
     # -----------------------------------------------------
-    # 메뉴 중복 검사
+    # 메뉴 중복 확인
+    # 전체 재생성은 하지 않음
     # -----------------------------------------------------
 
     duplicates = (
@@ -883,48 +957,16 @@ async def generate_diet_recommendation(
         )
     )
 
-    # -----------------------------------------------------
-    # 중복 존재 시 1회 재생성
-    # -----------------------------------------------------
-
     if duplicates:
-        retry_result = (
-            await _request_weekly_diet_from_llm(
-                client=client,
-                model=(
-                    settings.openai_model
-                ),
-                metric_statuses=(
-                    metric_statuses
-                ),
-                safety_tags=(
-                    safety_tags
-                ),
-                food_allergens=(
-                    food_allergens
-                ),
-                goal_type=(
-                    goal_type
-                ),
-                additional_input=(
-                    additional_input
-                ),
-                refrigerator_instruction=(
-                    refrigerator_instruction
-                ),
-                safe_rag_context=(
-                    safe_rag_context
-                ),
-                retry_duplicates=(
-                    duplicates
-                ),
-            )
+        logger.warning(
+            "Weekly diet contains duplicate menu names: count=%d",
+            len(
+                duplicates
+            ),
         )
 
-        result = retry_result
-
     # -----------------------------------------------------
-    # 냉장고 재료 후처리 검증
+    # 냉장고 ingredients 최종 검증
     # -----------------------------------------------------
 
     result = (
@@ -934,6 +976,16 @@ async def generate_diet_recommendation(
                 refrigerator_ingredients
             ),
         )
+    )
+
+    total_elapsed = (
+        perf_counter()
+        - total_start
+    )
+
+    logger.info(
+        "Diet recommendation total elapsed_seconds=%.2f",
+        total_elapsed,
     )
 
     return result
@@ -947,6 +999,15 @@ async def generate_diet_recommendation(
 async def generate_replacement_meal(
     request: ReplaceMealRequest,
 ) -> ReplaceMealResponse:
+    """
+    한 끼 재추천.
+
+    한 끼 응답은 크기가 작기 때문에
+    image_prompt 생성은 그대로 유지한다.
+    """
+
+    total_start = perf_counter()
+
     settings = get_settings()
 
     if not settings.openai_api_key:
@@ -1050,22 +1111,27 @@ async def generate_replacement_meal(
 - guidance
 
 
+응답 길이 규칙:
+
+- menu_description은 한국어 한 문장으로 간결하게 작성한다.
+- guidance는 가장 중요한 조언 하나만 간결하게 작성한다.
+
+
 image_prompt 규칙:
 
 - Stable Diffusion 음식 이미지 생성용 영어 프롬프트로 작성한다.
-- 메뉴명을 단순 번역하는 것이 아니라 음식 외형을 구체적으로 설명한다.
+- 메뉴명을 단순 번역하지 말고 음식 외형을 구체적으로 묘사한다.
 - 주요 식재료의 색상, 형태, 조리 방식을 표현한다.
-- 메뉴에 포함되지 않은 주요 육류나 재료는 나타나지 않도록 한다.
-- 고기가 없는 음식이면 no pork, no beef, no chicken, no meat 등을 사용할 수 있다.
-- realistic professional food photography 스타일로 작성한다.
+- 실제 메뉴에 없는 주요 식재료를 추가하지 않는다.
+- realistic professional food photography 스타일을 사용한다.
 - 사람, 손, 얼굴, 글자, 워터마크, 로고는 포함하지 않는다.
-- 건강정보와 칼로리 숫자는 image_prompt에 넣지 않는다.
-- 영어 1~3문장으로 작성한다.
+- 건강정보와 칼로리 숫자를 포함하지 않는다.
+- 영어 1~2문장으로 간결하게 작성한다.
 
 
 냉장고 재료가 있는 경우:
 
-- 냉장고 재료를 활용할 수 있는 메뉴를 우선 고려한다.
+- 냉장고 재료를 우선 활용한다.
 - 실제 사용한 냉장고 재료만 ingredients에 기록한다.
 
 
@@ -1115,20 +1181,42 @@ recommended_amount 값은 정수다.
 새로운 메뉴 하나를 생성하라.
 """
 
-    response = await client.responses.parse(
-        model=(
-            settings.openai_model
-        ),
-        instructions=instructions,
-        input=prompt,
-        reasoning={
-            "effort": "minimal"
-        },
-        text_format=(
-            ReplaceMealResponse
-        ),
-        max_output_tokens=1800,
-    )
+    llm_start = perf_counter()
+
+    try:
+        response = await client.responses.parse(
+            model=(
+                settings.openai_model
+            ),
+            instructions=instructions,
+            input=prompt,
+            reasoning={
+                "effort": "minimal"
+            },
+            text_format=(
+                ReplaceMealResponse
+            ),
+            max_output_tokens=(
+                REPLACE_MEAL_MAX_OUTPUT_TOKENS
+            ),
+        )
+
+    except Exception:
+        logger.exception(
+            "Replacement meal OpenAI generation failed"
+        )
+        raise
+
+    finally:
+        llm_elapsed = (
+            perf_counter()
+            - llm_start
+        )
+
+        logger.info(
+            "Replacement meal OpenAI elapsed_seconds=%.2f",
+            llm_elapsed,
+        )
 
     result = response.output_parsed
 
@@ -1158,10 +1246,24 @@ recommended_amount 값은 정수다.
         )
     )
 
-    return result.model_copy(
-        update={
-            "meal": (
-                validated_meal
-            )
-        }
+    final_result = (
+        result.model_copy(
+            update={
+                "meal": (
+                    validated_meal
+                )
+            }
+        )
     )
+
+    total_elapsed = (
+        perf_counter()
+        - total_start
+    )
+
+    logger.info(
+        "Replacement meal total elapsed_seconds=%.2f",
+        total_elapsed,
+    )
+
+    return final_result
