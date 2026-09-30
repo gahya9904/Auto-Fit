@@ -7,7 +7,9 @@ from pydantic import (
 )
 
 
-RecommendationSource = dict[str, str]
+class RecommendationSource(BaseModel):
+    source_org: str
+    title: str
 
 
 # =========================================================
