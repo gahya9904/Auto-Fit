@@ -4,15 +4,16 @@ from time import perf_counter
 from typing import Any
 
 from openai import AsyncOpenAI
-from pydantic import BaseModel, create_model
 
 from app.core.config import get_settings
 from app.graphs.nodes.rag_node import rag_node
 
 from app.schemas.recommendation import (
     DietIngredient,
+    DietRecommendationMetadataResponse,
     DietRecommendationRequest,
     DietRecommendationResponse,
+    DietWeeklyPlanPartResponse,
     ReplaceMealRequest,
     ReplaceMealResponse,
 )
@@ -52,67 +53,6 @@ SECOND_GROUP_MAX_OUTPUT_TOKENS = 5500
 METADATA_MAX_OUTPUT_TOKENS = 2500
 
 REPLACE_MEAL_MAX_OUTPUT_TOKENS = 1800
-
-
-# =========================================================
-# Internal Structured Output Models
-# =========================================================
-
-
-def _create_weekly_plan_part_model() -> type[BaseModel]:
-    weekly_plan_field = (
-        DietRecommendationResponse
-        .model_fields[
-            "weekly_plan"
-        ]
-    )
-
-    return create_model(
-        "DietWeeklyPlanPartResponse",
-        weekly_plan=(
-            weekly_plan_field.annotation,
-            ...,
-        ),
-    )
-
-
-def _create_metadata_model() -> type[BaseModel]:
-    fields: dict[
-        str,
-        tuple[Any, Any],
-    ] = {}
-
-    for (
-        field_name,
-        field_info,
-    ) in (
-        DietRecommendationResponse
-        .model_fields
-        .items()
-    ):
-        if field_name == "weekly_plan":
-            continue
-
-        fields[
-            field_name
-        ] = (
-            field_info.annotation,
-            ...,
-        )
-
-    return create_model(
-        "DietRecommendationMetadataResponse",
-        **fields,
-    )
-
-
-DietWeeklyPlanPartResponse = (
-    _create_weekly_plan_part_model()
-)
-
-DietRecommendationMetadataResponse = (
-    _create_metadata_model()
-)
 
 
 # =========================================================
@@ -696,7 +636,7 @@ async def _request_diet_days_from_llm(
     safe_rag_context: list[
         dict[str, Any]
     ],
-) -> BaseModel:
+) -> DietWeeklyPlanPartResponse:
 
     slot_count = (
         len(days)
@@ -827,6 +767,28 @@ Structured Output Schema를 정확히 따른다.
             "Partial diet output is empty"
         )
 
+    expected_days = set(
+        days
+    )
+
+    actual_days = {
+        _day_value(
+            item
+        )
+        for item in result.weekly_plan
+    }
+
+    if (
+        len(result.weekly_plan)
+        != len(days)
+        or actual_days
+        != expected_days
+    ):
+        raise ValueError(
+            "Partial diet response contains "
+            "unexpected or missing days."
+        )
+
     return result
 
 
@@ -851,7 +813,7 @@ async def _request_diet_metadata_from_llm(
     safe_rag_context: list[
         dict[str, Any]
     ],
-) -> BaseModel:
+) -> DietRecommendationMetadataResponse:
 
     instructions = """
 너는 Auto-Fit의 개인 맞춤 식단 추천 AI다.
@@ -1023,8 +985,12 @@ async def generate_diet_recommendation(
     ) = await asyncio.gather(
         _request_diet_days_from_llm(
             client=client,
-            model=settings.openai_model,
-            days=FIRST_DAY_GROUP,
+            model=(
+                settings.openai_model
+            ),
+            days=(
+                FIRST_DAY_GROUP
+            ),
             max_output_tokens=(
                 FIRST_GROUP_MAX_OUTPUT_TOKENS
             ),
@@ -1052,8 +1018,12 @@ async def generate_diet_recommendation(
         ),
         _request_diet_days_from_llm(
             client=client,
-            model=settings.openai_model,
-            days=SECOND_DAY_GROUP,
+            model=(
+                settings.openai_model
+            ),
+            days=(
+                SECOND_DAY_GROUP
+            ),
             max_output_tokens=(
                 SECOND_GROUP_MAX_OUTPUT_TOKENS
             ),
@@ -1081,7 +1051,9 @@ async def generate_diet_recommendation(
         ),
         _request_diet_metadata_from_llm(
             client=client,
-            model=settings.openai_model,
+            model=(
+                settings.openai_model
+            ),
             metric_statuses=(
                 metric_statuses
             ),
