@@ -1479,7 +1479,7 @@ Structured Output Schema를 정확히 따른다.
     try:
         response = await client.responses.parse(
             model=(
-                settings.openai_model
+                settings.openai_replace_meal_model
             ),
             instructions=instructions,
             input=prompt,
