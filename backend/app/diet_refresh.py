@@ -34,7 +34,6 @@ async def fetch_refresh_user_ids() -> list[str]:
                 headers=service_headers(settings),
                 params={
                     "select": "user_id",
-                    "onboarding_completed_at": "not.is.null",
                     "order": "user_id.asc",
                     "limit": str(page_size),
                     "offset": str(len(user_ids)),
