@@ -14,6 +14,8 @@ from app.schemas.recommendation import (
     DietRecommendationRequest,
     DietRecommendationResponse,
     DietWeeklyPlanPartResponse,
+    RecommendationSource,
+    ReplaceMealLLMResponse,
     ReplaceMealRequest,
     ReplaceMealResponse,
 )
@@ -35,6 +37,10 @@ logger = logging.getLogger(
 MAX_DIET_RAG_CHUNKS = 6
 MAX_RAG_CONTENT_CHARS = 1200
 
+MAX_REPLACE_RAG_CHUNKS = 3
+MAX_REPLACE_RAG_CONTENT_CHARS = 600
+MAX_REPLACE_SOURCES = 4
+
 FIRST_DAY_GROUP = [
     "monday",
     "tuesday",
@@ -52,7 +58,7 @@ FIRST_GROUP_MAX_OUTPUT_TOKENS = 6500
 SECOND_GROUP_MAX_OUTPUT_TOKENS = 5500
 METADATA_MAX_OUTPUT_TOKENS = 2500
 
-REPLACE_MEAL_MAX_OUTPUT_TOKENS = 1800
+REPLACE_MEAL_MAX_OUTPUT_TOKENS = 1400
 
 
 # =========================================================
@@ -437,6 +443,125 @@ def _build_safe_rag_context(
     return safe_context
 
 
+def _build_replace_rag_context(
+    rag_context: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+
+    safe_context: list[
+        dict[str, Any]
+    ] = []
+
+    for item in rag_context[
+        :MAX_REPLACE_RAG_CHUNKS
+    ]:
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        content = (
+            item.get(
+                "content"
+            )
+            or item.get(
+                "content_preview"
+            )
+        )
+
+        if not content:
+            continue
+
+        safe_context.append(
+            {
+                "content": (
+                    str(content)[
+                        :MAX_REPLACE_RAG_CONTENT_CHARS
+                    ]
+                ),
+                "source_org": (
+                    item.get(
+                        "source_org"
+                    )
+                ),
+                "title": (
+                    item.get(
+                        "title"
+                    )
+                ),
+            }
+        )
+
+    return safe_context
+
+
+def _build_sources_from_rag(
+    rag_context: list[dict[str, Any]],
+) -> list[RecommendationSource]:
+
+    sources: list[
+        RecommendationSource
+    ] = []
+
+    seen: set[
+        tuple[str, str]
+    ] = set()
+
+    for item in rag_context:
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        source_org = str(
+            item.get(
+                "source_org"
+            )
+            or ""
+        ).strip()
+
+        title = str(
+            item.get(
+                "title"
+            )
+            or ""
+        ).strip()
+
+        if (
+            not source_org
+            or not title
+        ):
+            continue
+
+        key = (
+            source_org,
+            title,
+        )
+
+        if key in seen:
+            continue
+
+        sources.append(
+            RecommendationSource(
+                source_org=source_org,
+                title=title,
+            )
+        )
+
+        seen.add(
+            key
+        )
+
+        if (
+            len(sources)
+            >= MAX_REPLACE_SOURCES
+        ):
+            break
+
+    return sources
+
+
 # =========================================================
 # Refrigerator Prompt
 # =========================================================
@@ -487,6 +612,28 @@ ingredients 규칙:
 
 - 일반 식재료를 사용하여 현실적인 메뉴를 구성한다.
 - 모든 메뉴의 ingredients는 반드시 null이다.
+""".strip()
+
+
+def _build_replace_refrigerator_instruction(
+    refrigerator_ingredients: list[str],
+) -> str:
+
+    if refrigerator_ingredients:
+        return f"""
+[냉장고 재료]
+{refrigerator_ingredients}
+
+- 가능하면 위 재료를 활용한다.
+- 실제 사용한 냉장고 재료만 ingredients에 기록한다.
+- 냉장고에 없는 재료는 ingredients에 기록하지 않는다.
+""".strip()
+
+    return """
+[냉장고 재료]
+없음.
+
+- ingredients는 반드시 null이다.
 """.strip()
 
 
@@ -1181,8 +1328,14 @@ async def generate_replacement_meal(
         )
     )
 
-    safe_rag_context = (
-        _build_safe_rag_context(
+    replace_rag_context = (
+        _build_replace_rag_context(
+            rag_context
+        )
+    )
+
+    sources = (
+        _build_sources_from_rag(
             rag_context
         )
     )
@@ -1213,7 +1366,7 @@ async def generate_replacement_meal(
     )
 
     refrigerator_instruction = (
-        _build_refrigerator_instruction(
+        _build_replace_refrigerator_instruction(
             refrigerator_ingredients
         )
     )
@@ -1221,69 +1374,76 @@ async def generate_replacement_meal(
     instructions = """
 너는 Auto-Fit의 한 끼 식단 재추천 AI다.
 
-추천 우선순위:
+목표:
+
+현재 메뉴와 다른 새로운 메뉴 하나를 빠르고 간결하게 추천한다.
+
+우선순위:
 
 1. 알레르기 및 섭취 제한
 2. 건강 상태 및 안전성
 3. 사용자 목표
 4. 냉장고 재료 활용
-5. 기존 메뉴와 다른 메뉴
+5. 기존 메뉴와 차별화
 6. 영양 균형
-7. 메뉴 다양성
 
 규칙:
 
 - 현재 메뉴와 다른 메뉴를 생성한다.
-- 이름만 바꾼 유사 메뉴를 생성하지 않는다.
-- 가능하면 주재료 또는 조리 방식도 변경한다.
+- 이름만 바꾼 유사 메뉴는 피한다.
+- 가능하면 주재료 또는 조리 방식을 변경한다.
 - 알레르기 재료는 사용하지 않는다.
-- 의료 진단이나 치료 지시를 하지 않는다.
+- 의료 진단이나 치료 지시는 하지 않는다.
+- 불필요한 설명을 생성하지 않는다.
 
-새 메뉴에는 다음 값을 포함한다.
+menu_description:
 
-- menu_name
-- menu_description
-- image_prompt
-- estimated_calories_kcal
-- nutrition.carbohydrate_g
-- nutrition.protein_g
-- nutrition.fat_g
-- ingredients
-- guidance
+- 한국어 한 문장
+- 짧고 간결하게 작성한다.
 
-응답 길이:
+guidance:
 
-- menu_description은 간결한 한 문장이다.
-- guidance는 가장 중요한 조언 한 문장이다.
+- 가장 중요한 조언 한 문장만 작성한다.
 
 image_prompt:
 
-- Stable Diffusion 음식 이미지 생성용 영어 프롬프트다.
-- 실제 음식의 주요 재료와 조리 상태를 표현한다.
+- 영어 한 문장만 작성한다.
+- Stable Diffusion 음식 이미지용이다.
+- 실제 음식의 외형과 주요 재료만 묘사한다.
 - 실제 메뉴에 없는 주요 재료를 추가하지 않는다.
-- realistic professional food photography 스타일을 사용한다.
-- 사람, 손, 글자, 로고, 워터마크는 포함하지 않는다.
-- 건강정보와 칼로리 숫자는 넣지 않는다.
-- 영어 1~2문장으로 작성한다.
+- realistic food photography 스타일을 사용한다.
+- 사람, 손, 글자, 로고, 워터마크는 제외한다.
 
-냉장고 재료가 있으면:
+nutrition:
 
-- 실제 사용한 냉장고 재료만 ingredients에 기록한다.
+- 메뉴 1인분 예상값이다.
+- carbohydrate_g, protein_g, fat_g는 정수다.
 
-냉장고 재료가 없으면:
+ingredients:
 
-- ingredients는 반드시 null이다.
+- 냉장고 재료가 있으면 실제 사용한 냉장고 재료만 기록한다.
+- 전체 레시피 재료 목록을 생성하지 않는다.
+- 냉장고 재료가 없으면 null이다.
+- recommended_amount와 영양정보는 정수다.
+- 필요한 핵심 냉장고 재료만 기록한다.
 
-모든 kcal, 탄수화물, 단백질, 지방,
-recommended_amount 값은 정수다.
+cautions:
 
-Structured Output Schema를 따른다.
+- 필요한 경우에만 작성한다.
+- 최대 3개다.
+- 짧은 문장으로 작성한다.
+
+sources는 생성하지 않는다.
+
+Structured Output Schema를 정확히 따른다.
 """.strip()
 
     prompt = f"""
-[교체 대상]
-요일: {request.target_day}
-식사: {request.target_meal}
+[요일]
+{request.target_day}
+
+[식사]
+{request.target_meal}
 
 [현재 메뉴]
 {request.current_menu_name}
@@ -1294,10 +1454,10 @@ Structured Output Schema를 따른다.
 [건강 상태]
 {metric_statuses}
 
-[건강 안전 태그]
+[안전 태그]
 {safety_tags}
 
-[사용자 목표]
+[목표]
 {goal_type}
 
 [알레르기]
@@ -1308,11 +1468,10 @@ Structured Output Schema를 따른다.
 
 {refrigerator_instruction}
 
-[검증된 건강 가이드라인 RAG]
-{safe_rag_context}
+[건강 가이드라인]
+{replace_rag_context}
 
-현재 메뉴와 확실히 다른
-새로운 메뉴 하나를 생성하라.
+현재 메뉴와 다른 메뉴 하나만 생성하라.
 """
 
     llm_start = perf_counter()
@@ -1328,7 +1487,7 @@ Structured Output Schema를 따른다.
                 "effort": "minimal"
             },
             text_format=(
-                ReplaceMealResponse
+                ReplaceMealLLMResponse
             ),
             max_output_tokens=(
                 REPLACE_MEAL_MAX_OUTPUT_TOKENS
@@ -1379,12 +1538,22 @@ Structured Output Schema를 따른다.
     )
 
     final_result = (
-        result.model_copy(
-            update={
-                "meal": (
-                    validated_meal
-                )
-            }
+        ReplaceMealResponse(
+            day=(
+                request.target_day
+            ),
+            meal_type=(
+                request.target_meal
+            ),
+            meal=(
+                validated_meal
+            ),
+            cautions=(
+                result.cautions
+            ),
+            sources=(
+                sources
+            ),
         )
     )
 
