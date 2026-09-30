@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -15,6 +16,11 @@ from app.schemas.recommendation import (
 
 from app.services.diet_context_service import (
     build_diet_safety_tags,
+)
+
+
+logger = logging.getLogger(
+    __name__
 )
 
 
@@ -733,18 +739,25 @@ image_prompt 규칙:
 실천 가능한 식단을 생성하라.
 """
 
-    response = await client.responses.parse(
-        model=model,
-        instructions=instructions,
-        input=prompt,
-        reasoning={
-            "effort": "minimal"
-        },
-        text_format=(
-            DietRecommendationResponse
-        ),
-        max_output_tokens=10000,
-    )
+    try:
+        response = await client.responses.parse(
+            model=model,
+            instructions=instructions,
+            input=prompt,
+            reasoning={
+                "effort": "minimal"
+            },
+            text_format=(
+                DietRecommendationResponse
+            ),
+            max_output_tokens=10000,
+        )
+
+    except Exception:
+        logger.exception(
+            "Weekly diet OpenAI generation failed"
+        )
+        raise
 
     result = response.output_parsed
 
