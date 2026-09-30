@@ -743,7 +743,7 @@ image_prompt 규칙:
         text_format=(
             DietRecommendationResponse
         ),
-        max_output_tokens=6500,
+        max_output_tokens=10000,
     )
 
     result = response.output_parsed
