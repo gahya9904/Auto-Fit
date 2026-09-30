@@ -247,12 +247,6 @@ class DietMeal(BaseModel):
         max_length=150,
     )
 
-    # -----------------------------------------------------
-    # Stable Diffusion용 영문 이미지 프롬프트
-    #
-    # DB에 기존 이미지가 있는 메뉴라면 None 가능.
-    # 신규 이미지 생성이 필요한 메뉴에서만 사용할 수 있다.
-    # -----------------------------------------------------
     image_prompt: str | None = Field(
         default=None,
         max_length=700,
@@ -265,8 +259,6 @@ class DietMeal(BaseModel):
 
     nutrition: MealNutrition
 
-    # 냉장고 재료가 없는 경우 None
-    # 냉장고 재료가 있는 경우 실제 사용한 냉장고 재료만 포함
     ingredients: (
         list[DietIngredient]
         | None
@@ -308,17 +300,107 @@ class NutritionBalance(BaseModel):
 
 
 # =========================================================
+# Parallel Diet Internal Response
+# =========================================================
+
+
+class DietWeeklyPlanPartResponse(BaseModel):
+    """
+    병렬 식단 생성용 내부 응답.
+
+    월~목 또는 금~일처럼
+    주간 식단 일부만 생성한다.
+    """
+
+    weekly_plan: list[
+        DietDayPlan
+    ] = Field(
+        min_length=3,
+        max_length=4,
+    )
+
+    @model_validator(
+        mode="after"
+    )
+    def validate_partial_week(
+        self,
+    ):
+        days = [
+            plan.day
+            for plan in self.weekly_plan
+        ]
+
+        if (
+            len(days)
+            != len(set(days))
+        ):
+            raise ValueError(
+                "weekly_plan must not contain duplicate days."
+            )
+
+        return self
+
+
+class DietRecommendationMetadataResponse(
+    BaseModel
+):
+    """
+    병렬 생성 시 weekly_plan과 별도로
+    한 번만 생성하는 공통 식단 정보.
+    """
+
+    summary: str
+
+    strategy: str
+
+    nutrition_balance: (
+        NutritionBalance
+    )
+
+    dietary_principles: list[str] = Field(
+        default_factory=list,
+        max_length=6,
+    )
+
+    foods_to_prioritize: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+
+    foods_to_limit: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+
+    cautions: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+    )
+
+    sources: list[
+        RecommendationSource
+    ] = Field(
+        default_factory=list
+    )
+
+
+# =========================================================
 # Diet Response
 # =========================================================
 
 
 class DietRecommendationResponse(BaseModel):
     summary: str
+
     strategy: str
 
-    nutrition_balance: NutritionBalance
+    nutrition_balance: (
+        NutritionBalance
+    )
 
-    weekly_plan: list[DietDayPlan] = Field(
+    weekly_plan: list[
+        DietDayPlan
+    ] = Field(
         min_length=7,
         max_length=7,
     )
@@ -343,7 +425,9 @@ class DietRecommendationResponse(BaseModel):
         max_length=5,
     )
 
-    sources: list[RecommendationSource] = Field(
+    sources: list[
+        RecommendationSource
+    ] = Field(
         default_factory=list
     )
 
@@ -375,7 +459,8 @@ class DietRecommendationResponse(BaseModel):
 
         if (
             len(actual_days) != 7
-            or set(actual_days) != expected_days
+            or set(actual_days)
+            != expected_days
         ):
             raise ValueError(
                 "weekly_plan must contain "
@@ -435,7 +520,9 @@ class ReplaceMealResponse(BaseModel):
         max_length=5,
     )
 
-    sources: list[RecommendationSource] = Field(
+    sources: list[
+        RecommendationSource
+    ] = Field(
         default_factory=list
     )
 
@@ -450,7 +537,9 @@ class ExerciseGenerateResponse(BaseModel):
 
     generator: str
 
-    result: ExerciseRecommendationResponse
+    result: (
+        ExerciseRecommendationResponse
+    )
 
 
 class DietGenerateResponse(BaseModel):
@@ -458,7 +547,9 @@ class DietGenerateResponse(BaseModel):
 
     generator: str
 
-    result: DietRecommendationResponse
+    result: (
+        DietRecommendationResponse
+    )
 
 
 class DietMealRegenerateResponse(BaseModel):
