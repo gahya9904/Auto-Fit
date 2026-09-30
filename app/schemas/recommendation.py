@@ -188,13 +188,6 @@ class MealNutrition(BaseModel):
 
 
 class DietIngredient(BaseModel):
-    """
-    실제 추천 메뉴에 사용된 냉장고 재료.
-
-    전체 레시피 재료 목록이 아니다.
-    모든 수치값은 정수.
-    """
-
     name: str = Field(
         min_length=1,
         max_length=100,
@@ -305,13 +298,6 @@ class NutritionBalance(BaseModel):
 
 
 class DietWeeklyPlanPartResponse(BaseModel):
-    """
-    병렬 식단 생성용 내부 응답.
-
-    월~목 또는 금~일처럼
-    주간 식단 일부만 생성한다.
-    """
-
     weekly_plan: list[
         DietDayPlan
     ] = Field(
@@ -344,11 +330,6 @@ class DietWeeklyPlanPartResponse(BaseModel):
 class DietRecommendationMetadataResponse(
     BaseModel
 ):
-    """
-    병렬 생성 시 weekly_plan과 별도로
-    한 번만 생성하는 공통 식단 정보.
-    """
-
     summary: str
 
     strategy: str
@@ -437,11 +418,6 @@ class DietRecommendationResponse(BaseModel):
     def validate_week(
         self,
     ):
-        """
-        monday ~ sunday가
-        정확히 한 번씩 존재하는지 검증한다.
-        """
-
         expected_days = {
             "monday",
             "tuesday",
@@ -506,6 +482,22 @@ class ReplaceMealRequest(BaseModel):
         list[str]
         | None
     ) = None
+
+
+class ReplaceMealLLMResponse(BaseModel):
+    """
+    재추천 LLM 내부 응답.
+
+    day / meal_type / sources는
+    서버에서 직접 조립한다.
+    """
+
+    meal: DietMeal
+
+    cautions: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+    )
 
 
 class ReplaceMealResponse(BaseModel):
