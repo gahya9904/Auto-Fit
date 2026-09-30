@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from app.graphs.state import AnalysisGraphState
@@ -5,6 +6,11 @@ from app.rag.source_policy import is_allowed_source
 from app.rag.vector_store import rag_vector_store
 from app.services.topic_selector_service import (
     select_health_topics,
+)
+
+
+logger = logging.getLogger(
+    __name__
 )
 
 
@@ -25,6 +31,7 @@ TOP_K_PER_TOPIC = 3
 MAX_DISTANCE = 1.2
 
 MIN_RELEVANCE_SCORE = 0.45
+
 
 # =========================================================
 # Topic 기본 Query
@@ -164,6 +171,7 @@ STATUS_KEYWORDS: dict[str, set[str]] = {
     },
 }
 
+
 GLUCOSE_NEGATIVE_KEYWORDS = {
     "임신",
     "임신부",
@@ -176,6 +184,7 @@ GLUCOSE_NEGATIVE_KEYWORDS = {
     "연속혈당측정",
 }
 
+
 GLUCOSE_PRIORITY_KEYWORDS = {
     "공복혈당장애",
     "IFG",
@@ -183,6 +192,7 @@ GLUCOSE_PRIORITY_KEYWORDS = {
     "당화혈색소",
     "HbA1c",
 }
+
 
 STATUS_QUERY_MAP: dict[str, str] = {
     # glucose
@@ -223,40 +233,6 @@ STATUS_QUERY_MAP: dict[str, str] = {
     ),
 }
 
-TOPIC_NEGATIVE_KEYWORDS: dict[str, set[str]] = {
-    "blood_pressure": {
-        "임신",
-        "임신부",
-        "주산기",
-        "태아",
-    },
-
-    "glucose": {
-        "임신",
-        "임신부",
-        "주산기",
-        "태아",
-        "1형당뇨병",
-        "소아청소년",
-        "저혈당",
-        "인슐린펌프",
-        "연속혈당측정",
-    },
-
-    "lipid": {
-        "가족성고콜레스테롤혈증",
-        "HoFH",
-        "LDL성분채집술",
-    },
-
-    "obesity": {
-        "약물치료",
-        "항비만약제",
-        "수술치료",
-        "비만수술",
-        "소아청소년",
-    },
-}
 
 TOPIC_PRIORITY_KEYWORDS: dict[str, set[str]] = {
     "blood_pressure": {
@@ -294,7 +270,11 @@ TOPIC_PRIORITY_KEYWORDS: dict[str, set[str]] = {
     },
 }
 
-TOPIC_STATUS_METRICS: dict[str, tuple[str, ...]] = {
+
+TOPIC_STATUS_METRICS: dict[
+    str,
+    tuple[str, ...],
+] = {
     "blood_pressure": (
         "blood_pressure",
     ),
@@ -313,13 +293,19 @@ TOPIC_STATUS_METRICS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+
 GLOBAL_NEGATIVE_KEYWORDS = {
     "목차",
     "권고 번호 제목 페이지",
 }
 
 
-TOPIC_NEGATIVE_KEYWORDS: dict[str, set[str]] = {
+# 기존 파일에서 두 번 선언되어 있었으며
+# 실제 Python 실행 시 마지막 선언이 사용되고 있었음.
+TOPIC_NEGATIVE_KEYWORDS: dict[
+    str,
+    set[str],
+] = {
     "blood_pressure": {
         "임신",
         "임신부",
@@ -356,6 +342,8 @@ TOPIC_NEGATIVE_KEYWORDS: dict[str, set[str]] = {
         "소아청소년",
     },
 }
+
+
 # =========================================================
 # Query 생성
 # =========================================================
@@ -579,6 +567,95 @@ def _calculate_keyword_score(
 
 
 # =========================================================
+# Negative Penalty
+# =========================================================
+
+def _calculate_negative_penalty(
+    content: str,
+    topic: str,
+) -> float:
+    normalized_content = (
+        content
+        .replace(" ", "")
+        .lower()
+    )
+
+    keywords = set(
+        GLOBAL_NEGATIVE_KEYWORDS
+    )
+
+    keywords.update(
+        TOPIC_NEGATIVE_KEYWORDS.get(
+            topic,
+            set(),
+        )
+    )
+
+    matched = 0
+
+    for keyword in keywords:
+        normalized_keyword = (
+            keyword
+            .replace(" ", "")
+            .lower()
+        )
+
+        if (
+            normalized_keyword
+            in normalized_content
+        ):
+            matched += 1
+
+    return min(
+        matched * 0.12,
+        0.45,
+    )
+
+
+# =========================================================
+# Priority Boost
+# =========================================================
+
+def _calculate_priority_boost(
+    content: str,
+    topic: str,
+) -> float:
+    keywords = TOPIC_PRIORITY_KEYWORDS.get(
+        topic,
+        set(),
+    )
+
+    if not keywords:
+        return 0.0
+
+    normalized = (
+        content
+        .replace(" ", "")
+        .lower()
+    )
+
+    matched = 0
+
+    for keyword in keywords:
+        normalized_keyword = (
+            keyword
+            .replace(" ", "")
+            .lower()
+        )
+
+        if (
+            normalized_keyword
+            in normalized
+        ):
+            matched += 1
+
+    return min(
+        matched * 0.05,
+        0.25,
+    )
+
+
+# =========================================================
 # Relevance Score
 # =========================================================
 
@@ -624,9 +701,9 @@ def _calculate_relevance_score(
     )
 
     negative_penalty = (
-    _calculate_negative_penalty(
-        content=content,
-        topic=topic,
+        _calculate_negative_penalty(
+            content=content,
+            topic=topic,
         )
     )
 
@@ -648,6 +725,8 @@ def _calculate_relevance_score(
         score,
         0.0,
     )
+
+
 # =========================================================
 # Candidate 중복 제거
 # =========================================================
@@ -769,13 +848,18 @@ def _rerank_results(
             )
         )
 
-        if relevance_score < MIN_RELEVANCE_SCORE:
+        if (
+            relevance_score
+            < MIN_RELEVANCE_SCORE
+        ):
             continue
-        
+
         scored_results.append(
             {
                 **item,
-                "relevance_score": relevance_score,
+                "relevance_score": (
+                    relevance_score
+                ),
             }
         )
 
@@ -986,7 +1070,9 @@ async def rag_node(
                             "content",
                             "",
                         ),
-                        "source_org": source_org,
+                        "source_org": (
+                            source_org
+                        ),
                         "title": title,
                         "document_type": (
                             item.get(
@@ -1001,8 +1087,10 @@ async def rag_node(
                         "url": item.get(
                             "url"
                         ),
-                        "distance": item.get(
-                            "distance"
+                        "distance": (
+                            item.get(
+                                "distance"
+                            )
                         ),
                         "relevance_score": (
                             item.get(
@@ -1013,6 +1101,10 @@ async def rag_node(
                 )
 
     except Exception:
+        logger.exception(
+            "RAG search failed"
+        )
+
         warnings.append(
             "RAG 검색 중 오류가 발생했습니다."
         )
@@ -1147,11 +1239,15 @@ def debug_rag_search(
                             "source_org"
                         )
                     ),
-                    "title": item.get(
-                        "title"
+                    "title": (
+                        item.get(
+                            "title"
+                        )
                     ),
-                    "topic": item.get(
-                        "topic"
+                    "topic": (
+                        item.get(
+                            "topic"
+                        )
                     ),
                     "chunk_index": (
                         item.get(
@@ -1202,77 +1298,3 @@ def debug_rag_search(
         "topics": topics,
         "results": debug_results,
     }
-
-def _calculate_negative_penalty(
-    content: str,
-    topic: str,
-) -> float:
-    normalized_content = (
-        content
-        .replace(" ", "")
-        .lower()
-    )
-
-    keywords = set(
-        GLOBAL_NEGATIVE_KEYWORDS
-    )
-
-    keywords.update(
-        TOPIC_NEGATIVE_KEYWORDS.get(
-            topic,
-            set(),
-        )
-    )
-
-    matched = 0
-
-    for keyword in keywords:
-        normalized_keyword = (
-            keyword
-            .replace(" ", "")
-            .lower()
-        )
-
-        if normalized_keyword in normalized_content:
-            matched += 1
-
-    return min(
-        matched * 0.12,
-        0.45,
-    )
-
-
-def _calculate_priority_boost(
-    content: str,
-    topic: str,
-) -> float:
-    keywords = TOPIC_PRIORITY_KEYWORDS.get(
-        topic,
-        set(),
-    )
-
-    if not keywords:
-        return 0.0
-
-    normalized = (
-        content
-        .replace(" ", "")
-        .lower()
-    )
-
-    matched = 0
-
-    for keyword in keywords:
-        normalized_keyword = (
-            keyword
-            .replace(" ", "")
-            .lower()
-        )
-
-        if normalized_keyword in normalized:
-            matched += 1
-
-    return min(
-        matched * 0.05,
-        0.25,
-    )
