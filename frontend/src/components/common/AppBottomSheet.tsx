@@ -38,6 +38,7 @@ export interface AppBottomSheetProps extends PropsWithChildren {
   lockBackgroundScroll?: boolean;
   keyboardShouldPersistTaps?: ScrollViewProps['keyboardShouldPersistTaps'];
   minimumTopGap?: number;
+  preserveViewportHeightWhileVisible?: boolean;
 }
 
 export function AppBottomSheet({
@@ -58,6 +59,7 @@ export function AppBottomSheet({
   lockBackgroundScroll = false,
   keyboardShouldPersistTaps,
   minimumTopGap,
+  preserveViewportHeightWhileVisible = false,
 }: AppBottomSheetProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -68,6 +70,11 @@ export function AppBottomSheet({
   const [contentTop, setContentTop] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
   const [footerHeight, setFooterHeight] = useState(0);
+  const [lockedViewportHeight] = useState(windowHeight);
+
+  const layoutViewportHeight = preserveViewportHeightWhileVisible
+    ? lockedViewportHeight
+    : windowHeight;
 
   const updateMeasurement = useCallback(
     (setter: (value: number) => void, previous: number, next: number) => {
@@ -252,7 +259,7 @@ export function AppBottomSheet({
     styles.sheet,
     shadows.bottomSheet,
     minimumTopGap !== undefined && {
-      maxHeight: Math.max(0, windowHeight - Math.max(minimumTopGap, insets.top + spacing.sm)),
+      maxHeight: Math.max(0, layoutViewportHeight - Math.max(minimumTopGap, insets.top + spacing.sm)),
     },
     { paddingBottom: sheetBottomPadding },
     sheetStyle,

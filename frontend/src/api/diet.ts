@@ -1,10 +1,4 @@
-import {
-  API_BASE_URL,
-  ApiError,
-  apiRequest,
-  getApiErrorMessage,
-  type ApiResponseMeta,
-} from '@/src/api/client';
+import { ApiError, apiRequest, getApiErrorMessage } from '@/src/api/client';
 
 type ApiObject = Record<string, unknown>;
 
@@ -58,11 +52,6 @@ export type DietMealRegenerationResponse = {
   used_ingredients?: unknown;
 };
 
-type DietMealRegenerationDiagnostics = {
-  onResponse?: (response: ApiResponseMeta) => void;
-  requestId?: string;
-};
-
 export type DietFeedbackResponse = {
   ok?: unknown;
   result?: ApiObject | null;
@@ -78,28 +67,17 @@ export function getDietInventory() {
   return apiRequest<DietInventoryResponse>('/api/diet/inventory');
 }
 
-export async function createDietInventoryItem(input: CreateInventoryItemInput) {
-  const requestBody = {
-    expires_on: input.expiresOn,
-    name: input.name,
-    purchased_on: input.purchasedOn,
-    quantity: input.quantity,
-    unit: input.unit,
-  };
-  if (__DEV__) {
-    console.log('[Diet Inventory] add request body:', requestBody);
-  }
-
-  const response = await apiRequest<{ item?: unknown; ok?: unknown }>('/api/diet/inventory', {
-    body: JSON.stringify(requestBody),
+export function createDietInventoryItem(input: CreateInventoryItemInput) {
+  return apiRequest<{ item?: unknown; ok?: unknown }>('/api/diet/inventory', {
+    body: JSON.stringify({
+      expires_on: input.expiresOn,
+      name: input.name,
+      purchased_on: input.purchasedOn,
+      quantity: input.quantity,
+      unit: input.unit,
+    }),
     method: 'POST',
   });
-
-  if (__DEV__) {
-    console.log('[Diet Inventory] add raw response:', response);
-  }
-
-  return response;
 }
 
 export function updateDietInventoryItem(inventoryId: string, input: UpdateInventoryItemInput) {
@@ -205,49 +183,12 @@ export function updateDietMealFeedback(dietMealId: string, input: DietFeedbackIn
   return requestDietMealFeedback(dietMealId, input, 'PATCH');
 }
 
-export async function regenerateDietMeal(
-  dietMealId: string,
-  diagnostics?: DietMealRegenerationDiagnostics,
-) {
+export function regenerateDietMeal(dietMealId: string) {
   const endpoint = `/api/diet/meals/${encodeURIComponent(dietMealId)}/regenerate`;
-  const finalRequestUrl = `${API_BASE_URL}${endpoint}`;
-  const requestedAt = new Date();
-  const requestBody = {};
-  if (__DEV__) {
-    console.log('[Diet API Debug]', {
-      baseUrl: API_BASE_URL,
-      endpoint,
-      finalUrl: finalRequestUrl,
-      method: 'POST',
-    });
-    console.log('[Diet Regenerate] REQUEST', {
-      dietMealId,
-      endpoint,
-      finalRequestUrl,
-      method: 'POST',
-      query: null,
-      requestId: diagnostics?.requestId,
-      requestBody,
-      requestedAtIso: requestedAt.toISOString(),
-      requestedAtKst: requestedAt.toLocaleString('sv-SE', {
-        hour12: false,
-        timeZone: 'Asia/Seoul',
-      }),
-    });
-  }
-
-  const response = await apiRequest<DietMealRegenerationResponse>(endpoint, {
-    body: JSON.stringify(requestBody),
+  return apiRequest<DietMealRegenerationResponse>(endpoint, {
+    body: JSON.stringify({}),
     method: 'POST',
-  }, {
-    onResponse: diagnostics?.onResponse,
   });
-
-  if (__DEV__) {
-    console.log('[Diet Regenerate] raw response:', { requestId: diagnostics?.requestId, response });
-  }
-
-  return response;
 }
 
 export function getDietMealLogs(fromDate: string, toDate: string) {

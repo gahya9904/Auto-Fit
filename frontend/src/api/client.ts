@@ -8,19 +8,11 @@ const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replac
 
 export const API_BASE_URL = configuredApiBaseUrl || DEFAULT_API_BASE_URL;
 
-let hasLoggedApiClientDebug = false;
-
 type ApiErrorBody = {
   code?: unknown;
   detail?: unknown;
   fields?: unknown;
   message?: unknown;
-};
-
-export type ApiResponseMeta = Pick<Response, 'ok' | 'status'>;
-
-type ApiRequestOptions = {
-  onResponse?: (response: ApiResponseMeta) => void;
 };
 
 export class ApiError extends Error {
@@ -97,26 +89,8 @@ async function readJson(response: Response): Promise<unknown> {
 export async function apiRequest<T>(
   path: string,
   init: RequestInit = {},
-  options: ApiRequestOptions = {},
 ): Promise<T> {
-  const method = init.method ?? 'GET';
   const finalUrl = `${API_BASE_URL}${path}`;
-
-  if (__DEV__) {
-    if (!hasLoggedApiClientDebug) {
-      hasLoggedApiClientDebug = true;
-      console.log('[API Client Debug]', {
-        envApiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? null,
-        resolvedApiBaseUrl: API_BASE_URL,
-      });
-    }
-
-    console.log('[API Request Debug]', {
-      endpoint: path,
-      finalUrl,
-      method,
-    });
-  }
 
   let supabase;
   try {
@@ -150,8 +124,6 @@ export async function apiRequest<T>(
       error instanceof Error ? error.message : '네트워크 연결을 확인해 주세요.',
     );
   }
-
-  options.onResponse?.({ ok: response.ok, status: response.status });
 
   const payload = await readJson(response);
   if (!response.ok) {
